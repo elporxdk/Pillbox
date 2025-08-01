@@ -1,6 +1,6 @@
 /******************************************************
   Pillbox System - Versión Estable y Estilizada
-  Con RTC, OLED, Servo y Buzzer
+  Con RTC, OLED, Servo, Buzzer y Modo Apagado
 ******************************************************/
 
 #include <ESP8266WiFi.h>
@@ -88,6 +88,10 @@ String nextAlarm = "No hay alarmas";
 // Bandera para EEPROM
 bool eepromModified = false;
 
+// Modo apagado
+bool sleepMode = false;
+bool wasSleeping = false;
+
 // Función para formatear dígitos
 String formatTwoDigits(uint8_t number) {
   return number < 10 ? "0" + String(number) : String(number);
@@ -110,7 +114,7 @@ void setup() {
   // Inicializar pantalla OLED
   Wire.begin(SDA_PIN, SCL_PIN);
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-
+    Serial.println("Error OLED");
   } else {
     display.clearDisplay();
     display.setTextSize(1);
@@ -125,7 +129,7 @@ void setup() {
   if (rtcAvailable) {
     Serial.println("RTC encontrado");
     if (rtc.lostPower()) {
-      Serial.println("RTC ajustado a tiempo de compilación");
+      Serial.println("RTC ajustado a tiempo de compilacion");
       rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     }
   } else {
@@ -152,6 +156,8 @@ void setup() {
   server.on("/set-buzzer", HTTP_POST, handleSetBuzzer);
   server.on("/stop-buzzer", HTTP_GET, handleStopBuzzer);
   server.on("/infinite-buzzer", HTTP_GET, handleInfiniteBuzzer);
+  server.on("/sleep", HTTP_GET, handleSleep);
+  server.on("/wake", HTTP_GET, handleWake);
   
   server.begin();
   Serial.println("Servidor iniciado");
@@ -165,7 +171,9 @@ void setup() {
 }
 
 void loop() {
-  server.handleClient();
+  if (!sleepMode) {
+    server.handleClient();
+  }
   
   static unsigned long lastUpdate = 0;
   if (millis() - lastUpdate > 100) {
@@ -173,8 +181,11 @@ void loop() {
     checkAlarms();
     processServo();
     processBuzzer();
-    updateDisplay();
-    calculateNextAlarm();
+    
+    if (!sleepMode) {
+      updateDisplay();
+      calculateNextAlarm();
+    }
     
     if (eepromModified) {
       static unsigned long lastSave = 0;
@@ -188,6 +199,70 @@ void loop() {
   }
 }
 
+// ======== FUNCIONES DE APAGADO ======== //
+void handleSleep() {
+  if (alarmCount > 0) {
+    sleepMode = true;
+    wasSleeping = true;
+    
+    // Apagar pantalla
+    display.clearDisplay();
+    display.display();
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+    
+    // Desactivar WiFi
+    WiFi.softAPdisconnect(true);
+    server.close();
+    
+    lastUserAction = "Modo apagado activado";
+    server.send(200, "text/plain", "OK");
+    Serial.println("Sistema apagado");
+  } else {
+    server.send(403, "text/plain", "No hay alarmas programadas");
+  }
+}
+
+void handleWake() {
+  sleepMode = false;
+  
+  // Reactivar WiFi
+  WiFi.softAP(AP_SSID, AP_PASS);
+  server.begin();
+  
+  // Reactivar pantalla
+  display.ssd1306_command(SSD1306_DISPLAYON);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.clearDisplay();
+  display.display();
+  
+  lastUserAction = "Sistema reactivado";
+  server.send(200, "text/plain", "OK");
+  Serial.println("Sistema reactivado");
+}
+
+// ======== FUNCIONES EXISTENTES MODIFICADAS ======== //
+void checkAlarms() {
+  if (systemState != IDLE) return;
+
+  for (uint8_t i = 0; i < alarmCount; i++) {
+    if (!alarms[i].triggered &&
+        alarms[i].hour == currentTime.hours &&
+        alarms[i].minute == currentTime.minutes &&
+        currentTime.seconds < 5) {
+      
+      alarms[i].triggered = true;
+      
+      // Reactivar sistema si está apagado
+      if (sleepMode) {
+        handleWake();
+      }
+      
+      triggerAlarm();
+      break;
+    }
+  }
+}
+
 void calculateNextAlarm() {
   if (alarmCount == 0) {
     nextAlarm = "No hay alarmas";
@@ -195,7 +270,7 @@ void calculateNextAlarm() {
   }
 
   uint16_t currentMinutes = currentTime.hours * 60 + currentTime.minutes;
-  uint16_t closestTime = 1440; // Máximo minutos en un día
+  uint16_t closestTime = 1440; // Maximo minutos en un dia
   uint8_t closestIndex = 255;
 
   for (uint8_t i = 0; i < alarmCount; i++) {
@@ -232,22 +307,6 @@ void updateTime() {
           currentTime.hours = (currentTime.hours + 1) % 24;
         }
       }
-    }
-  }
-}
-
-void checkAlarms() {
-  if (systemState != IDLE) return;
-
-  for (uint8_t i = 0; i < alarmCount; i++) {
-    if (!alarms[i].triggered &&
-        alarms[i].hour == currentTime.hours &&
-        alarms[i].minute == currentTime.minutes &&
-        currentTime.seconds < 5) {
-      
-      alarms[i].triggered = true;
-      triggerAlarm();
-      break;
     }
   }
 }
@@ -323,7 +382,7 @@ void updateDisplay() {
   display.print(":");
   display.println(formatTwoDigits(currentTime.seconds));
 
-  // Próxima alarma
+  // Proxima alarma
   display.setCursor(0, 16);
   display.print("Prox: ");
   display.println(nextAlarm);
@@ -333,10 +392,12 @@ void updateDisplay() {
   switch(systemState) {
     case DISPENSING: display.print("Dispensando"); break;
     case BUZZING: display.print("ALARMA!"); break;
-    default: display.print("Sistema listo");
+    default: 
+      if (sleepMode) display.print("APAGADO");
+      else display.print("Sistema listo");
   }
 
-  // Última acción
+  // Ultima accion
   display.setCursor(0, 48);
   display.print(lastUserAction.substring(0, 21));
 
@@ -528,6 +589,19 @@ void handleRoot() {
   .stop-button:hover {
     background: linear-gradient(145deg, #FF5555, #FF3333) !important;
   }
+  .sleep-button {
+    background: linear-gradient(145deg, #4A5568, #2D3748) !important;
+    padding: 10px 20px !important;
+    margin: 10px 5px;
+    min-width: 120px;
+    color: white !important;
+    transition: all 0.3s ease;
+  }
+  .sleep-button:hover:not(:disabled) {
+    background: linear-gradient(145deg, #2D3748, #1A202C) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(45, 55, 72, 0.3);
+  }
   .alarm-item {
     background: #2A2A2A;
     padding: 10px;
@@ -607,6 +681,20 @@ void handleRoot() {
   body.light-mode .theme-toggle {
     background: linear-gradient(145deg, #228B22, #006400);
   }
+  .clear-cache-btn {
+    background: linear-gradient(145deg, #9c27b0, #7b1fa2);
+    color: white;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    margin-top: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+  .clear-cache-btn:hover {
+    background: linear-gradient(145deg, #7b1fa2, #6a1b9a);
+    transform: translateY(-2px);
+  }
 </style>
 <script>
   function updateTime() {
@@ -648,6 +736,12 @@ void handleRoot() {
       localStorage.setItem('theme', 'light');
     }
   }
+  
+  function clearCache() {
+    localStorage.clear();
+    alert('Cache limpiada. La pagina se recargara.');
+    location.reload();
+  }
 </script>
 </head>
 <body>
@@ -664,7 +758,7 @@ void handleRoot() {
   html += R"rawliteral(</div>
     <h3>Siguiente dosis: )rawliteral";
   
-  // Añadir próxima alarma
+  // Añadir proxima alarma
   html += nextAlarm;
   
   html += R"rawliteral(</h3>
@@ -697,13 +791,13 @@ void handleRoot() {
     <div class="alarm-list">
       <h3>Configuracion de la alarma</h3>
       <form action="/set-buzzer" method="post">
-        <label for="duration">Duracion del sonido (ms):</label><br>
+        <label for="duration">Duracion del sonido (segundos):</label><br>
         <input type="number" name="duration" value=")rawliteral";
   
-  // Añadir duración del buzzer
-  html += String(buzzerDuration);
+  // Añadir duración del buzzer en segundos
+  html += String(buzzerDuration / 1000.0, 1);
   
-  html += R"rawliteral(" min="100" max="5000" step="100" required>
+  html += R"rawliteral(" min="0.1" max="5" step="0.1" required>
         <br>
         <button type="submit">Guardar Configuracion</button>
       </form>
@@ -731,6 +825,16 @@ void handleRoot() {
     <div style="margin-top: 30px;">
       <button onclick="dispenseNow()" class="dispense-button">Dispensar</button>
       <button onclick="location.href='/stop-buzzer'" class="stop-button">Detener Alarma</button>
+      <button onclick="sleepSystem()" class="sleep-button" id="sleepBtn")rawliteral";
+  
+  // Deshabilitar botón si no hay alarmas
+  if (alarmCount == 0) {
+    html += " disabled";
+  }
+  
+  html += R"rawliteral(>
+        Apagar
+      </button>
       <div id="cooldownMessage" class="cooldown"></div>
     </div>
 
@@ -747,7 +851,7 @@ void handleRoot() {
         
         const lastDispense = )rawliteral";
   
-  // Añadir tiempo de última dispensación
+  // Añadir tiempo de ultima dispensacion
   html += String(lastDispenseTime);
   
   html += R"rawliteral(;
@@ -791,6 +895,34 @@ void handleRoot() {
         }, 10000); // 10 segundos timeout
       }
       
+      function sleepSystem() {
+        if )rawliteral" + String(alarmCount) + R"rawliteral( === 0) {
+          alert("No hay alarmas programadas");
+          return;
+        }
+        
+        if (confirm("¿Apagar sistema? Se reactivara automaticamente con la proxima alarma")) {
+          const sleepBtn = document.getElementById('sleepBtn');
+          sleepBtn.disabled = true;
+          sleepBtn.innerHTML = 'Apagando...';
+          sleepBtn.style.background = 'linear-gradient(145deg, #718096, #4A5568)';
+          
+          fetch('/sleep')
+            .then(response => {
+              if (response.ok) {
+                sleepBtn.innerHTML = 'Apagado';
+              } else {
+                sleepBtn.innerHTML = 'Error';
+                setTimeout(() => {
+                  sleepBtn.innerHTML = 'Apagar';
+                  sleepBtn.disabled = false;
+                  sleepBtn.style.background = 'linear-gradient(145deg, #4A5568, #2D3748)';
+                }, 2000);
+              }
+            });
+        }
+      }
+      
       // Resetear estado cuando la pagina se recarga
       window.addEventListener('beforeunload', function() {
         if (dispenseTimeout) {
@@ -801,6 +933,7 @@ void handleRoot() {
 
     <div class="footer">
       <p>1ECA - Made with love by:<br>Diego Rivera, Julio Sura,<br>Diego Yanes y Elian Lemus.</p>
+      <button onclick="clearCache()" class="clear-cache-btn">Eliminar Cache</button>
     </div>
   </div>
 </body></html>)rawliteral";
@@ -896,7 +1029,8 @@ void handleRemoveAlarm() {
 
 void handleSetBuzzer() {
   if (server.method() == HTTP_POST) {
-    uint16_t newDuration = server.arg("duration").toInt();
+    float seconds = server.arg("duration").toFloat();
+    uint16_t newDuration = (uint16_t)(seconds * 1000);
     if (newDuration >= 100 && newDuration <= 5000) {
       buzzerDuration = newDuration;
       lastUserAction = "Buzzer actualizado";
