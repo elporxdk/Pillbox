@@ -39,7 +39,7 @@ const char* AP_PASS = "123456789";
 #define EEPROM_INITIALIZED_ADDR 300
 
 // Constantes servo
-const unsigned long SERVO_MOVE_DURATION = 248;
+const unsigned long SERVO_MOVE_DURATION = 41;
 const unsigned long SERVO_COOLDOWN = 1500;
 
 ESP8266WebServer server(80);
@@ -490,7 +490,6 @@ void handleRoot() {
     text-shadow: 0 0 5px rgba(0, 176, 80, 0.2);
   }
   button {
-    background: linear-gradient(145deg, #28C76F, #20A85A);
     color: white;
     padding: 12px 24px;
     border: none;
@@ -499,12 +498,11 @@ void handleRoot() {
     cursor: pointer;
     font-weight: 500;
     transition: all 0.3s ease;
-    box-shadow: 0 2px 5px rgba(40, 199, 111, 0.2);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
   }
   button:hover {
-    background: linear-gradient(145deg, #20A85A, #1E8E4F);
     transform: translateY(-2px);
-    box-shadow: 0 4px 10px rgba(40, 199, 111, 0.3);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
   }
   input[type="time"], input[type="number"] {
     background: #1A1A1A;
@@ -590,7 +588,6 @@ void handleRoot() {
     background: linear-gradient(145deg, #FF5555, #FF3333) !important;
   }
   .sleep-button {
-    background: linear-gradient(145deg, #4A5568, #2D3748) !important;
     padding: 10px 20px !important;
     margin: 10px 5px;
     min-width: 120px;
@@ -598,9 +595,8 @@ void handleRoot() {
     transition: all 0.3s ease;
   }
   .sleep-button:hover:not(:disabled) {
-    background: linear-gradient(145deg, #2D3748, #1A202C) !important;
     transform: translateY(-2px);
-    box-shadow: 0 4px 10px rgba(45, 55, 72, 0.3);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
   }
   .alarm-item {
     background: #2A2A2A;
@@ -681,20 +677,6 @@ void handleRoot() {
   body.light-mode .theme-toggle {
     background: linear-gradient(145deg, #228B22, #006400);
   }
-  .clear-cache-btn {
-    background: linear-gradient(145deg, #9c27b0, #7b1fa2);
-    color: white;
-    padding: 8px 16px;
-    border: none;
-    border-radius: 6px;
-    margin-top: 10px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-  .clear-cache-btn:hover {
-    background: linear-gradient(145deg, #7b1fa2, #6a1b9a);
-    transform: translateY(-2px);
-  }
 </style>
 <script>
   function updateTime() {
@@ -736,12 +718,6 @@ void handleRoot() {
       localStorage.setItem('theme', 'light');
     }
   }
-  
-  function clearCache() {
-    localStorage.clear();
-    alert('Cache limpiada. La pagina se recargara.');
-    location.reload();
-  }
 </script>
 </head>
 <body>
@@ -767,13 +743,13 @@ void handleRoot() {
       <h3>Configuracion</h3>
       <form action="/set-time" method="post">
         <input type="time" name="time" required step="1">
-        <button type="submit">Establecer Hora</button>
+        <button type="submit" style="background: linear-gradient(145deg, #28C76F, #20A85A);">Establecer Hora</button>
       </form>
 
       <h4>Programar Alarma</h4>
       <form action="/add-alarm" method="post">
         <input type="time" name="alarm" required>
-        <button type="submit">Agregar Alarma</button>
+        <button type="submit" style="background: linear-gradient(145deg, #28C76F, #20A85A);">Agregar Alarma</button>
       </form>
 
       <h4>Alarmas Activas</h4>)rawliteral";
@@ -799,7 +775,7 @@ void handleRoot() {
   
   html += R"rawliteral(" min="0.1" max="5" step="0.1" required>
         <br>
-        <button type="submit">Guardar Configuracion</button>
+        <button type="submit" style="background: linear-gradient(145deg, #28C76F, #20A85A);">Guardar Configuracion</button>
       </form>
       <p>
         <label>
@@ -827,13 +803,15 @@ void handleRoot() {
       <button onclick="location.href='/stop-buzzer'" class="stop-button">Detener Alarma</button>
       <button onclick="sleepSystem()" class="sleep-button" id="sleepBtn")rawliteral";
   
-  // Deshabilitar botón si no hay alarmas
+  // Determinar estado del botón de apagado
   if (alarmCount == 0) {
-    html += " disabled";
+    html += " disabled style='background: linear-gradient(145deg, #FF6B6B, #FF5555);'";
+  } else {
+    html += " style='background: linear-gradient(145deg, #28C76F, #20A85A);'";
   }
   
   html += R"rawliteral(>
-        Apagar
+        Apagar Sistema
       </button>
       <div id="cooldownMessage" class="cooldown"></div>
     </div>
@@ -896,11 +874,6 @@ void handleRoot() {
       }
       
       function sleepSystem() {
-        if )rawliteral" + String(alarmCount) + R"rawliteral( === 0) {
-          alert("No hay alarmas programadas");
-          return;
-        }
-        
         if (confirm("¿Apagar sistema? Se reactivara automaticamente con la proxima alarma")) {
           const sleepBtn = document.getElementById('sleepBtn');
           sleepBtn.disabled = true;
@@ -914,9 +887,9 @@ void handleRoot() {
               } else {
                 sleepBtn.innerHTML = 'Error';
                 setTimeout(() => {
-                  sleepBtn.innerHTML = 'Apagar';
+                  sleepBtn.innerHTML = 'Apagar Sistema';
                   sleepBtn.disabled = false;
-                  sleepBtn.style.background = 'linear-gradient(145deg, #4A5568, #2D3748)';
+                  sleepBtn.style.background = 'linear-gradient(145deg, #28C76F, #20A85A)';
                 }, 2000);
               }
             });
@@ -933,7 +906,6 @@ void handleRoot() {
 
     <div class="footer">
       <p>1ECA - Made with love by:<br>Diego Rivera, Julio Sura,<br>Diego Yanes y Elian Lemus.</p>
-      <button onclick="clearCache()" class="clear-cache-btn">Eliminar Cache</button>
     </div>
   </div>
 </body></html>)rawliteral";
