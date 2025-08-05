@@ -39,8 +39,11 @@ const char* AP_PASS = "123456789";
 #define EEPROM_INITIALIZED_ADDR 300
 
 // Constantes servo
-const unsigned long SERVO_MOVE_DURATION = 41;
+const unsigned long SERVO_MOVE_DURATION = 42;
 const unsigned long SERVO_COOLDOWN = 1500;
+
+// Constantes de tiempo pantalla
+const unsigned long DISPLAY_TIMEOUT = 300000; // 5 minutos
 
 ESP8266WebServer server(80);
 Servo dispenserServo;
@@ -92,10 +95,62 @@ bool eepromModified = false;
 bool sleepMode = false;
 bool wasSleeping = false;
 
+// Control de pantalla
+bool displayOn = true;
+unsigned long lastActivityTime = 0;
+
 // Función para formatear dígitos
 String formatTwoDigits(uint8_t number) {
   return number < 10 ? "0" + String(number) : String(number);
 }
+
+// Función para ordenar alarmas
+void sortAlarms() {
+  for (int i = 0; i < alarmCount - 1; i++) {
+    for (int j = i + 1; j < alarmCount; j++) {
+      // Comparar horas y minutos
+      if (alarms[i].hour > alarms[j].hour || 
+          (alarms[i].hour == alarms[j].hour && alarms[i].minute > alarms[j].minute)) {
+        // Intercambiar alarmas
+        Alarm temp = alarms[i];
+        alarms[i] = alarms[j];
+        alarms[j] = temp;
+      }
+    }
+  }
+}
+
+// Función para verificar si una alarma ya existe
+bool alarmExists(uint8_t hour, uint8_t minute) {
+  for (uint8_t i = 0; i < alarmCount; i++) {
+    if (alarms[i].hour == hour && alarms[i].minute == minute) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Función para apagar la pantalla
+void turnOffDisplay() {
+  if (displayOn) {
+    display.clearDisplay();
+    display.display();
+    displayOn = false;
+  }
+}
+
+// Función para encender la pantalla
+void wakeUpDisplay() {
+  if (!displayOn) {
+    display.ssd1306_command(SSD1306_DISPLAYON);
+    displayOn = true;
+    lastDisplayUpdate = 0; // Forzar actualización
+    lastActivityTime = millis(); // Reiniciar temporizador
+  }
+}
+
+// Macro para actualizar actividad
+#define UPDATE_ACTIVITY() { lastActivityTime = millis(); wakeUpDisplay(); }
 
 void setup() {
   Serial.begin(115200);
@@ -145,6 +200,9 @@ void setup() {
   // Cargar configuración
   loadFromEEPROM();
 
+  // Ordenar alarmas al iniciar
+  sortAlarms();
+
   // Configurar rutas del servidor
   server.on("/", HTTP_GET, handleRoot);
   server.on("/set-time", HTTP_POST, handleSetTime);
@@ -168,6 +226,9 @@ void setup() {
   display.println("Sistema listo");
   display.println(WiFi.softAPIP());
   display.display();
+
+  // Inicializar tiempo de actividad
+  lastActivityTime = millis();
 }
 
 void loop() {
@@ -182,8 +243,15 @@ void loop() {
     processServo();
     processBuzzer();
     
+    // Control de tiempo de pantalla
+    if (displayOn && millis() - lastActivityTime > DISPLAY_TIMEOUT) {
+      turnOffDisplay();
+    }
+    
     if (!sleepMode) {
-      updateDisplay();
+      if (displayOn) {
+        updateDisplay();
+      }
       calculateNextAlarm();
     }
     
@@ -209,6 +277,7 @@ void handleSleep() {
     display.clearDisplay();
     display.display();
     display.ssd1306_command(SSD1306_DISPLAYOFF);
+    displayOn = false;
     
     // Desactivar WiFi
     WiFi.softAPdisconnect(true);
@@ -231,6 +300,7 @@ void handleWake() {
   
   // Reactivar pantalla
   display.ssd1306_command(SSD1306_DISPLAYON);
+  displayOn = true;
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.clearDisplay();
   display.display();
@@ -238,6 +308,8 @@ void handleWake() {
   lastUserAction = "Sistema reactivado";
   server.send(200, "text/plain", "OK");
   Serial.println("Sistema reactivado");
+  
+  UPDATE_ACTIVITY();
 }
 
 // ======== FUNCIONES EXISTENTES MODIFICADAS ======== //
@@ -256,6 +328,9 @@ void checkAlarms() {
       if (sleepMode) {
         handleWake();
       }
+      
+      // Encender pantalla si está apagada
+      wakeUpDisplay();
       
       triggerAlarm();
       break;
@@ -369,6 +444,7 @@ void activateBuzzer() {
 }
 
 void updateDisplay() {
+  if (!displayOn) return;
   if (millis() - lastDisplayUpdate < 1000) return;
   lastDisplayUpdate = millis();
 
@@ -455,6 +531,7 @@ void loadFromEEPROM() {
 }
 
 void handleRoot() {
+  UPDATE_ACTIVITY();
   String html = R"rawliteral(
 <!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -874,7 +951,7 @@ void handleRoot() {
       }
       
       function sleepSystem() {
-        if (confirm("¿Apagar sistema? Se reactivara automaticamente con la proxima alarma")) {
+        if (confirm("Apagar sistema.Se reactivara automaticamente con la proxima alarma.")) {
           const sleepBtn = document.getElementById('sleepBtn');
           sleepBtn.disabled = true;
           sleepBtn.innerHTML = 'Apagando...';
@@ -914,6 +991,7 @@ void handleRoot() {
 }
 
 void handleCurrentTime() {
+  UPDATE_ACTIVITY();
   String json = "{";
   json += "\"h\":" + String(currentTime.hours) + ",";
   json += "\"m\":" + String(currentTime.minutes) + ",";
@@ -923,6 +1001,7 @@ void handleCurrentTime() {
 }
 
 void handleSetTime() {
+  UPDATE_ACTIVITY();
   if (server.method() == HTTP_POST) {
     String timeParam = server.arg("time");
     uint8_t newHours = timeParam.substring(0, 2).toInt();
@@ -944,14 +1023,35 @@ void handleSetTime() {
 }
 
 void handleAddAlarm() {
-  if (server.method() == HTTP_POST && alarmCount < 5) {
+  UPDATE_ACTIVITY();
+  if (server.method() == HTTP_POST) {
+    // Verificar límite de alarmas
+    if (alarmCount >= 5) {
+      lastUserAction = "Error: Max 5 alarmas";
+      server.sendHeader("Location", "/");
+      server.send(303);
+      return;
+    }
+    
     String alarmTime = server.arg("alarm");
     uint8_t alarmHour = alarmTime.substring(0, 2).toInt();
     uint8_t alarmMinute = alarmTime.substring(3, 5).toInt();
 
+    // Verificar si la alarma ya existe
+    if (alarmExists(alarmHour, alarmMinute)) {
+      lastUserAction = "Error: Alarma duplicada";
+      server.sendHeader("Location", "/");
+      server.send(303);
+      return;
+    }
+
     if (alarmHour < 24 && alarmMinute < 60) {
       alarms[alarmCount] = { alarmHour, alarmMinute, false };
       alarmCount++;
+      
+      // Ordenar alarmas después de agregar
+      sortAlarms();
+      
       lastUserAction = "Alarma agregada";
       markEEPROMForUpdate();
     }
@@ -961,6 +1061,7 @@ void handleAddAlarm() {
 }
 
 void handleDispense() {
+  UPDATE_ACTIVITY();
   if (millis() - lastDispenseTime > SERVO_COOLDOWN && systemState == IDLE) {
     triggerAlarm();
     lastUserAction = "Dispensacion manual";
@@ -970,6 +1071,7 @@ void handleDispense() {
 }
 
 void handleSnooze() {
+  UPDATE_ACTIVITY();
   currentTime.minutes = (currentTime.minutes + 10) % 60;
   if (currentTime.minutes < 10) currentTime.hours = (currentTime.hours + 1) % 24;
 
@@ -984,6 +1086,7 @@ void handleSnooze() {
 }
 
 void handleRemoveAlarm() {
+  UPDATE_ACTIVITY();
   if (server.args() > 0) {
     uint8_t id = server.arg("id").toInt();
     if (id < alarmCount) {
@@ -991,6 +1094,10 @@ void handleRemoveAlarm() {
         alarms[i] = alarms[i + 1];
       }
       alarmCount--;
+      
+      // Ordenar alarmas después de eliminar
+      sortAlarms();
+      
       lastUserAction = "Alarma eliminada";
       markEEPROMForUpdate();
     }
@@ -1000,6 +1107,7 @@ void handleRemoveAlarm() {
 }
 
 void handleSetBuzzer() {
+  UPDATE_ACTIVITY();
   if (server.method() == HTTP_POST) {
     float seconds = server.arg("duration").toFloat();
     uint16_t newDuration = (uint16_t)(seconds * 1000);
@@ -1014,6 +1122,7 @@ void handleSetBuzzer() {
 }
 
 void handleStopBuzzer() {
+  UPDATE_ACTIVITY();
   infiniteBuzzer = false;
   noTone(BUZZER_PIN);
   systemState = IDLE;
@@ -1023,6 +1132,7 @@ void handleStopBuzzer() {
 }
 
 void handleInfiniteBuzzer() {
+  UPDATE_ACTIVITY();
   if (server.args() > 0) {
     infiniteModeEnabled = (server.arg("enabled") == "1");
     lastUserAction = infiniteModeEnabled ? "Modo infinito ON" : "Modo infinito OFF";
