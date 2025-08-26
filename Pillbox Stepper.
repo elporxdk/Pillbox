@@ -550,12 +550,6 @@ void loadFromEEPROM() {
 
   infiniteModeEnabled = (EEPROM.read(EEPROM_BUZZER_DURATION_ADDR + 2) == 1);
 }
-
-// Las funciones handleRoot(), handleCurrentTime(), handleSetTime(), handleAddAlarm(),
-// handleDispense(), handleSnooze(), handleRemoveAlarm(), handleSetBuzzer(),
-// handleStopBuzzer(), handleInfiniteBuzzer() permanecen iguales que en tu código original
-
-// ... (Aquí irían todas las funciones handle que no han cambiado)
 void handleRoot() {
   UPDATE_ACTIVITY();
   String html = R"rawliteral(
