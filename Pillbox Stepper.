@@ -10,7 +10,7 @@
 #include <Adafruit_SSD1306.h>
 #include <EEPROM.h>
 #include <RTClib.h>
-#include <Stepper.h>  // Incluir la librería Stepper
+#include <Stepper.h>  // Stepper
 
 // Configuración OLED
 #define SCREEN_WIDTH 128
