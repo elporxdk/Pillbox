@@ -1,6 +1,5 @@
 /******************************************************
-  Pillbox System - Versión con Motor Paso a Paso 28BYJ-48
-  Con RTC, OLED, Stepper, Buzzer y Modo Apagado
+  Pillbox Os
 ******************************************************/
 
 #include <ESP8266WiFi.h>
@@ -24,7 +23,7 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Configuración WiFi
-const char* AP_SSID = "Pillbox dev";
+const char* AP_SSID = "Pillbox";
 const char* AP_PASS = "123456789";
 
 // Pines motor paso a paso (ULN2003) - 28BYJ-48
@@ -552,23 +551,81 @@ void loadFromEEPROM() {
 }
 void handleRoot() {
   UPDATE_ACTIVITY();
-  String html = R"rawliteral(
+String html = R"rawliteral(
 <!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pillbox</title>
 <style>
+  :root {
+    --primary-color: #00FF80;
+    --secondary-color: #32CD32;
+    --accent-color: #00FF7F;
+    --bg-dark: #000000;
+    --bg-light: #FFFFFF;
+    --text-dark: #FFFFFF;
+    --text-light: #333333;
+    --card-bg-dark: #1A1A1A;
+    --card-bg-light: #F5F5F5;
+    --border-dark: #333333;
+    --border-light: #DDDDDD;
+    --shadow-dark: rgba(0, 0, 0, 0.3);
+    --shadow-light: rgba(0, 0, 0, 0.1);
+  }
+
+  /* Tema Azul */
+  .theme-blue {
+    --primary-color: #00BFFF;
+    --secondary-color: #1E90FF;
+    --accent-color: #87CEEB;
+  }
+
+  /* Tema Morado */
+  .theme-purple {
+    --primary-color: #9370DB;
+    --secondary-color: #8A2BE2;
+    --accent-color: #DDA0DD;
+  }
+
+  /* Tema Naranja */
+  .theme-orange {
+    --primary-color: #FF8C00;
+    --secondary-color: #FF7F50;
+    --accent-color: #FFA500;
+  }
+
+  /* Tema Rosa */
+  .theme-pink {
+    --primary-color: #FF69B4;
+    --secondary-color: #FF1493;
+    --accent-color: #FFB6C1;
+  }
+
+  /* Tema Cyan */
+  .theme-cyan {
+    --primary-color: #00FFFF;
+    --secondary-color: #20B2AA;
+    --accent-color: #AFEEEE;
+  }
+
+  /* Tema Rojo */
+  .theme-red {
+    --primary-color: #FF4500;
+    --secondary-color: #DC143C;
+    --accent-color: #FF6347;
+  }
+
   body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     text-align: center;
-    background-color: #000000;
-    color: #FFFFFF;
+    background-color: var(--bg-dark);
+    color: var(--text-dark);
     margin: 0;
     padding: 0;
     transition: all 0.3s ease;
   }
   body.light-mode {
-    background-color: #FFFFFF;
-    color: #333333;
+    background-color: var(--bg-light);
+    color: var(--text-light);
   }
   .container {
     max-width: 600px;
@@ -578,13 +635,9 @@ void handleRoot() {
   .time {
     font-size: 2.5em;
     margin: 20px;
-    color: #00FF80;
+    color: var(--primary-color);
     text-shadow: 0 0 10px rgba(0, 255, 128, 0.3);
     transition: all 0.3s ease;
-  }
-  body.light-mode .time {
-    color: #00B050;
-    text-shadow: 0 0 5px rgba(0, 176, 80, 0.2);
   }
   button {
     color: white;
@@ -595,59 +648,59 @@ void handleRoot() {
     cursor: pointer;
     font-weight: 500;
     transition: all 0.3s ease;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 5px var(--shadow-dark);
   }
   button:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 10px var(--shadow-dark);
   }
   input[type="time"], input[type="number"] {
-    background: #1A1A1A;
-    border: 2px solid #32CD32;
-    color: #FFFFFF;
+    background: var(--card-bg-dark);
+    border: 2px solid var(--secondary-color);
+    color: var(--text-dark);
     padding: 8px 12px;
     border-radius: 6px;
     margin: 10px;
     transition: all 0.3s ease;
   }
   body.light-mode input[type="time"], body.light-mode input[type="number"] {
-    background: #F8FFF8;
-    border: 2px solid #228B22;
-    color: #333333;
+    background: var(--card-bg-light);
+    border: 2px solid var(--secondary-color);
+    color: var(--text-light);
   }
   input[type="time"]:focus, input[type="number"]:focus {
     outline: none;
-    border-color: #00FF7F;
+    border-color: var(--accent-color);
     box-shadow: 0 0 5px rgba(0, 255, 127, 0.3);
   }
   .alarm-list {
     margin: 20px auto;
     padding: 20px;
-    background: linear-gradient(145deg, #1A1A1A, #0F0F0F);
+    background: linear-gradient(145deg, var(--card-bg-dark), #0F0F0F);
     border-radius: 12px;
-    border: 1px solid #333333;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-dark);
+    box-shadow: 0 4px 10px var(--shadow-dark);
     transition: all 0.3s ease;
   }
   body.light-mode .alarm-list {
-    background: linear-gradient(145deg, #F5F5F5, #EEEEEE);
-    border: 1px solid #DDDDDD;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    background: linear-gradient(145deg, var(--card-bg-light), #EEEEEE);
+    border: 1px solid var(--border-light);
+    box-shadow: 0 4px 10px var(--shadow-light);
   }
   .alarm-list h3, .alarm-list h4 {
-    color: #00FF7F;
+    color: var(--accent-color);
     margin-bottom: 15px;
     transition: all 0.3s ease;
-  }
-  body.light-mode .alarm-list h3, body.light-mode .alarm-list h4 {
-    color: #228B22;
   }
   .footer {
     margin-top: 30px;
     color: #888888;
     font-size: 0.8em;
     padding: 20px;
-    border-top: 1px solid #333333;
+    border-top: 1px solid var(--border-dark);
+  }
+  body.light-mode .footer {
+    border-top: 1px solid var(--border-light);
   }
   .cooldown {
     color: #FF6B6B;
@@ -655,7 +708,7 @@ void handleRoot() {
     font-weight: 500;
   }
   .dispense-button {
-    background: linear-gradient(145deg, #00FF7F, #00E600) !important;
+    background: linear-gradient(145deg, var(--accent-color), var(--secondary-color)) !important;
     font-size: 1em !important;
     padding: 10px 20px !important;
     border-radius: 8px;
@@ -663,7 +716,7 @@ void handleRoot() {
     min-width: 140px;
   }
   .dispense-button:hover {
-    background: linear-gradient(145deg, #00E600, #00CC00) !important;
+    background: linear-gradient(145deg, var(--secondary-color), var(--primary-color)) !important;
   }
   .dispense-button:disabled {
     background: linear-gradient(145deg, #666666, #555555) !important;
@@ -693,20 +746,20 @@ void handleRoot() {
   }
   .sleep-button:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 10px var(--shadow-dark);
   }
   .alarm-item {
     background: #2A2A2A;
     padding: 10px;
     margin: 8px 0;
     border-radius: 6px;
-    border-left: 4px solid #32CD32;
+    border-left: 4px solid var(--secondary-color);
     transition: all 0.3s ease;
   }
   body.light-mode .alarm-item {
     background: #F0FFF0;
-    color: #333333;
-    border-left: 4px solid #228B22;
+    color: var(--text-light);
+    border-left: 4px solid var(--secondary-color);
   }
   .remove-link {
     color: #FF6B6B;
@@ -720,15 +773,11 @@ void handleRoot() {
     background: rgba(255, 107, 107, 0.1);
   }
   h1 {
-    color: #00FF7F;
+    color: var(--accent-color);
     font-size: 2.2em;
     margin-bottom: 10px;
     text-shadow: 0 0 15px rgba(0, 255, 127, 0.2);
     transition: all 0.3s ease;
-  }
-  body.light-mode h1 {
-    color: #228B22;
-    text-shadow: 0 0 10px rgba(34, 139, 34, 0.1);
   }
   h3 {
     color: #CCCCCC;
@@ -748,14 +797,14 @@ void handleRoot() {
     color: #555555;
   }
   input[type="checkbox"] {
-    accent-color: #32CD32;
+    accent-color: var(--secondary-color);
     margin-right: 8px;
   }
   .theme-toggle {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    background: linear-gradient(145deg, #3CB371, #2E8B57);
+    background: linear-gradient(145deg, var(--primary-color), var(--secondary-color));
     color: white;
     border: none;
     border-radius: 50px;
@@ -767,12 +816,116 @@ void handleRoot() {
     z-index: 1000;
   }
   .theme-toggle:hover {
-    background: linear-gradient(145deg, #2E8B57, #228B22);
+    background: linear-gradient(145deg, var(--secondary-color), var(--accent-color));
     transform: scale(1.05);
     box-shadow: 0 5px 12px rgba(60, 179, 113, 0.4);
   }
-  body.light-mode .theme-toggle {
-    background: linear-gradient(145deg, #228B22, #006400);
+
+  /* Selector de colores */
+  .color-selector {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    background: var(--card-bg-dark);
+    border: 2px solid var(--secondary-color);
+    border-radius: 15px;
+    padding: 15px;
+    display: none;
+    z-index: 1001;
+    box-shadow: 0 5px 15px var(--shadow-dark);
+    transition: all 0.3s ease;
+  }
+  body.light-mode .color-selector {
+    background: var(--card-bg-light);
+    border: 2px solid var(--secondary-color);
+    box-shadow: 0 5px 15px var(--shadow-light);
+  }
+  .color-selector.show {
+    display: block;
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .color-selector h4 {
+    color: var(--primary-color);
+    margin: 0 0 10px 0;
+    font-size: 0.9em;
+  }
+  .color-option {
+    display: flex;
+    align-items: center;
+    margin: 8px 0;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 8px;
+    transition: background 0.3s ease;
+  }
+  .color-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+  body.light-mode .color-option:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  .color-preview {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    margin-right: 8px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+  }
+  .color-name {
+    color: var(--text-dark);
+    font-size: 0.8em;
+    min-width: 60px;
+  }
+  body.light-mode .color-name {
+    color: var(--text-light);
+  }
+  .color-button {
+    position: fixed;
+    bottom: 20px;
+    right: 120px;
+    background: linear-gradient(145deg, var(--accent-color), var(--secondary-color));
+    color: white;
+    border: none;
+    border-radius: 50px;
+    padding: 12px 18px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.3s ease;
+    box-shadow: 0 3px 8px rgba(60, 179, 113, 0.3);
+    z-index: 1000;
+  }
+  .color-button:hover {
+    background: linear-gradient(145deg, var(--secondary-color), var(--primary-color));
+    transform: scale(1.05);
+    box-shadow: 0 5px 12px rgba(60, 179, 113, 0.4);
+  }
+
+  /* Estilos para botones con colores dinámicos */
+  .dynamic-button {
+    background: linear-gradient(145deg, var(--primary-color), var(--secondary-color)) !important;
+  }
+  .dynamic-button:hover {
+    background: linear-gradient(145deg, var(--secondary-color), var(--accent-color)) !important;
+  }
+
+  @media (max-width: 768px) {
+    .color-selector {
+      right: 10px;
+      bottom: 70px;
+      padding: 10px;
+    }
+    .theme-toggle, .color-button {
+      bottom: 10px;
+      padding: 10px 14px;
+      font-size: 0.8em;
+    }
+    .color-button {
+      right: 110px;
+    }
   }
 </style>
 <script>
@@ -787,16 +940,28 @@ void handleRoot() {
   
   setInterval(updateTime, 1000);
   
-  // Cargar tema guardado al iniciar
+  // Cargar configuración guardada al iniciar
   window.onload = function() {
     const savedTheme = localStorage.getItem('theme');
+    const savedColor = localStorage.getItem('colorTheme');
     const themeBtn = document.getElementById('theme-btn');
     
+    // Aplicar tema claro/oscuro
     if (savedTheme === 'light') {
       document.body.classList.add('light-mode');
-      themeBtn.textContent = 'Modo Oscuro';
+      themeBtn.textContent = 'Oscuro';
     } else {
-      themeBtn.textContent = 'Modo Claro';
+      themeBtn.textContent = 'Claro';
+    }
+    
+    // Aplicar tema de color
+    if (savedColor && savedColor !== 'default') {
+      document.body.className = document.body.className.replace(/theme-\w+/g, '');
+      if (savedTheme === 'light') {
+        document.body.className = 'light-mode ' + savedColor;
+      } else {
+        document.body.className = savedColor;
+      }
     }
   };
   
@@ -807,18 +972,96 @@ void handleRoot() {
     
     if (isLightMode) {
       body.classList.remove('light-mode');
-      themeBtn.textContent = 'Modo Claro';
+      themeBtn.textContent = 'Claro';
       localStorage.setItem('theme', 'dark');
     } else {
       body.classList.add('light-mode');
-      themeBtn.textContent = 'Modo Oscuro';
+      themeBtn.textContent = 'Oscuro';
       localStorage.setItem('theme', 'light');
     }
   }
+  
+  function toggleColorSelector() {
+    const selector = document.getElementById('color-selector');
+    selector.classList.toggle('show');
+  }
+  
+  function changeColorTheme(theme) {
+    const body = document.body;
+    const isLightMode = body.classList.contains('light-mode');
+    
+    // Remover temas de color anteriores
+    body.className = body.className.replace(/theme-\w+/g, '');
+    
+    // Aplicar nuevo tema
+    if (theme !== 'default') {
+      if (isLightMode) {
+        body.className = 'light-mode ' + theme;
+      } else {
+        body.className = theme;
+      }
+    } else {
+      if (isLightMode) {
+        body.className = 'light-mode';
+      } else {
+        body.className = '';
+      }
+    }
+    
+    // Guardar selección
+    localStorage.setItem('colorTheme', theme);
+    
+    // Ocultar selector
+    document.getElementById('color-selector').classList.remove('show');
+  }
+  
+  // Cerrar selector al hacer clic fuera
+  document.addEventListener('click', function(event) {
+    const selector = document.getElementById('color-selector');
+    const colorButton = document.getElementById('color-btn');
+    
+    if (!selector.contains(event.target) && !colorButton.contains(event.target)) {
+      selector.classList.remove('show');
+    }
+  });
 </script>
 </head>
 <body>
   <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">Modo Claro</button>
+  <button class="color-button" id="color-btn" onclick="toggleColorSelector()">Colores</button>
+  
+  <div class="color-selector" id="color-selector">
+    <h4>Seleccionar Tema</h4>
+    <div class="color-option" onclick="changeColorTheme('default')">
+      <div class="color-preview" style="background: linear-gradient(45deg, #00FF80, #32CD32);"></div>
+      <span class="color-name">Verde</span>
+    </div>
+    <div class="color-option" onclick="changeColorTheme('theme-blue')">
+      <div class="color-preview" style="background: linear-gradient(45deg, #00BFFF, #1E90FF);"></div>
+      <span class="color-name">Azul</span>
+    </div>
+    <div class="color-option" onclick="changeColorTheme('theme-purple')">
+      <div class="color-preview" style="background: linear-gradient(45deg, #9370DB, #8A2BE2);"></div>
+      <span class="color-name">Morado</span>
+    </div>
+    <div class="color-option" onclick="changeColorTheme('theme-orange')">
+      <div class="color-preview" style="background: linear-gradient(45deg, #FF8C00, #FF7F50);"></div>
+      <span class="color-name">Naranja</span>
+    </div>
+    <div class="color-option" onclick="changeColorTheme('theme-pink')">
+      <div class="color-preview" style="background: linear-gradient(45deg, #FF69B4, #FF1493);"></div>
+      <span class="color-name">Rosa</span>
+    </div>
+    <div class="color-option" onclick="changeColorTheme('theme-cyan')">
+      <div class="color-preview" style="background: linear-gradient(45deg, #00FFFF, #20B2AA);"></div>
+      <span class="color-name">Cyan</span>
+    </div>
+    <div class="color-option" onclick="changeColorTheme('theme-red')">
+      <div class="color-preview" style="background: linear-gradient(45deg, #FF4500, #DC143C);"></div>
+      <span class="color-name">Rojo</span>
+    </div>
+  </div>
+  
   <div class="container">
     <h1>Pillbox</h1>
     <div class="time" id="time">)rawliteral";
@@ -837,16 +1080,10 @@ void handleRoot() {
   html += R"rawliteral(</h3>
 
     <div class="alarm-list">
-      <h3>Configuracion</h3>
-      <form action="/set-time" method="post">
-        <input type="time" name="time" required step="1">
-        <button type="submit" style="background: linear-gradient(145deg, #28C76F, #20A85A);">Establecer Hora</button>
-      </form>
-
       <h4>Programar Alarma</h4>
       <form action="/add-alarm" method="post">
         <input type="time" name="alarm" required>
-        <button type="submit" style="background: linear-gradient(145deg, #28C76F, #20A85A);">Agregar Alarma</button>
+        <button type="submit" class="dynamic-button">Agregar Alarma</button>
       </form>
 
       <h4>Alarmas Activas</h4>)rawliteral";
@@ -862,6 +1099,14 @@ void handleRoot() {
     </div>
 
     <div class="alarm-list">
+      <h3>Configuracion</h3>
+      <form action="/set-time" method="post">
+        <input type="time" name="time" required step="1">
+        <button type="submit" class="dynamic-button">Establecer Hora</button>
+      </form>
+    </div>
+
+    <div class="alarm-list">
       <h3>Configuracion de la alarma</h3>
       <form action="/set-buzzer" method="post">
         <label for="duration">Duracion del sonido (segundos):</label><br>
@@ -872,7 +1117,7 @@ void handleRoot() {
   
   html += R"rawliteral(" min="0.1" max="5" step="0.1" required>
         <br>
-        <button type="submit" style="background: linear-gradient(145deg, #28C76F, #20A85A);">Guardar Configuracion</button>
+        <button type="submit" class="dynamic-button">Guardar Configuracion</button>
       </form>
       <p>
         <label>
@@ -900,11 +1145,11 @@ void handleRoot() {
       <button onclick="location.href='/stop-buzzer'" class="stop-button">Detener Alarma</button>
       <button onclick="sleepSystem()" class="sleep-button" id="sleepBtn")rawliteral";
   
-  // Determinar estado del botón de apagado
+  // Determinar estado del botón de apagado - VERDE cuando hay alarmas, ROJO cuando no hay
   if (alarmCount == 0) {
-    html += " disabled style='background: linear-gradient(145deg, #FF6B6B, #FF5555);'";
+    html += " disabled style='background: linear-gradient(145deg, #FF6B6B, #FF5555) !important;'";
   } else {
-    html += " style='background: linear-gradient(145deg, #28C76F, #20A85A);'";
+    html += " style='background: linear-gradient(145deg, #68D391, #2F855A) !important;'";
   }
   
   html += R"rawliteral(>
@@ -971,11 +1216,11 @@ void handleRoot() {
       }
       
       function sleepSystem() {
-        if (confirm("Apagar sistema.Se reactivara automaticamente con la proxima alarma.")) {
+        if (confirm("Apagar sistema. Se reactivara automaticamente con la proxima alarma.")) {
           const sleepBtn = document.getElementById('sleepBtn');
           sleepBtn.disabled = true;
           sleepBtn.innerHTML = 'Apagando...';
-          sleepBtn.style.background = 'linear-gradient(145deg, #718096, #4A5568)';
+          sleepBtn.style.background = 'linear-gradient(145deg, #68D391, #2F855A)';
           
           fetch('/sleep')
             .then(response => {
@@ -986,7 +1231,7 @@ void handleRoot() {
                 setTimeout(() => {
                   sleepBtn.innerHTML = 'Apagar Sistema';
                   sleepBtn.disabled = false;
-                  sleepBtn.style.background = 'linear-gradient(145deg, #28C76F, #20A85A)';
+                  sleepBtn.style.background = 'linear-gradient(145deg, #68D391, #2F855A)';
                 }, 2000);
               }
             });
