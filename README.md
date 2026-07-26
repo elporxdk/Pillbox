@@ -21,7 +21,7 @@ Pillbox ------------+
 - **`serial_hub.py`**: el UNICO programa que abre el puerto serie. Recibe las
   ordenes de Vision y Pillbox por TCP (127.0.0.1:5055), las escribe al Arduino
   en orden y devuelve las respuestas. Si el Arduino no esta (o se desconecta),
-  reintenta conectarse cada 5 segundos automaticamente.
+  reintenta conectarse cada 2 segundos automaticamente.
 - **`medibot_serial.py`**: el "cartero" que usan Vision y Pillbox para hablar
   con el hub. Lo autolanza si no esta corriendo. No hay que arrancarlo a mano.
 

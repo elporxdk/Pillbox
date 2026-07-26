@@ -2050,28 +2050,37 @@ def video(camera_index):
     """Stream de video para cada cámara"""
     def generate_frames():
         global last_frame1, last_frame2, online
-        while online:
+        # OJO: el bucle NO depende de 'online'. Antes era "while online" y al
+        # detener el sistema el stream terminaba: el navegador quedaba con la
+        # imagen rota hasta recargar. Ahora, sin sistema o sin camara, se
+        # sirve un frame de aviso y el stream se recupera solo al reiniciar.
+        while True:
             frame = None
-            if camera_index == 0 and last_frame1 is not None:
-                frame = last_frame1.copy() if last_frame1 is not None else None
-            elif camera_index == 1 and last_frame2 is not None:
-                frame = last_frame2.copy() if last_frame2 is not None else None
-            
+            if online:
+                if camera_index == 0 and last_frame1 is not None:
+                    frame = last_frame1.copy()
+                elif camera_index == 1 and last_frame2 is not None:
+                    frame = last_frame2.copy()
+
             if frame is None:
-                # Crear frame negro si no hay cámara
+                # Frame de aviso (negro con texto segun el estado)
                 frame = np.zeros((VIEW_H, VIEW_W, 3), dtype=np.uint8)
-                cv2.putText(frame, f"Cámara {camera_index + 1} no disponible", 
-                           (50, VIEW_H//2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                time.sleep(0.1)
-            
+                texto = (f"Camara {camera_index + 1} no disponible"
+                         if online else "Sistema detenido")
+                cv2.putText(frame, texto, (50, VIEW_H//2),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                time.sleep(0.2)   # aviso a ~5 fps: no quemar CPU en vano
+            else:
+                time.sleep(0.03)  # tope ~30 fps (antes: bucle sin pausa, CPU al 100%)
+
             try:
                 # Convertir frame a JPEG
                 ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if not ret:
                     continue
-                
+
                 frame_bytes = buffer.tobytes()
-                
+
                 # Enviar frame
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
@@ -2716,6 +2725,44 @@ def _puerto_abierto(host, port, timeout=0.5):
     except OSError:
         return False
 
+# ========= SERVIDOR WEB DE VISION (puerto 5000) =========
+# El servidor arranca UNA sola vez y es independiente de las camaras y del
+# boton INICIAR. Antes se lanzaba dentro de toggle_system() y SOLO si las
+# camaras iniciaban bien: si una camara fallaba, la web no existia ("IP
+# valida pero el navegador no responde"); y cada INICIAR relanzaba otro
+# app.run sobre el mismo puerto, cuyo hilo moria en silencio con
+# "Address already in use".
+VISION_WEB_PORT = 5000
+_hilo_servidor_web = None
+
+def iniciar_servidor_web():
+    """Arranca el servidor web de Vision (idempotente: llamadas repetidas no
+    duplican nada). Devuelve True si el servidor esta (o queda) disponible."""
+    global _hilo_servidor_web
+    # Ya lo arrancamos nosotros y sigue vivo -> nada que hacer
+    if _hilo_servidor_web is not None and _hilo_servidor_web.is_alive():
+        return True
+
+    def _correr_servidor():
+        try:
+            app.run(host="0.0.0.0", port=VISION_WEB_PORT,
+                    debug=False, use_reloader=False, threaded=True)
+        except OSError as e:
+            # Puerto ocupado u otro fallo de bind: decirlo SIEMPRE en consola
+            # (antes el hilo moria callado y nadie se enteraba).
+            print(f"Vision web: no se pudo abrir el puerto {VISION_WEB_PORT}: {e}")
+
+    _hilo_servidor_web = threading.Thread(target=_correr_servidor, daemon=True)
+    _hilo_servidor_web.start()
+    # Confirmar que quedo ESCUCHANDO de verdad (no asumirlo): hasta ~5 s
+    for _ in range(25):
+        if _puerto_abierto("127.0.0.1", VISION_WEB_PORT):
+            print(f"Vision web escuchando en http://{get_ip()}:{VISION_WEB_PORT}")
+            return True
+        time.sleep(0.2)
+    print(f"AVISO: Vision web no responde aun en el puerto {VISION_WEB_PORT}.")
+    return False
+
 def _lanzar_pastillero_proceso():
     """Lanza Pastillero.py con el mismo interprete de Python.
     No lo duplica si ya hay un servidor escuchando en el puerto."""
@@ -2822,27 +2869,29 @@ def toggle_system():
         toggle_btn.config(text="DETENER")
         system_status = "Iniciando"
         
+        # El servidor web ya corre desde el arranque del programa
+        # (iniciar_servidor_web es idempotente: esto solo lo re-asegura,
+        # nunca lo duplica).
+        iniciar_servidor_web()
+
         # Iniciar procesamiento de ambas cámaras
         if start_camera_processing():
-            # Iniciar servidor web
-            flask_thread = threading.Thread(
-                target=lambda: app.run(host="0.0.0.0", port=5000,
-                                       debug=False, use_reloader=False, threaded=True),
-                daemon=True
-            )
-            flask_thread.start()
-            
             messagebox.showinfo("Sistema Activo",
                 f"Medibot iniciado correctamente.\n\n"
                 f"Accede desde tu navegador:\n"
-                f"http://{get_ip()}:5000\n\n"
+                f"http://{get_ip()}:{VISION_WEB_PORT}\n\n"
                 f"Cámara 1: {'ACTIVA' if camera1 is not None else 'INACTIVA'}\n"
                 f"Cámara 2: {'ACTIVA' if camera2 is not None else 'INACTIVA'}\n"
                 f"Reconocimiento facial: {'ACTIVADO' if recognizer else 'DESACTIVADO'}\n"
-                f"API para ESP32: http://{get_ip()}:5000/api/esp32")
+                f"API para ESP32: http://{get_ip()}:{VISION_WEB_PORT}/api/esp32")
         else:
             online = False
-            messagebox.showerror("Error", "No se pudieron inicializar las cámaras.")
+            # Sin cámaras NO se pierde la web: el servidor sigue arriba y
+            # muestra la interfaz (con los streams en "no disponible").
+            messagebox.showerror("Error",
+                "No se pudieron inicializar las cámaras.\n\n"
+                f"La interfaz web sigue disponible en "
+                f"http://{get_ip()}:{VISION_WEB_PORT}")
         
     else:
         # Detener sistema
@@ -3362,11 +3411,13 @@ api_frame.pack(fill=tk.X, padx=20, pady=10)
 
 ip_address = get_ip()
 api_text = f"APIs disponibles:\n"
-api_text += f"• http://{ip_address}:5000 (Interfaz web)\n"
-api_text += f"• http://{ip_address}:5000/api/all (todos los datos)\n"
-api_text += f"• http://{ip_address}:5000/api/esp32 (datos compactos ESP32)\n"
-api_text += f"• http://{ip_address}:5000/api/videos (lista videos ordenados)\n"
-api_text += f"Pillbox: http://192.168.3.208"
+api_text += f"• http://{ip_address}:{VISION_WEB_PORT} (Interfaz web)\n"
+api_text += f"• http://{ip_address}:{VISION_WEB_PORT}/api/all (todos los datos)\n"
+api_text += f"• http://{ip_address}:{VISION_WEB_PORT}/api/esp32 (datos compactos ESP32)\n"
+api_text += f"• http://{ip_address}:{VISION_WEB_PORT}/api/videos (lista videos ordenados)\n"
+# IP y puerto REALES de esta maquina (antes habia una IP vieja hardcodeada
+# de otra red y sin puerto: nadie podia conectarse copiando esa direccion).
+api_text += f"Pillbox: http://{ip_address}:{PASTILLERO_PORT}"
 
 tk.Label(api_frame,
          text=api_text,
@@ -3747,6 +3798,12 @@ ttk.Button(footer_frame,
 # Configurar directorios y actualizar lista inicial
 setup_directories()
 update_person_list()
+
+# Servidor web de Vision: arranca YA, independiente de las camaras y del
+# boton INICIAR. La web debe responder siempre que el programa este abierto
+# (antes solo existia si las camaras iniciaban bien, y por eso "la IP era
+# valida pero el navegador no respondia").
+iniciar_servidor_web()
 
 # Iniciar actualización de GUI
 update_gui()

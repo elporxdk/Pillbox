@@ -25,7 +25,7 @@ PUERTO SERIE:
   - Para FIJARLO a mano, define la variable de entorno MEDIBOT_SERIAL_PORT:
         MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 python3 Pastillero.py
   - Si no hay Arduino al arrancar (o se desconecta), el hub REINTENTA
-    conectarse cada 5 segundos, no hace falta reiniciar nada.
+    conectarse cada 2 segundos, no hace falta reiniciar nada.
 
 PROTOCOLO cliente <-> hub (una linea JSON por peticion):
   Comando al Arduino:
