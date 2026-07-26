@@ -40,10 +40,26 @@ import medibot_serial   # cliente del hub serial compartido (serial_hub.py)
 # ================= CONFIGURACION =================
 SERIAL_BAUD = 9600       # informativo; el baud real lo fija el hub
 N_COMPARTIMIENTOS = 8
+WEB_HOST = "0.0.0.0"     # escuchar en TODAS las interfaces (LAN incluida)
+WEB_PORT = 5001
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(BASE_DIR, "pillbox_data.json")
 MAX_HISTORIAL = 500      # entradas maximas guardadas
 DIAS_NOMBRES = ["L", "M", "X", "J", "V", "S", "D"]   # weekday(): lunes=0
+
+
+def obtener_ip_local():
+    """IP LAN real de la maquina: la URL que de verdad se teclea en el
+    navegador de otro dispositivo (0.0.0.0 no es navegable)."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 
 # ================= PERSISTENCIA EN LA PI =================
@@ -944,8 +960,40 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>"""
 
 
+def _puerto_web_ocupado():
+    """True si YA hay algo escuchando en el puerto web (doble arranque)."""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", WEB_PORT), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
+def iniciar_servidor_web():
+    """Arranca el servidor web y VERIFICA los fallos tipicos en vez de morir
+    con un traceback: si el puerto ya esta ocupado (doble arranque) lo dice
+    claro y con la URL correcta para abrir el Pillbox que ya corre."""
+    url = f"http://{obtener_ip_local()}:{WEB_PORT}"
+    if _puerto_web_ocupado():
+        print(f"ERROR: el puerto {WEB_PORT} ya esta ocupado: ya hay OTRO "
+              "Pillbox corriendo en esta maquina.")
+        print(f"Abre {url} en el navegador (el Pillbox que ya corre sirve la "
+              "web). Para reiniciarlo, cierra antes el proceso viejo.")
+        raise SystemExit(1)
+    print(f"Pillbox en {url}  (datos en {DATA_FILE})")
+    try:
+        # threaded=True: cada peticion va en su hilo; un dispensado lento (que
+        # espera al Arduino) NO bloquea el resto de la interfaz web.
+        app.run(host=WEB_HOST, port=WEB_PORT, threaded=True, use_reloader=False)
+    except OSError as e:
+        print(f"\nERROR: no se pudo abrir el puerto {WEB_PORT} ({e}).")
+        print(f"Si otro programa usa el puerto, cierralo y reintenta; la URL "
+              f"correcta de esta maquina es {url}")
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
     serial_connect()
     threading.Thread(target=bucle_horarios, daemon=True).start()
-    print(f"Pillbox en http://0.0.0.0:5001  (datos en {DATA_FILE})")
-    app.run(host="0.0.0.0", port=5001, threaded=True, use_reloader=False)
+    iniciar_servidor_web()
