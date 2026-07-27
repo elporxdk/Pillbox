@@ -37,6 +37,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 # NUCLEO (obligatorio): sin estos archivos no hay hub ni web del pastillero.
 ARCHIVOS_NUCLEO = (
     "medibot_serial.py",
+    "medibot_red.py",
     "serial_hub.py",
     "Pastillero.py",
 )
@@ -52,21 +53,12 @@ PILLBOX_PORT = 5001
 
 # ================= utilidades =================
 
-def obtener_ip_local():
-    """IP LAN real de esta maquina (la que se teclea en el navegador).
-    Truco UDP: no manda ningun paquete, solo elige la interfaz de salida."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        s.close()
-
-
-def url_pillbox():
-    return f"http://{obtener_ip_local()}:{PILLBOX_PORT}"
+def urls_pillbox():
+    """Todas las direcciones por las que se puede abrir Pillbox desde otro
+    dispositivo. Ver medibot_red.py: antes se adivinaba UNA sola IP y, sin
+    salida a internet, salia '127.0.0.1' (solo valida en esta maquina)."""
+    import medibot_red
+    return medibot_red.texto_urls(PILLBOX_PORT)
 
 
 def _pausa_si_hay_terminal():
@@ -163,13 +155,15 @@ def lanzar_pillbox():
     si ya habia un Pillbox corriendo (se reutiliza)."""
     if _puerto_ocupado(PILLBOX_PORT):
         print(f"Pillbox ya estaba corriendo en el puerto {PILLBOX_PORT}; se reutiliza.")
-        print(f"Pillbox:  {url_pillbox()}")
+        print("Pillbox:")
+        print(urls_pillbox())
         return None
     proc = subprocess.Popen([sys.executable, os.path.join(BASE, "Pastillero.py")],
                             cwd=BASE)
     for _ in range(40):
         if _puerto_ocupado(PILLBOX_PORT):
-            print(f"Pillbox listo:  {url_pillbox()}")
+            print("Pillbox listo. Entra desde el movil u otro PC de la misma red:")
+            print(urls_pillbox())
             return proc
         if proc.poll() is not None:
             print("AVISO: Pillbox termino inesperadamente al arrancar; "
@@ -202,7 +196,8 @@ def ejecutar_vision():
 def esperar_pillbox(pillbox):
     """Modo 'solo pastillero': mantiene el proceso vivo sirviendo la web
     hasta que el usuario pulse Ctrl+C (o Pillbox termine)."""
-    print(f"\nPillbox SI esta funcionando:  {url_pillbox()}")
+    print("\nPillbox SI esta funcionando:")
+    print(urls_pillbox())
     print("Pulsa Ctrl+C para salir.")
     try:
         if pillbox is not None:

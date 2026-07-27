@@ -27,6 +27,7 @@ SERIAL_BAUD = 9600      # informativo; el baud real lo fija el hub serial
 _serial_last = {}       # último valor enviado por pin (evita repetir mensajes)
 
 import medibot_serial   # cliente del hub serial compartido (serial_hub.py)
+import medibot_red      # IPs reales de la LAN (para entrar desde otro equipo)
 
 def serial_connect():
     """Se asegura de que el hub serial (serial_hub.py) este corriendo. El hub es
@@ -322,16 +323,17 @@ object_tracker = ObjectTracker()
 
 # ================= UTILIDADES ====================
 def get_ip():
-    """Obtiene la dirección IP local del dispositivo"""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-    except:
-        ip = "127.0.0.1"
-    finally:
-        s.close()
-    return ip
+    """IP de ESTE equipo por la que pueden entrar OTROS dispositivos.
+
+    Antes esto abría un UDP a 8.8.8.8 y, si la Pi no tenía salida a internet,
+    devolvía '127.0.0.1': una dirección que solo funciona en la propia máquina,
+    por eso "la IP no se podía abrir desde el móvil". Ahora se enumeran las
+    interfaces de red de verdad (ver medibot_red.py).
+
+    Se mantiene el texto '127.0.0.1' como último recurso porque esta función se
+    usa dentro de URLs ya formadas; cuando no hay red, get_ip_lista() y los
+    avisos de arranque explican el problema."""
+    return medibot_red.ip_lan_principal() or "127.0.0.1"
 
 def get_registered_persons():
     """Obtiene la lista de personas registradas"""
@@ -1628,7 +1630,10 @@ HTML_TEMPLATE = """
         
         <div class="footer">
             <p>Medibot</p>
-            <p>IP: <span id="current-ip">127.0.0.1</span> | Puerto: 5000 | API: /api/all</p>
+            <!-- La IP se rellena con la direccion desde la que el navegador
+                 entro (location.hostname): asi el pie muestra la direccion que
+                 de verdad funciona en ESE dispositivo, no una fija. -->
+            <p>IP: <span id="current-ip">-</span> | Puerto: <span id="current-port">-</span> | API: /api/all</p>
         </div>
     </div>
 
@@ -1890,8 +1895,10 @@ HTML_TEMPLATE = """
                 .catch(error => console.error('Error obteniendo datos:', error));
         }
         
-        // Set current IP
+        // Direccion y puerto REALES con los que se entro a esta pagina
         document.getElementById('current-ip').textContent = window.location.hostname;
+        document.getElementById('current-port').textContent =
+            window.location.port || '80';
         
         // Start updates
         function startUpdates() {
@@ -2700,13 +2707,23 @@ def update_person_list():
     
     person_list.config(state=tk.DISABLED)
 
-# ================= FUNCIÓN PARA ABRIR PASTILLERO =========
+# ================= PASTILLERO (Pillbox) =========
+PASTILLERO_PORT = 5001   # puerto del servidor web de Pastillero.py
+
+
 def open_pastillero():
-    """Abre la interfaz web del pastillero"""
-    url = "http://192.168.3.208"
+    """Abre la interfaz web del pastillero.
+
+    Antes apuntaba a 'http://192.168.3.208' (IP fija de otra red y sin puerto):
+    en cualquier red distinta el botón no llevaba a ninguna parte. Ahora se usa
+    localhost, que es el propio equipo donde corre Pillbox."""
+    url = f"http://127.0.0.1:{PASTILLERO_PORT}"
     try:
         webbrowser.open(url)
-        messagebox.showinfo("Pillbox", f"Abriendo configuración de Pillbox en:\n{url}")
+        messagebox.showinfo("Pillbox",
+            f"Abriendo Pillbox en este equipo:\n{url}\n\n"
+            "Desde el móvil u otro PC de la misma red, entra con:\n"
+            + medibot_red.texto_urls(PASTILLERO_PORT))
     except Exception as e:
         messagebox.showerror("Error", f"No se pudo abrir Pillbox:\n{str(e)}")
 
@@ -2715,7 +2732,6 @@ def open_pastillero():
 # puerto 5001) y divide la pantalla: Visión a la izquierda, pastillero a la
 # derecha, para operar ambos a la vez.
 _pastillero_proc = None
-PASTILLERO_PORT = 5001
 
 def _puerto_abierto(host, port, timeout=0.5):
     """True si hay algo escuchando en host:port."""
@@ -2732,6 +2748,7 @@ def _puerto_abierto(host, port, timeout=0.5):
 # valida pero el navegador no responde"); y cada INICIAR relanzaba otro
 # app.run sobre el mismo puerto, cuyo hilo moria en silencio con
 # "Address already in use".
+VISION_WEB_HOST = "0.0.0.0"   # todas las interfaces (LAN incluida)
 VISION_WEB_PORT = 5000
 _hilo_servidor_web = None
 
@@ -2745,7 +2762,7 @@ def iniciar_servidor_web():
 
     def _correr_servidor():
         try:
-            app.run(host="0.0.0.0", port=VISION_WEB_PORT,
+            app.run(host=VISION_WEB_HOST, port=VISION_WEB_PORT,
                     debug=False, use_reloader=False, threaded=True)
         except OSError as e:
             # Puerto ocupado u otro fallo de bind: decirlo SIEMPRE en consola
@@ -2757,7 +2774,15 @@ def iniciar_servidor_web():
     # Confirmar que quedo ESCUCHANDO de verdad (no asumirlo): hasta ~5 s
     for _ in range(25):
         if _puerto_abierto("127.0.0.1", VISION_WEB_PORT):
-            print(f"Vision web escuchando en http://{get_ip()}:{VISION_WEB_PORT}")
+            print(f"Vision web escuchando en {VISION_WEB_HOST}:{VISION_WEB_PORT} "
+                  "(todas las interfaces).")
+            print("Entra desde el movil u otro PC de la misma red:")
+            print(medibot_red.texto_urls(VISION_WEB_PORT))
+            # Comprobar que se llega POR LA IP DE RED, no solo por localhost:
+            # es la diferencia entre "me abre en la Pi" y "me abre en el movil".
+            ok, detalle = medibot_red.accesible_en_lan(VISION_WEB_PORT)
+            if not ok:
+                print(f"AVISO: no accesible desde otros equipos: {detalle}.")
             return True
         time.sleep(0.2)
     print(f"AVISO: Vision web no responde aun en el puerto {VISION_WEB_PORT}.")
@@ -2878,12 +2903,11 @@ def toggle_system():
         if start_camera_processing():
             messagebox.showinfo("Sistema Activo",
                 f"Medibot iniciado correctamente.\n\n"
-                f"Accede desde tu navegador:\n"
-                f"http://{get_ip()}:{VISION_WEB_PORT}\n\n"
+                f"Accede desde el móvil u otro PC de la misma red:\n"
+                + medibot_red.texto_urls(VISION_WEB_PORT) + "\n\n"
                 f"Cámara 1: {'ACTIVA' if camera1 is not None else 'INACTIVA'}\n"
                 f"Cámara 2: {'ACTIVA' if camera2 is not None else 'INACTIVA'}\n"
-                f"Reconocimiento facial: {'ACTIVADO' if recognizer else 'DESACTIVADO'}\n"
-                f"API para ESP32: http://{get_ip()}:{VISION_WEB_PORT}/api/esp32")
+                f"Reconocimiento facial: {'ACTIVADO' if recognizer else 'DESACTIVADO'}")
         else:
             online = False
             # Sin cámaras NO se pierde la web: el servidor sigue arriba y
@@ -3409,15 +3433,24 @@ ttk.Button(management_buttons,
 api_frame = tk.Frame(management_tab, bg=secondary_color, pady=10)
 api_frame.pack(fill=tk.X, padx=20, pady=10)
 
+# IPs REALES de esta maquina (antes habia una IP vieja hardcodeada de otra red
+# y sin puerto: nadie podia conectarse copiando esa direccion). Si hay varias
+# redes (cable y WiFi) se listan TODAS: el movil solo alcanza la de su red.
+_ips_lan = medibot_red.listar_ips_lan()
 ip_address = get_ip()
-api_text = f"APIs disponibles:\n"
-api_text += f"• http://{ip_address}:{VISION_WEB_PORT} (Interfaz web)\n"
-api_text += f"• http://{ip_address}:{VISION_WEB_PORT}/api/all (todos los datos)\n"
-api_text += f"• http://{ip_address}:{VISION_WEB_PORT}/api/esp32 (datos compactos ESP32)\n"
-api_text += f"• http://{ip_address}:{VISION_WEB_PORT}/api/videos (lista videos ordenados)\n"
-# IP y puerto REALES de esta maquina (antes habia una IP vieja hardcodeada
-# de otra red y sin puerto: nadie podia conectarse copiando esa direccion).
-api_text += f"Pillbox: http://{ip_address}:{PASTILLERO_PORT}"
+if _ips_lan:
+    api_text = "Entra desde el movil u otro PC de la misma red:\n"
+    for _iface, _ip in _ips_lan:
+        api_text += f"• http://{_ip}:{VISION_WEB_PORT}   ({_iface})\n"
+    api_text += f"\nPillbox:  http://{_ips_lan[0][1]}:{PASTILLERO_PORT}\n"
+else:
+    api_text = ("SIN RED: este equipo no esta conectado a ninguna WiFi ni cable,\n"
+                "asi que NINGUN otro dispositivo puede entrar todavia.\n"
+                "Conecta la Raspberry a la red y reinicia.\n\n")
+api_text += (f"\nAPIs (sobre la misma direccion):\n"
+             f"• /api/all (todos los datos)\n"
+             f"• /api/esp32 (datos compactos ESP32)\n"
+             f"• /api/videos (lista videos ordenados)")
 
 tk.Label(api_frame,
          text=api_text,

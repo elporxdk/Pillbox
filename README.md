@@ -24,6 +24,8 @@ Pillbox ------------+
   reintenta conectarse cada 2 segundos automaticamente.
 - **`medibot_serial.py`**: el "cartero" que usan Vision y Pillbox para hablar
   con el hub. Lo autolanza si no esta corriendo. No hay que arrancarlo a mano.
+- **`medibot_red.py`**: averigua las IPs reales de la Pi para saber con que
+  direccion se entra desde el movil (ver "Entrar desde el movil" mas abajo).
 
 ### Uso normal (Raspberry Pi) — UN SOLO COMANDO
 
@@ -44,6 +46,35 @@ Tambien se puede arrancar cada pieza por separado si hace falta:
 python3 Pastillero.py        # solo Pillbox (el hub arranca solo)
 python3 Vision_MEDIBOT.py    # solo Medibot (usa el mismo hub)
 ```
+
+### Entrar desde el movil u otro PC (no solo desde la Pi)
+
+Los dos servidores escuchan en `0.0.0.0`, es decir en **todas** las
+interfaces, asi que cualquier dispositivo de la misma red puede entrar:
+
+| Interfaz | Puerto |
+|---|---|
+| Pillbox  | `5001` |
+| Medibot / Vision | `5000` |
+
+Al arrancar, ambos **imprimen todas las direcciones validas** y las muestran
+tambien en la ventana de Medibot. Solo hay que abrir en el movil la que
+corresponda a tu red, por ejemplo `http://192.168.1.50:5001`.
+
+Detalles importantes:
+
+- **`127.0.0.1` (localhost) NO sirve desde otro dispositivo**: significa "esta
+  misma maquina". Si solo aparece esa direccion, la Pi no esta conectada a
+  ninguna red.
+- **Si la Pi tiene cable y WiFi a la vez** se listan las dos direcciones. El
+  movil solo alcanza la de **su** red: prueba la otra si una no responde.
+- Al arrancar se **comprueba de verdad** que el servidor responde por la IP de
+  red (no solo por localhost) y se avisa si no. Si avisa aun estando en red,
+  lo normal es un **cortafuegos** en la Pi o que el router tenga *aislamiento
+  de clientes* (AP isolation) activado.
+
+`medibot_red.py` es el modulo que enumera las interfaces de red reales; lo
+usan Pillbox, Vision y `main.py`, asi que los tres coinciden siempre.
 
 ### Si la autodeteccion no encuentra el Arduino
 
