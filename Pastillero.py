@@ -36,6 +36,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 
 import medibot_serial   # cliente del hub serial compartido (serial_hub.py)
+import medibot_red      # IPs reales de la LAN (para entrar desde otro equipo)
 
 # ================= CONFIGURACION =================
 SERIAL_BAUD = 9600       # informativo; el baud real lo fija el hub
@@ -49,17 +50,10 @@ DIAS_NOMBRES = ["L", "M", "X", "J", "V", "S", "D"]   # weekday(): lunes=0
 
 
 def obtener_ip_local():
-    """IP LAN real de la maquina: la URL que de verdad se teclea en el
-    navegador de otro dispositivo (0.0.0.0 no es navegable)."""
-    import socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        s.close()
+    """IP LAN real de la maquina: la que se teclea en el navegador de OTRO
+    dispositivo (0.0.0.0 no es navegable). Si no hay red devuelve None; ver
+    medibot_red.py para por que no se devuelve '127.0.0.1' como antes."""
+    return medibot_red.ip_lan_principal()
 
 
 # ================= PERSISTENCIA EN LA PI =================
@@ -970,26 +964,48 @@ def _puerto_web_ocupado():
         return False
 
 
+def _avisar_cuando_este_listo():
+    """Hilo: espera a que Flask levante y COMPRUEBA que se llega desde la red,
+    no solo desde esta maquina. Asi el usuario sabe al instante si podra
+    abrirlo en el movil (y si no, por que)."""
+    for _ in range(40):
+        time.sleep(0.25)
+        if _puerto_web_ocupado():
+            break
+    else:
+        return
+    ok, detalle = medibot_red.accesible_en_lan(WEB_PORT)
+    if ok:
+        print("Comprobado: Pillbox responde desde la red " + f"({detalle}).")
+    else:
+        print(f"AVISO: Pillbox NO parece accesible desde otros equipos: {detalle}.")
+
+
 def iniciar_servidor_web():
     """Arranca el servidor web y VERIFICA los fallos tipicos en vez de morir
     con un traceback: si el puerto ya esta ocupado (doble arranque) lo dice
-    claro y con la URL correcta para abrir el Pillbox que ya corre."""
-    url = f"http://{obtener_ip_local()}:{WEB_PORT}"
+    claro y con las URLs correctas para abrir el Pillbox que ya corre."""
     if _puerto_web_ocupado():
         print(f"ERROR: el puerto {WEB_PORT} ya esta ocupado: ya hay OTRO "
               "Pillbox corriendo en esta maquina.")
-        print(f"Abre {url} en el navegador (el Pillbox que ya corre sirve la "
-              "web). Para reiniciarlo, cierra antes el proceso viejo.")
+        print("Abrelo en el navegador con una de estas direcciones:")
+        print(medibot_red.texto_urls(WEB_PORT))
+        print("Para reiniciarlo, cierra antes el proceso viejo.")
         raise SystemExit(1)
-    print(f"Pillbox en {url}  (datos en {DATA_FILE})")
+
+    print(f"Pillbox arrancando (datos en {DATA_FILE})")
+    print(f"Escuchando en {WEB_HOST}:{WEB_PORT} (todas las interfaces).")
+    print("Entra desde ESTE equipo o desde el movil/otro PC de la misma red:")
+    print(medibot_red.texto_urls(WEB_PORT))
+
+    threading.Thread(target=_avisar_cuando_este_listo, daemon=True).start()
     try:
         # threaded=True: cada peticion va en su hilo; un dispensado lento (que
         # espera al Arduino) NO bloquea el resto de la interfaz web.
         app.run(host=WEB_HOST, port=WEB_PORT, threaded=True, use_reloader=False)
     except OSError as e:
         print(f"\nERROR: no se pudo abrir el puerto {WEB_PORT} ({e}).")
-        print(f"Si otro programa usa el puerto, cierralo y reintenta; la URL "
-              f"correcta de esta maquina es {url}")
+        print("Si otro programa usa el puerto, cierralo y reintenta.")
         raise SystemExit(1)
 
 
