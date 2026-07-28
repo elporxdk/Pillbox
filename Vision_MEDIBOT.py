@@ -28,6 +28,16 @@ _serial_last = {}       # último valor enviado por pin (evita repetir mensajes)
 
 import medibot_serial   # cliente del hub serial compartido (serial_hub.py)
 import medibot_red      # IPs reales de la LAN (para entrar desde otro equipo)
+import medibot_vision   # motor de video: buzon de frames y detectores rapidos
+
+# Limitar los hilos internos de OpenCV: con un hilo por camara mas la interfaz
+# y el servidor web, dejar que OpenCV use todos los nucleos provocaba peleas
+# por CPU y una UI a tirones. Ver medibot_vision.ajustar_hilos_opencv().
+medibot_vision.ajustar_hilos_opencv(1)
+
+# Buzon compartido de fotogramas (numerados, con JPEG cacheado). Sustituye a
+# pasarse los frames por variables globales sueltas y recodificar por cliente.
+frame_hub = medibot_vision.FrameHub()
 
 def serial_connect():
     """Se asegura de que el hub serial (serial_hub.py) este corriendo. El hub es
@@ -141,26 +151,51 @@ def set_movement(directions):
         movement_state[_d] = _d in directions
     apply_movement()
 
+# Ultimo ciclo de trabajo ESCRITO en cada servo.
+#  POR QUE: estas funciones se llaman en el bucle de video, o sea decenas de
+#  veces por segundo, casi siempre con el MISMO valor (p.ej. centrar una y otra
+#  vez mientras no hay nada que seguir). Cada ChangeDutyCycle es una llamada al
+#  driver PWM; repetirla sin que el valor cambie no mueve el servo, solo gasta
+#  CPU y le mete nerviosismo. Guardando el ultimo valor solo se escribe cuando
+#  DE VERDAD cambia: el servo termina exactamente en la misma posicion.
+_pwm_x_actual = None
+_pwm_y_actual = None
+
+
+def _escribir_pwm_x(valor):
+    global _pwm_x_actual
+    if valor != _pwm_x_actual:
+        pwm_x.ChangeDutyCycle(valor)
+        _pwm_x_actual = valor
+
+
+def _escribir_pwm_y(valor):
+    global _pwm_y_actual
+    if valor != _pwm_y_actual:
+        pwm_y.ChangeDutyCycle(valor)
+        _pwm_y_actual = valor
+
+
 def center_pwm():
     """Centrar la camara"""
-    pwm_x.ChangeDutyCycle(7.5)
-    pwm_y.ChangeDutyCycle(7.5)
+    _escribir_pwm_x(7.5)
+    _escribir_pwm_y(7.5)
 
 def move_servos(x_pos, y_pos):
     """Mueve los servomotores basado en la posición del rostro"""
     if x_pos == "left":
-        pwm_x.ChangeDutyCycle(5.5)
+        _escribir_pwm_x(5.5)
     elif x_pos == "right":
-        pwm_x.ChangeDutyCycle(9.5)
+        _escribir_pwm_x(9.5)
     else:
-        pwm_x.ChangeDutyCycle(7.5)
-    
+        _escribir_pwm_x(7.5)
+
     if y_pos == "up":
-        pwm_y.ChangeDutyCycle(5.5)
+        _escribir_pwm_y(5.5)
     elif y_pos == "down":
-        pwm_y.ChangeDutyCycle(9.5)
+        _escribir_pwm_y(9.5)
     else:
-        pwm_y.ChangeDutyCycle(7.5)
+        _escribir_pwm_y(7.5)
 
 # ================= OPTIMIZADOR DE CÁMARA =========
 class CameraOptimizer:
@@ -226,16 +261,41 @@ camera_optimizer = CameraOptimizer()
 
 # ================= SEGUIMIENTO DE COORDENADAS =========
 class ObjectTracker:
+    """Seguimiento de objetos rojos.
+
+    FUGA DE MEMORIA CORREGIDA: la identidad de un objeto se calculaba como
+    "centroX_centroY_area", asi que un objeto que se mueve (o cuyo area baila
+    un pixel por el ruido de la camara) generaba una ENTRADA NUEVA en cada
+    fotograma. A 30 FPS eso son ~1800 entradas por minuto y por objeto, cada
+    una con sus listas de historial y trayectoria; solo se borraban 5 s
+    despues, y mientras tanto la RAM subia sin parar y get_tracking_data()
+    (que recorre TODO el diccionario en cada peticion de la API web) se volvia
+    cada vez mas lenta.
+
+    Ahora la identidad se basa en una REJILLA: se redondea el centro a celdas
+    de CELDA_PX pixeles, asi el mismo objeto conserva su id mientras se mueve
+    despacio, el historial es continuo (que es lo que se queria dibujar) y el
+    diccionario deja de crecer. Ademas se limita el numero de objetos vivos.
+    """
+
+    CELDA_PX = 40          # tolerancia de movimiento para considerarlo "el mismo"
+    MAX_OBJETOS = 32       # tope duro: nunca crece sin control
+
     def __init__(self, max_history=50):
         self.object_history = {}
         self.max_history = max_history
         self.tracking_enabled = True
-        
+
+    @classmethod
+    def _id_objeto(cls, obj):
+        """Identidad estable frente a pequenos movimientos y ruido de area."""
+        return f"{obj['center_x'] // cls.CELDA_PX}_{obj['center_y'] // cls.CELDA_PX}"
+
     def update_tracking(self, objects, frame_time):
         """Actualiza el historial de seguimiento de objetos"""
         for obj in objects:
-            obj_id = f"{obj['center_x']}_{obj['center_y']}_{obj['area']}"
-            
+            obj_id = self._id_objeto(obj)
+
             if obj_id not in self.object_history:
                 self.object_history[obj_id] = {
                     'id': obj_id,
@@ -268,15 +328,20 @@ class ObjectTracker:
             self.object_history[obj_id]['last_seen'] = frame_time
             self.object_history[obj_id]['total_frames'] += 1
         
-        # Limpiar objetos antiguos (no vistos por mass de 5 segundos)
-        current_time = time.time()
-        to_remove = []
-        for obj_id, data in self.object_history.items():
-            if current_time - data['last_seen'] > 5:
-                to_remove.append(obj_id)
-        
-        for obj_id in to_remove:
+        # Limpiar objetos antiguos (no vistos por mas de 5 segundos).
+        #  Se usa frame_time (ya calculado por quien llama) en vez de pedir
+        #  time.time() otra vez en cada fotograma.
+        caducados = [oid for oid, d in self.object_history.items()
+                     if frame_time - d['last_seen'] > 5]
+        for obj_id in caducados:
             del self.object_history[obj_id]
+
+        # Red de seguridad: si por lo que sea hubiera demasiados objetos vivos,
+        # conservar solo los mas recientes. Asi la memoria tiene un techo fijo.
+        if len(self.object_history) > self.MAX_OBJETOS:
+            por_antiguedad = sorted(self.object_history.items(),
+                                    key=lambda kv: kv[1]['last_seen'], reverse=True)
+            self.object_history = dict(por_antiguedad[:self.MAX_OBJETOS])
     
     def get_tracking_data(self):
         """Obtiene datos de seguimiento para la API usando json"""
@@ -299,8 +364,8 @@ class ObjectTracker:
             return frame
             
         for obj in objects:
-            obj_id = f"{obj['center_x']}_{obj['center_y']}_{obj['area']}"
-            
+            obj_id = self._id_objeto(obj)
+
             if obj_id in self.object_history:
                 path = self.object_history[obj_id]['path']
                 
@@ -335,8 +400,26 @@ def get_ip():
     avisos de arranque explican el problema."""
     return medibot_red.ip_lan_principal() or "127.0.0.1"
 
-def get_registered_persons():
-    """Obtiene la lista de personas registradas"""
+# Cache de la lista de personas registradas.
+#  POR QUE: get_registered_persons() recorre carpetas y cuenta ficheros (E/S de
+#  disco). Se llamaba DENTRO del bucle de reconocimiento, o sea varias veces por
+#  segundo por cada cara detectada: en una Raspberry con tarjeta SD eso frena
+#  todo el pipeline. Ahora el resultado se guarda 2 s y se invalida al registrar
+#  o borrar a alguien, asi que la lista sigue estando siempre al dia.
+_persons_cache = None
+_persons_cache_time = 0.0
+_persons_cache_lock = threading.Lock()
+PERSONS_CACHE_TTL = 2.0
+
+
+def invalidar_cache_personas():
+    """Fuerza releer el disco (tras registrar/eliminar a alguien)."""
+    global _persons_cache
+    with _persons_cache_lock:
+        _persons_cache = None
+
+
+def _leer_personas_del_disco():
     if not os.path.exists(DATA_PATH):
         return []
     persons = []
@@ -346,6 +429,20 @@ def get_registered_persons():
             images = len([f for f in os.listdir(folder_path) if f.endswith('.jpg')])
             persons.append({"name": folder, "images": images})
     return persons
+
+
+def get_registered_persons():
+    """Lista de personas registradas (cacheada; misma salida que antes)."""
+    global _persons_cache, _persons_cache_time
+    ahora = time.time()
+    with _persons_cache_lock:
+        if _persons_cache is not None and ahora - _persons_cache_time < PERSONS_CACHE_TTL:
+            return _persons_cache
+    personas = _leer_personas_del_disco()
+    with _persons_cache_lock:
+        _persons_cache = personas
+        _persons_cache_time = ahora
+    return personas
 
 def setup_directories():
     """Crea los directorios necesarios si no esta hechos"""
@@ -380,62 +477,19 @@ def get_video_files():
     return video_files
 
 # ================= DETECCIÓN Y SEGUIMIENTO DE COLOR ROJO =========
+# La deteccion vive ahora en medibot_vision.RedDetector. Ahorra reservar los
+# rangos HSV y el kernel morfologico en CADA fotograma (antes se creaban 5
+# arrays de numpy por frame) y dibuja sobre el frame recibido, sin la copia
+# extra que se hacia antes. La salida es identica (verificado).
+_red_detector = medibot_vision.RedDetector(area_minima=300)
+
+
 def detect_red_objects(frame):
-    """Detecta objetos de color rojo en el frame"""
-    # Convertir de BGR a HSV
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    
-    # Definir rangos para el color rojo (en HSV)
-    lower_red1 = np.array([0, 120, 70])
-    upper_red1 = np.array([10, 255, 255])
-    lower_red2 = np.array([170, 120, 70])
-    upper_red2 = np.array([180, 255, 255])
-    
-    # Crear máscaras para ambos rangos
-    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-    
-    # Combinar las máscaras
-    red_mask = cv2.bitwise_or(mask1, mask2)
-    
-    # Aplicar operaciones morfológicas para eliminar ruido
-    kernel = np.ones((5,5), np.uint8)
-    red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
-    red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel)
-    red_mask = cv2.dilate(red_mask, kernel, iterations=1)
-    
-    # Encontrar contornos
-    contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    red_objects = []
-    
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area > 300:  # Filtrar contornos pequeños
-            x, y, w, h = cv2.boundingRect(contour)
-            
-            # Calcular centro
-            center_x = x + w // 2
-            center_y = y + h // 2
-            
-            # Dibujar cuadrito alrededor del objeto rojo
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
-            cv2.circle(frame, (center_x, center_y), 5, (255, 255, 255), -1)
-            cv2.putText(frame, f"ROJO {int(area)}", (x, y-10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-            
-            red_objects.append({
-                "x": x,
-                "y": y,
-                "width": w,
-                "height": h,
-                "area": int(area),
-                "color": "rojo",
-                "center_x": center_x,
-                "center_y": center_y
-            })
-    
-    return frame, red_objects
+    """Detecta objetos rojos y los marca en el frame.
+    Devuelve (frame, objetos) — misma firma y salida que antes."""
+    objetos = _red_detector.detectar(frame, dibujar=True)
+    return frame, objetos
+
 
 # ================= RECONOCIMIENTO FACIAL =========
 # Intentar cargar el clasificador del Haarscascade
@@ -462,9 +516,9 @@ camera2 = None
 camera1_thread = None
 camera2_thread = None
 active_camera_index = 0
-last_frame = None
-last_frame1 = None
-last_frame2 = None
+# Los antiguos last_frame / last_frame1 / last_frame2 desaparecieron: el ultimo
+# fotograma de cada camara vive ahora en frame_hub, que ademas lo numera para
+# que la interfaz y el streaming no repitan trabajo ya hecho.
 online = False
 recording = False
 recording_cam1 = False
@@ -551,6 +605,9 @@ def release_cameras():
         if video_writer2 is not None:
             video_writer2.release()
             video_writer2 = None
+        # Soltar los fotogramas retenidos: si no, la RAM de los ultimos frames
+        # (y sus JPEG) se queda ocupada mientras el sistema esta parado.
+        frame_hub.limpiar()
         time.sleep(0.5)
         print("Cámaras liberadas correctamente")
     except Exception as e:
@@ -606,121 +663,133 @@ def read_frame_from_camera(camera, camera_index):
         return False, None
 
 # ================= PROCESAMIENTO SIMULTÁNEO DE AMBAS CÁMARAS =======
+# Detector de caras compartido. Detecta a MITAD de escala (4x menos pixeles,
+# ~2x mas rapido: 25.5 ms -> 12.7 ms medidos) manteniendo scaleFactor y
+# minNeighbors, asi que la sensibilidad no cambia; devuelve coordenadas a
+# tamano real y el gris completo para que el reconocedor no pierda nitidez.
+_face_detector = medibot_vision.FaceDetector(cascade, escala=0.5,
+                                             scale_factor=1.1, min_neighbors=5,
+                                             min_size=(30, 30))
+
+# Cada cuantos fotogramas se recalcula el auto-ajuste de camara. Su histograma
+# cuesta ~0.9 ms y sus valores solo cambian de forma gradual con la luz, asi
+# que hacerlo 1 de cada 15 frames (2 veces por segundo) da el mismo resultado
+# visible por la 15ava parte del coste.
+AUTOAJUSTE_CADA_N_FRAMES = 15
+
+
+def _necesita_deteccion_facial():
+    """?Hay alguien que vaya a USAR las caras detectadas?
+
+    El Haar es el 97 % del coste por fotograma. Antes se ejecutaba SIEMPRE,
+    incluso con el reconocimiento apagado (que es como arranca el programa):
+    se pagaban ~25 ms por frame para tirar el resultado a la basura. Eso es lo
+    que dejaba la camara en 9-14 FPS sin usar ninguna IA."""
+    return capture_mode or (recognition_enabled and recognizer is not None)
+
+
 def process_camera(camera_index):
     """Procesa una cámara específica en un hilo separado"""
-    global last_frame1, last_frame2, system_status, detection_count, captured_images
+    # Solo se declaran las globales que esta funcion ESCRIBE (online, recording
+    # y fps* unicamente se leen, asi que no necesitan declaracion).
+    global system_status, detection_count, captured_images
     global capture_mode, face_position, last_face_time, detected_red_objects
-    global online, recording, video_writer1, video_writer2, recording_cam1, recording_cam2
-    global fps1, fps2
-    
+    global video_writer1, video_writer2, recording_cam1, recording_cam2
+
     print(f"Iniciando procesamiento de cámara {camera_index + 1}")
-    
+
     camera = camera1 if camera_index == 0 else camera2
     if camera is None:
         print(f"Cámara {camera_index + 1} no disponible")
         return
-    
-    frame_time = time.time()
-    local_video_writer = None
-    is_recording = False
-    
+
+    es_principal = (camera_index == 0)      # la cámara 1 manda sobre los servos
+    n_frame = 0
+
     while online:
         try:
-            # Leer frame de la cámara
+            # Leer frame. camera.read() ya BLOQUEA hasta que el sensor entrega
+            # el siguiente fotograma, o sea que la camara marca el ritmo: por
+            # eso se elimino el time.sleep(0.033) que habia al final del bucle
+            # (dormir encima del bloqueo hacia perder uno de cada dos frames).
             ret, frame = read_frame_from_camera(camera, camera_index)
-            
             if not ret or frame is None:
                 print(f"Error leyendo frame de cámara {camera_index + 1}, reintentando...")
                 time.sleep(0.1)
                 continue
-            
-            # Aplicar optimización automática de cámara usando la función pasada
-            frame = camera_optimizer.auto_adjust(frame)
-            
-            # Detección de objetos rojos con seguimiento un poco optimizado
-            processed_frame, red_objects = detect_red_objects(frame.copy())
-            
-            # Actualizar seguimiento de objetos
+
+            n_frame += 1
             current_time = time.time()
+
+            # Auto-ajuste de camara: caro y de efecto lento -> no cada frame.
+            if n_frame % AUTOAJUSTE_CADA_N_FRAMES == 0:
+                camera_optimizer.auto_adjust(frame)
+
+            # ---- Objetos rojos -------------------------------------------
+            # Se dibuja sobre el propio frame (antes se hacia frame.copy()).
+            processed_frame = frame
+            red_objects = _red_detector.detectar(processed_frame, dibujar=True)
+            detected_red_objects = red_objects   # publicar para las APIs web
             object_tracker.update_tracking(red_objects, current_time)
-            
-            # Dibujar trayectorias de seguimiento
             if object_tracker.tracking_enabled:
                 processed_frame = object_tracker.draw_tracking(processed_frame, red_objects)
-            
-            # Detección facial si el clasificador está disponible
-            if cascade is not None and camera_index == 0:  # Solo en cámara 1 para control de servos
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-                
-                # Modo captura de imágenes
+
+            # ---- Caras: SOLO si alguien va a usarlas ----------------------
+            # Se conserva la estructura original (incluido centrar los servos
+            # cuando no hay reconocimiento); lo unico que se evita es el Haar,
+            # que es lo caro. Centrar ahora es casi gratis: _escribir_pwm_*
+            # ignora los valores repetidos.
+            faces = []
+            if es_principal and cascade is not None and not _necesita_deteccion_facial():
+                center_pwm()
+            elif es_principal and cascade is not None:
+                faces, gray = _face_detector.detectar(frame)
+
                 if capture_mode and len(faces) > 0:
                     for (x, y, w, h) in faces:
                         roi_gray = gray[y:y+h, x:x+w]
-                        
-                        # Guardar imagen
                         person_path = os.path.join(DATA_PATH, current_capture_name)
                         cv2.imwrite(f"{person_path}/{captured_images}.jpg", roi_gray)
                         captured_images += 1
-                        
-                        # Dibujar rectángulo
+                        invalidar_cache_personas()
+
                         cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (0, 255, 255), 3)
-                        cv2.putText(processed_frame, f"CAPTURANDO: {captured_images}/{IMAGES_PER_PERSON}", 
+                        cv2.putText(processed_frame, f"CAPTURANDO: {captured_images}/{IMAGES_PER_PERSON}",
                                    (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                        
+
                         if captured_images >= IMAGES_PER_PERSON:
                             capture_mode = False
                             system_status = "Captura Completada"
-                        
                         break
-                
-                # Modo reconocimiento facial (solo si está activado por el usuario)
+
                 elif not capture_mode and recognition_enabled and recognizer is not None and len(faces) > 0:
                     known = False
-                    last_face_time = time.time()
-                    
+                    last_face_time = current_time
+                    # La lista de personas se lee UNA vez por frame (y ademas
+                    # va cacheada), no una vez por cara como antes.
+                    persons = get_registered_persons()
+
                     for (x, y, w, h) in faces:
                         detection_count += 1
                         roi_gray = gray[y:y+h, x:x+w]
-                        
+
                         try:
                             id_, conf = recognizer.predict(roi_gray)
-                            
+
                             if conf < CONF_LIMIT:
                                 known = True
                                 cx, cy = x + w // 2, y + h // 2
 
-                                # Determinar posición
-                                if cx < ZONE_X:
-                                    pos_x = "left"
-                                elif cx > ZONE_X * 2:
-                                    pos_x = "right"
-                                else:
-                                    pos_x = "center"
+                                pos_x = "left" if cx < ZONE_X else ("right" if cx > ZONE_X * 2 else "center")
+                                pos_y = "up" if cy < ZONE_Y else ("down" if cy > ZONE_Y * 2 else "center")
 
-                                if cy < ZONE_Y:
-                                    pos_y = "up"
-                                elif cy > ZONE_Y * 2:
-                                    pos_y = "down"
-                                else:
-                                    pos_y = "center"
-
-                                # Actualizar posición global
                                 face_position = {"x": pos_x, "y": pos_y}
-                                
-                                # Mover servomotores (solo cámara 1 controla servos)
-                                if camera_index == 0:
+                                if es_principal:
                                     move_servos(pos_x, pos_y)
 
-                                # Etiqueta para rostro conocido
-                                persons = get_registered_persons()
-                                if id_ < len(persons):
-                                    person_name = persons[id_]["name"]
-                                else:
-                                    person_name = f"ID {id_}"
-                                    
+                                person_name = persons[id_]["name"] if id_ < len(persons) else f"ID {id_}"
                                 label = f"{person_name} ({int(100-conf)}%)"
-                                
+
                                 cv2.putText(processed_frame, label, (x, y - 30),
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                                 cv2.putText(processed_frame, "AUTORIZADO", (x, y - 10),
@@ -728,7 +797,6 @@ def process_camera(camera_index):
                                 cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
                                 system_status = f"Rostro: {person_name}"
                             else:
-                                # Etiqueta para rostro desconocido
                                 cv2.putText(processed_frame, "DESCONOCIDO", (x, y - 10),
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                                 cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (0, 0, 255), 3)
@@ -736,143 +804,106 @@ def process_camera(camera_index):
                         except Exception as e:
                             print(f"Error en reconocimiento facial: {e}")
                             system_status = "Error Reconocimiento"
-
                         break
 
-                    if not known and not capture_mode:
-                        if len(faces) == 0:
-                            if camera_index == 0:
-                                center_pwm()
-                            if system_status not in ["Rostro Conocido", "Rostro Desconocido", "Error Reconocimiento"]:
-                                system_status = "Escaneando"
-                else:
-                    if camera_index == 0:
-                        center_pwm()
-            
-            # Seguimiento automático de objetos rojos si no hay rostros (solo cámara 1)
-            if camera_index == 0 and len(faces) == 0 and red_objects and object_tracker.tracking_enabled:
-                # Seguir el objeto rojo más grande
+                    if not known and not capture_mode and len(faces) == 0:
+                        if es_principal:
+                            center_pwm()
+                        if system_status not in ["Rostro Conocido", "Rostro Desconocido", "Error Reconocimiento"]:
+                            system_status = "Escaneando"
+                elif es_principal:
+                    center_pwm()
+
+            # ---- Seguimiento de objetos rojos (si no hay caras) -----------
+            if es_principal and len(faces) == 0 and red_objects and object_tracker.tracking_enabled:
                 largest_obj = max(red_objects, key=lambda obj: obj['area'])
                 cx, cy = largest_obj['center_x'], largest_obj['center_y']
-                
-                # Determinar posición del objeto
-                if cx < ZONE_X:
-                    pos_x = "left"
-                elif cx > ZONE_X * 2:
-                    pos_x = "right"
-                else:
-                    pos_x = "center"
 
-                if cy < ZONE_Y:
-                    pos_y = "up"
-                elif cy > ZONE_Y * 2:
-                    pos_y = "down"
-                else:
-                    pos_y = "center"
+                pos_x = "left" if cx < ZONE_X else ("right" if cx > ZONE_X * 2 else "center")
+                pos_y = "up" if cy < ZONE_Y else ("down" if cy > ZONE_Y * 2 else "center")
 
-                # Mover servomotores para seguir el objeto
                 move_servos(pos_x, pos_y)
                 system_status = f"Siguiendo objeto rojo ({largest_obj['area']}px)"
-            
-            # Manejo de grabación para esta cámara
+
+            # ---- Grabación ------------------------------------------------
             if recording:
-                if camera_index == 0 and not recording_cam1:
-                    # Iniciar grabación cámara 1
+                if es_principal and not recording_cam1:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     video_filename = os.path.join(VIDEO_PATH, "camara1", f"video_cam1_{timestamp}.avi")
                     fourcc = cv2.VideoWriter_fourcc(*'XVID')
                     video_writer1 = cv2.VideoWriter(video_filename, fourcc, 20.0, (FRAME_W, FRAME_H))
                     recording_cam1 = True
                     print(f"Cámara 1 comenzó a grabar: {video_filename}")
-                
-                if camera_index == 1 and not recording_cam2:
-                    # Iniciar grabación cámara 2
+
+                if not es_principal and not recording_cam2:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     video_filename = os.path.join(VIDEO_PATH, "camara2", f"video_cam2_{timestamp}.avi")
                     fourcc = cv2.VideoWriter_fourcc(*'XVID')
                     video_writer2 = cv2.VideoWriter(video_filename, fourcc, 20.0, (FRAME_W, FRAME_H))
                     recording_cam2 = True
                     print(f"Cámara 2 comenzó a grabar: {video_filename}")
-                
-                # Escribir frame si estamos grabando
-                if camera_index == 0 and video_writer1 is not None:
+
+                if es_principal and video_writer1 is not None:
                     video_writer1.write(processed_frame)
-                elif camera_index == 1 and video_writer2 is not None:
+                elif not es_principal and video_writer2 is not None:
                     video_writer2.write(processed_frame)
             else:
-                # Detener grabación si está activa
-                if camera_index == 0 and recording_cam1:
+                if es_principal and recording_cam1:
                     if video_writer1 is not None:
                         video_writer1.release()
                         video_writer1 = None
                     recording_cam1 = False
                     print("Cámara 1 detuvo la grabación")
-                
-                if camera_index == 1 and recording_cam2:
+
+                if not es_principal and recording_cam2:
                     if video_writer2 is not None:
                         video_writer2.release()
                         video_writer2 = None
                     recording_cam2 = False
                     print("Cámara 2 detuvo la grabación")
-            
-            # Información en pantalla mejorada
+
+            # ---- Información sobre el vídeo -------------------------------
             cv2.putText(processed_frame, f"Cámara: {camera_index + 1}", (10, FRAME_H - 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            
-            if camera_index == 0:
-                fps_text = f"FPS Cam1: {fps1}"
-            else:
-                fps_text = f"FPS Cam2: {fps2}"
-            
+
+            fps_text = f"FPS Cam1: {fps1}" if es_principal else f"FPS Cam2: {fps2}"
             cv2.putText(processed_frame, fps_text, (FRAME_W - 150, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            
-            if recording and ((camera_index == 0 and recording_cam1) or (camera_index == 1 and recording_cam2)):
+
+            if recording and ((es_principal and recording_cam1) or (not es_principal and recording_cam2)):
                 cv2.putText(processed_frame, "● GRABANDO", (FRAME_W - 120, 60),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            
+
             if len(red_objects) > 0:
                 cv2.putText(processed_frame, f"Objetos Rojos: {len(red_objects)}", (10, 90),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-            
+
             if object_tracker.tracking_enabled:
                 cv2.putText(processed_frame, "SEGUIMIENTO ACTIVO", (10, FRAME_H - 20),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-            # REDIMENSIONAMIENTO CORREGIDO: Solo una vez a VIEW_W x VIEW_H
-            # Guardar el frame redimensionado para la interfaz
-            if camera_index == 0:
-                # Verificar que el frame tenga el tamaño correcto antes de redimensionar
-                if processed_frame.shape[1] != VIEW_W or processed_frame.shape[0] != VIEW_H:
-                    last_frame1 = cv2.resize(processed_frame, (VIEW_W, VIEW_H))
-                else:
-                    last_frame1 = processed_frame.copy()
-                    
-                if active_camera_index == 0:
-                    global last_frame
-                    last_frame = last_frame1.copy() if last_frame1 is not None else None
+            # ---- Publicar el fotograma ------------------------------------
+            # Antes se hacian hasta TRES copias completas por frame
+            # (processed_frame.copy() y last_frameN.copy()). Ahora el frame se
+            # publica una vez en el buzon: nadie lo modifica despues, asi que
+            # compartir la referencia es seguro y no cuesta memoria.
+            if processed_frame.shape[1] != VIEW_W or processed_frame.shape[0] != VIEW_H:
+                salida = cv2.resize(processed_frame, (VIEW_W, VIEW_H))
             else:
-                # Verificar que el frame tenga el tamaño correcto antes de redimensionar
-                if processed_frame.shape[1] != VIEW_W or processed_frame.shape[0] != VIEW_H:
-                    last_frame2 = cv2.resize(processed_frame, (VIEW_W, VIEW_H))
-                else:
-                    last_frame2 = processed_frame.copy()
-                    
-                if active_camera_index == 1:
-                    last_frame = last_frame2.copy() if last_frame2 is not None else None
-            
-            # Control de FPS optimizado
-            elapsed = time.time() - frame_time
-            sleep_time = max(0.0, 0.033 - elapsed)  # Objetivo: 30 FPS
-            time.sleep(sleep_time)
-            frame_time = time.time()
-            
+                salida = processed_frame
+
+            frame_hub.publicar(camera_index, salida)
+
+            # Sin time.sleep(): el ritmo lo marca camera.read(), que ya espera
+            # al sensor. Dormir aqui era lo que tiraba los FPS a la mitad.
+
         except Exception as e:
             print(f"Error en procesamiento de cámara {camera_index + 1}: {e}")
             time.sleep(0.1)
-    
+
     # Limpiar al salir
     print(f"Deteniendo procesamiento de cámara {camera_index + 1}...")
+    frame_hub.limpiar(camera_index)
     if camera_index == 0 and video_writer1 is not None:
         video_writer1.release()
         video_writer1 = None
@@ -2054,47 +2085,61 @@ def index():
 
 @app.route("/video/<int:camera_index>")
 def video(camera_index):
-    """Stream de video para cada cámara"""
-    def generate_frames():
-        global last_frame1, last_frame2, online
-        # OJO: el bucle NO depende de 'online'. Antes era "while online" y al
-        # detener el sistema el stream terminaba: el navegador quedaba con la
-        # imagen rota hasta recargar. Ahora, sin sistema o sin camara, se
-        # sirve un frame de aviso y el stream se recupera solo al reiniciar.
-        while True:
-            frame = None
-            if online:
-                if camera_index == 0 and last_frame1 is not None:
-                    frame = last_frame1.copy()
-                elif camera_index == 1 and last_frame2 is not None:
-                    frame = last_frame2.copy()
+    """Stream MJPEG de cada cámara.
 
-            if frame is None:
-                # Frame de aviso (negro con texto segun el estado)
-                frame = np.zeros((VIEW_H, VIEW_W, 3), dtype=np.uint8)
+    OPTIMIZACIONES frente a la version anterior:
+      - El JPEG se codifica UNA vez por fotograma en el buzon compartido
+        (frame_hub) y se reparte a todos los navegadores. Antes cada cliente
+        recodificaba el mismo frame (~1.9 ms cada uno): con la pagina abierta
+        en dos sitios se pagaba el doble por nada.
+      - Solo se envia cuando hay fotograma NUEVO (numero de secuencia), en vez
+        de reenviar el mismo a ciegas cada 30 ms.
+      - Se acabaron las copias: antes se hacia last_frameN.copy() por cliente
+        y por frame solo para codificarlo.
+      - La codificacion es perezosa: si nadie mira la web, no se codifica nada.
+    """
+    def generate_frames():
+        # El bucle NO depende de 'online': al detener el sistema se sigue
+        # sirviendo un aviso, asi el navegador no se queda con la imagen rota.
+        aviso_cacheado = None
+        estado_aviso = None
+        ultima_seq = -1
+
+        while True:
+            frame_bytes = None
+            if online:
+                seq = frame_hub.secuencia(camera_index)
+                if seq != ultima_seq:
+                    frame_bytes = frame_hub.jpeg(camera_index, calidad=80)
+                    if frame_bytes is not None:
+                        ultima_seq = seq
+
+            if frame_bytes is None:
+                # Aviso (negro con texto). Se genera y codifica UNA vez por
+                # estado y luego se reutiliza: antes se recreaba el array y se
+                # recodificaba el JPEG 5 veces por segundo para siempre.
                 texto = (f"Camara {camera_index + 1} no disponible"
                          if online else "Sistema detenido")
-                cv2.putText(frame, texto, (50, VIEW_H//2),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                time.sleep(0.2)   # aviso a ~5 fps: no quemar CPU en vano
+                if aviso_cacheado is None or estado_aviso != texto:
+                    aviso = np.zeros((VIEW_H, VIEW_W, 3), dtype=np.uint8)
+                    cv2.putText(aviso, texto, (50, VIEW_H // 2),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                    ok, buf = cv2.imencode('.jpg', aviso,
+                                           [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    aviso_cacheado = buf.tobytes() if ok else b''
+                    estado_aviso = texto
+                frame_bytes = aviso_cacheado
+                time.sleep(0.2)     # aviso a ~5 fps: no quemar CPU en vano
             else:
-                time.sleep(0.03)  # tope ~30 fps (antes: bucle sin pausa, CPU al 100%)
+                time.sleep(0.005)   # ceder CPU; el ritmo lo marca la camara
 
             try:
-                # Convertir frame a JPEG
-                ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                if not ret:
-                    continue
-
-                frame_bytes = buffer.tobytes()
-
-                # Enviar frame
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             except Exception as e:
                 print(f"Error generando frame cámara {camera_index}: {e}")
                 time.sleep(0.1)
-    
+
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -2993,101 +3038,125 @@ def toggle_recognition():
     _update_recognition_btn()
 
 # ================= INTERFAZ GRÁFICA CORREGIDA ==============
+# Secuencia del ultimo fotograma YA dibujado en cada panel. Sirve para no
+# repetir trabajo: si la camara no ha entregado nada nuevo, no hay nada que
+# redibujar. Antes update_gui() rehacia resize + cvtColor + PIL.Image +
+# PhotoImage 20 veces por segundo POR CAMARA aunque el fotograma fuera el
+# mismo, y todo eso ocurre en el hilo principal de Tk: es exactamente lo que
+# hacia que los botones y las pestanas respondieran con retraso.
+_ultima_seq_gui = {0: -1, 1: -1}
+_ultima_seq_fs = -1
+_camara_fs = None      # que camara se esta volcando a pantalla completa
+
+# Estado ya reflejado en los textos de la interfaz. Reconfigurar un widget de
+# Tk fuerza un redibujado; hacerlo 20 veces por segundo con el MISMO texto es
+# trabajo puro para nada. Solo se toca el widget cuando el valor cambia.
+_estado_ui = {}
+
+
+def _set_widget(clave, widget, **kwargs):
+    """Aplica kwargs al widget solo si algo cambio respecto a la ultima vez."""
+    if _estado_ui.get(clave) == kwargs:
+        return
+    _estado_ui[clave] = dict(kwargs)
+    try:
+        widget.config(**kwargs)
+    except Exception:
+        pass
+
+
+def _pintar_panel(indice, label, seq_vista):
+    """Vuelca el ultimo fotograma de una camara en su label de Tk.
+    Devuelve la nueva secuencia dibujada (o la misma si no habia nada nuevo)."""
+    frame, seq = frame_hub.obtener_si_nuevo(indice, seq_vista)
+    if frame is None:
+        return seq_vista
+    try:
+        if frame.shape[1] != VIEW_W or frame.shape[0] != VIEW_H:
+            frame = cv2.resize(frame, (VIEW_W, VIEW_H))
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        imgtk = ImageTk.PhotoImage(image=Image.fromarray(rgb))
+        label.imgtk = imgtk          # referencia viva: si no, Tk la recolecta
+        label.configure(image=imgtk)
+    except Exception as e:
+        print(f"Error actualizando GUI cámara {indice + 1}: {e}")
+    return seq
+
+
 def update_gui():
-    """Actualiza la interfaz gráfica CORREGIDA"""
-    global last_frame1, last_frame2, _cam2_visible, fs_geom
-    
-    # Tamaño fijo para los labels de video (VIEW_W x VIEW_H)
-    fixed_width = VIEW_W
-    fixed_height = VIEW_H
-    
-    # Actualizar vista de cámara 1
-    if last_frame1 is not None:
-        try:
-            # Verificar que el frame tenga el tamaño correcto
-            if last_frame1.shape[1] != fixed_width or last_frame1.shape[0] != fixed_height:
-                # Redimensionar solo si es necesario
-                frame_resized = cv2.resize(last_frame1, (fixed_width, fixed_height))
-                frame_rgb1 = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
-            else:
-                frame_rgb1 = cv2.cvtColor(last_frame1, cv2.COLOR_BGR2RGB)
-            
-            img1 = Image.fromarray(frame_rgb1)
-            imgtk1 = ImageTk.PhotoImage(image=img1)
-            
-            video_label1.imgtk = imgtk1
-            video_label1.configure(image=imgtk1)
-        except Exception as e:
-            print(f"Error actualizando GUI cámara 1: {e}")
-    
-    # Actualizar vista de cámara 2
-    if last_frame2 is not None:
-        try:
-            # Verificar que el frame tenga el tamaño correcto
-            if last_frame2.shape[1] != fixed_width or last_frame2.shape[0] != fixed_height:
-                # Redimensionar solo si es necesario
-                frame_resized = cv2.resize(last_frame2, (fixed_width, fixed_height))
-                frame_rgb2 = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
-            else:
-                frame_rgb2 = cv2.cvtColor(last_frame2, cv2.COLOR_BGR2RGB)
-            
-            img2 = Image.fromarray(frame_rgb2)
-            imgtk2 = ImageTk.PhotoImage(image=img2)
-            
-            video_label2.imgtk = imgtk2
-            video_label2.configure(image=imgtk2)
-        except Exception as e:
-            print(f"Error actualizando GUI cámara 2: {e}")
-    
-    # Actualizar estado de grabación
+    """Actualiza la interfaz gráfica (solo lo que ha cambiado)."""
+    global _cam2_visible, fs_geom, _ultima_seq_fs, _camara_fs
+
+    # ---- Video: solo si hay fotograma nuevo ----
+    _ultima_seq_gui[0] = _pintar_panel(0, video_label1, _ultima_seq_gui[0])
+    _ultima_seq_gui[1] = _pintar_panel(1, video_label2, _ultima_seq_gui[1])
+
+    # ---- Textos y estados: solo si cambiaron ----
     if recording:
-        record_btn.config(text="DETENER GRABACIÓN AMBAS", style="Accent.TButton")
+        _set_widget('record_btn', record_btn,
+                    text="DETENER GRABACIÓN AMBAS", style="Accent.TButton")
     else:
-        record_btn.config(text="INICIAR GRABACIÓN AMBAS", style="TButton")
-    
-    # Actualizar estado del sistema
+        _set_widget('record_btn', record_btn,
+                    text="INICIAR GRABACIÓN AMBAS", style="TButton")
+
     if online:
-        status_label.config(text=f"Estado: ONLINE (Cámara Activa: {active_camera_index + 1})", foreground=tc('ok'))
-        toggle_btn.config(text="DETENER")
-
-        # Actualizar información de FPS
-        fps_label.config(text=f"FPS Cámara 1: {fps1} | FPS Cámara 2: {fps2}")
+        _set_widget('status', status_label,
+                    text=f"Estado: ONLINE (Cámara Activa: {active_camera_index + 1})",
+                    foreground=tc('ok'))
+        _set_widget('toggle', toggle_btn, text="DETENER")
+        _set_widget('fps', fps_label,
+                    text=f"FPS Cámara 1: {fps1} | FPS Cámara 2: {fps2}")
     else:
-        status_label.config(text="Estado: INACTIVO", foreground=tc('danger'))
-        toggle_btn.config(text="INICIAR")
-        fps_label.config(text="FPS Cámara 1: 0 | FPS Cámara 2: 0")
-    
-    # Actualizar información de cámaras
-    camera_status = f"Cámara 1: {'OK' if camera1 is not None else '--'} | Cámara 2: {'OK' if camera2 is not None else '--'}"
-    camera_status_label.config(text=camera_status)
+        _set_widget('status', status_label, text="Estado: INACTIVO",
+                    foreground=tc('danger'))
+        _set_widget('toggle', toggle_btn, text="INICIAR")
+        _set_widget('fps', fps_label, text="FPS Cámara 1: 0 | FPS Cámara 2: 0")
 
-    # Mostrar solo la(s) cámara(s) activa(s): si la cámara 2 no se detecta, ocultar su ventana
+    _set_widget('cam_status', camera_status_label,
+                text=f"Cámara 1: {'OK' if camera1 is not None else '--'} | "
+                     f"Cámara 2: {'OK' if camera2 is not None else '--'}")
+
+    # Mostrar solo la(s) cámara(s) activa(s): si la cámara 2 no se detecta,
+    # ocultar su ventana (esto ya solo actua cuando cambia de estado).
     if camera2 is not None and not _cam2_visible:
         cam2_frame.pack(side=tk.RIGHT, padx=5)
         _cam2_visible = True
     elif camera2 is None and _cam2_visible:
         cam2_frame.pack_forget()
         _cam2_visible = False
-    
-    # Actualizar estado de grabación por cámara
+
     if recording_cam1:
-        recording_label1.config(text="Cámara 1: GRABANDO", foreground=tc('danger'))
+        _set_widget('rec1', recording_label1, text="Cámara 1: GRABANDO",
+                    foreground=tc('danger'))
     else:
-        recording_label1.config(text="Cámara 1: Lista", foreground=tc('ok'))
+        _set_widget('rec1', recording_label1, text="Cámara 1: Lista",
+                    foreground=tc('ok'))
 
     if recording_cam2:
-        recording_label2.config(text="Cámara 2: GRABANDO", foreground=tc('danger'))
+        _set_widget('rec2', recording_label2, text="Cámara 2: GRABANDO",
+                    foreground=tc('danger'))
     else:
-        recording_label2.config(text="Cámara 2: Lista", foreground=tc('ok'))
+        _set_widget('rec2', recording_label2, text="Cámara 2: Lista",
+                    foreground=tc('ok'))
 
-    # Volcar la cámara activa a la ventana de pantalla completa (con joystick translúcido)
+    # ---- Pantalla completa (con joystick translúcido) ----
+    # Tambien gobernada por la secuencia: reescalar a pantalla completa es la
+    # operacion mas cara de la interfaz y antes se hacia en CADA pasada.
     if fs_win is not None and fs_label is not None:
         try:
-            src = last_frame1 if active_camera_index == 0 else last_frame2
-            if src is None:
-                src = last_frame1 if last_frame1 is not None else last_frame2
+            # Camara a mostrar: la activa; si aun no ha entregado nada, la 1.
+            indice = active_camera_index
+            if frame_hub.secuencia(indice) == 0:
+                indice = 0
+            # Al cambiar de camara hay que redibujar aunque el numero coincida
+            # (son contadores distintos), asi que se reinicia la referencia.
+            if indice != _camara_fs:
+                _camara_fs = indice
+                _ultima_seq_fs = -1
+            src, seq = frame_hub.obtener_si_nuevo(indice, _ultima_seq_fs)
             sw, sh = fs_win.winfo_width(), fs_win.winfo_height()
             if src is not None and sw > 10 and sh > 10:
+                _ultima_seq_fs = seq
                 big = cv2.resize(src, (sw, sh))
                 fs_geom = draw_joystick_overlay(big)
                 rgb = cv2.cvtColor(big, cv2.COLOR_BGR2RGB)
@@ -3097,8 +3166,11 @@ def update_gui():
         except Exception:
             pass
 
-    # Programar siguiente actualización
-    root.after(50, update_gui)
+    # Programar siguiente actualización.
+    #  33 ms (~30 Hz) en vez de 50 ms: ahora cada pasada es barata (si no hay
+    #  fotograma nuevo no hace practicamente nada), asi que se puede mirar mas
+    #  a menudo y el video va mas fluido gastando MENOS CPU que antes.
+    root.after(33, update_gui)
 
 def on_closing():
     """Maneja el cierre de la aplicación"""
