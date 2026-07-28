@@ -21,14 +21,19 @@
  *  ------------------------------------------------------------
  *  MAPA DE PINES (Arduino Uno)
  *  ------------------------------------------------------------
- *    0,1        -> Serial (USB, comandos desde la Pi/PC)
+ *    0,1        -> Serial (USB, comandos desde la Pi/PC)  ¡RESERVADOS!
  *    2          -> Servo dispensador (libreria Servo)
  *    3, 5       -> Servos de camara pan / tilt (libreria Servo)
- *    4,6,7,12   -> Mando PS2 (data/attention/command/clock) - OPCIONAL
- *    8,9,10,11  -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
+ *    4,10,11,12 -> Mando PS2 (data/attention/command/clock) - OPCIONAL
+ *    6,7,8,9    -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
  *    13         -> libre
  *    A0..A3     -> libres (sin cablear; el movimiento llega por COM)
  *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC
+ *
+ *  NUNCA cablees el ULN2003 (ni nada) a los pines 0 y 1: son el RX/TX del USB.
+ *  Con Serial.begin() el UART se apodera de ellos, digitalWrite deja de valer
+ *  y el motor no gira; encima las respuestas del Arduino saldrian por una
+ *  bobina y las subidas de sketch pueden fallar.
  *
  *  Motores DC: por el Motor Shield (I2C). AFMS.begin(1600) para que giren
  *  (a 50 Hz casi no reciben potencia).
@@ -130,12 +135,22 @@ Servo servoPan;
 Servo servoTilt;
 
 // ------------- Motor paso a paso (ruleta) -------------
-//  ULN2003 en los pines 8, 9, 10, 11 (mismo cableado que el dispensador que
-//  ya funcionaba). El mando PS2 se movio a 4/6/7/12 para no chocar con estos.
-const int PIN_IN1 = 8;
-const int PIN_IN2 = 9;
-const int PIN_IN3 = 10;
-const int PIN_IN4 = 11;
+//  ULN2003 en los pines 6, 7, 8, 9  <-- CABLEADO REAL DE ESTE ROBOT.
+//
+//  ATENCION, NO USAR LOS PINES 0 NI 1 PARA EL ULN2003:
+//    En el Uno son el RX/TX del puerto serie por USB, y estan soldados al chip
+//    USB de la placa. En cuanto se hace Serial.begin() el hardware del UART se
+//    apodera de ellos y digitalWrite() deja de tener efecto, asi que el motor
+//    NUNCA giraria. Ademas es contraproducente: todo lo que el Arduino
+//    responde (POS, OK,MOVE...) sale por el pin 1 y llegaria a una bobina
+//    dando tirones, el pin 0 cargado estorba a la recepcion de comandos, y las
+//    subidas de sketch (que usan 0/1) pueden fallar.
+//
+//  El mando PS2 se movio a 4/10/11/12 para dejar libres estos cuatro.
+const int PIN_IN1 = 6;
+const int PIN_IN2 = 7;
+const int PIN_IN3 = 8;
+const int PIN_IN4 = 9;
 
 const int  PASOS_POR_VUELTA  = 2048;                                 // 28BYJ-48 (ajusta si es necesario)
 const int  N_COMPARTIMIENTOS = 8;
@@ -579,11 +594,11 @@ void setup() {
   // Inicializar PS2X (OPCIONAL). Se intenta unas veces; si NO hay mando
   // conectado se CONTINUA igual (antes se colgaba en un bucle infinito y el
   // Arduino nunca respondia por Serial).
-  //  PS2 en pines 12(clock), 7(command), 6(attention), 4(data) — libres, para
-  //  no chocar con el stepper (8-11) ni los servos (2/3/5).
+  //  PS2 en pines 12(clock), 11(command), 10(attention), 4(data) — libres,
+  //  para no chocar con el stepper (6-9) ni los servos (2/3/5).
   ps2Presente = false;
   for (int intento = 0; intento < 10; intento++) {
-    if (ps2x.config_gamepad(12, 7, 6, 4, true, true) == 0) {
+    if (ps2x.config_gamepad(12, 11, 10, 4, true, true) == 0) {
       ps2Presente = true;
       break;
     }
