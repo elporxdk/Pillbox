@@ -24,9 +24,10 @@
  *    0,1        -> Serial (USB, comandos desde la Pi/PC)  ¡RESERVADOS!
  *    2          -> Servo dispensador (libreria Servo)
  *    3, 5       -> Servos de camara pan / tilt (libreria Servo)
- *    4,10,11,12 -> Mando PS2 (data/attention/command/clock) - OPCIONAL
  *    6,7,8,9    -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
- *    13         -> libre
+ *    10,11,12,13-> Mando PS2 (attention/command/data/clock) - OPCIONAL
+ *                  Son sus pines de siempre: NO se tocan.
+ *    4          -> libre
  *    A0..A3     -> libres (sin cablear; el movimiento llega por COM)
  *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC
  *
@@ -146,7 +147,8 @@ Servo servoTilt;
 //    dando tirones, el pin 0 cargado estorba a la recepcion de comandos, y las
 //    subidas de sketch (que usan 0/1) pueden fallar.
 //
-//  El mando PS2 se movio a 4/10/11/12 para dejar libres estos cuatro.
+//  El mando PS2 conserva sus pines de siempre (10-13) y no estorba: 6,7,8,9
+//  estaban libres, asi que conviven sin tocar nada del mando.
 const int PIN_IN1 = 6;
 const int PIN_IN2 = 7;
 const int PIN_IN3 = 8;
@@ -594,11 +596,12 @@ void setup() {
   // Inicializar PS2X (OPCIONAL). Se intenta unas veces; si NO hay mando
   // conectado se CONTINUA igual (antes se colgaba en un bucle infinito y el
   // Arduino nunca respondia por Serial).
-  //  PS2 en pines 12(clock), 11(command), 10(attention), 4(data) — libres,
-  //  para no chocar con el stepper (6-9) ni los servos (2/3/5).
+  //  PS2 en 13(clock), 11(command), 10(attention), 12(data): son sus pines de
+  //  SIEMPRE y NO se tocan (el mando esta cableado asi de fabrica en el robot).
+  //  No hace falta moverlos: con el stepper en 6-9 no se pisan.
   ps2Presente = false;
   for (int intento = 0; intento < 10; intento++) {
-    if (ps2x.config_gamepad(12, 11, 10, 4, true, true) == 0) {
+    if (ps2x.config_gamepad(13, 11, 10, 12, true, true) == 0) {
       ps2Presente = true;
       break;
     }
