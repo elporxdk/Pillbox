@@ -117,6 +117,34 @@ descartadas y los hilos internos de OpenCV limitados para que no compitan con
 la interfaz. De regalo, `detected_red_objects` ahora se publica de verdad: las
 APIs `/api/all`, `/api/esp32` y `/red_objects` devolvian siempre lista vacia.
 
+### Si los FPS de la camara bajan: medir antes de tocar
+
+El bucle de video se mide solo. Cada 5 segundos imprime por consola el reparto
+real del tiempo, y lo mismo sale en `/api/all` (campo `perf`):
+
+```
+[perf cam1] 6 FPS | camara 150.2 ms | proceso 5.5 ms | publicar 1.1 ms | TOTAL 156.9 ms (~6.4 FPS) -> manda: camara
+```
+
+Como leerlo:
+
+- **`manda: camara`** — el limite esta en el driver (USB + decodificar MJPEG),
+  no en el codigo Python. Optimizar el procesamiento no servira de nada; hay
+  que bajar la resolucion de captura (`FRAME_W/FRAME_H`), probar sin forzar
+  MJPG, o revisar que la camara no este negociando 5-10 FPS por poca luz
+  (muchas webcams alargan la exposicion automaticamente y bajan los FPS a la
+  mitad en interiores).
+- **`manda: proceso`** — el limite es nuestro; ahi si tiene sentido afinar
+  detectores.
+
+Ajustes que se pueden probar sin editar codigo:
+
+```bash
+MEDIBOT_CV_THREADS=1 python3 main.py   # hilos internos de OpenCV (def.: automatico)
+MEDIBOT_GUI_MS=33 python3 main.py      # refresco de la interfaz (def.: 50 ms)
+MEDIBOT_PERF_SEG=2 python3 main.py     # cada cuanto se imprime la medicion
+```
+
 ### Si la autodeteccion no encuentra el Arduino
 
 Fija el puerto a mano con una variable de entorno antes de arrancar:
