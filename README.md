@@ -76,6 +76,47 @@ Detalles importantes:
 `medibot_red.py` es el modulo que enumera las interfaces de red reales; lo
 usan Pillbox, Vision y `main.py`, asi que los tres coinciden siempre.
 
+### Rendimiento de la vision (por que iba a 9-14 FPS)
+
+`medibot_vision.py` concentra el motor de video. Medido sobre 640x480 en un
+solo nucleo, el coste por fotograma **sin usar ninguna IA**:
+
+| | antes | ahora |
+|---|---|---|
+| Trabajo por fotograma | 29.9 ms + 33 ms de espera | **1.4 ms** |
+| Techo de FPS por CPU | ~16 FPS | **>100 FPS** (manda la camara) |
+| Con reconocimiento activo | 29.9 ms | **15.5 ms** |
+
+Las cuatro causas y su arreglo:
+
+1. **El detector de caras se ejecutaba siempre.** `cascade.detectMultiScale`
+   cuesta ~25 ms y era el 97 % del trabajo, pero corria en cada fotograma
+   *aunque el reconocimiento estuviera apagado* (que es como arranca el
+   programa): se calculaba para tirar el resultado. Ahora solo corre si
+   alguien va a usarlo, y ademas sobre una imagen a mitad de escala (4x menos
+   pixeles, ~2x mas rapido) sin tocar `scaleFactor` ni `minNeighbors`, asi que
+   detecta igual; el recorte para reconocer sigue saliendo del gris a
+   resolucion completa.
+2. **El bucle dormia 33 ms extra.** `camera.read()` ya espera al sensor, asi
+   que ese `time.sleep(0.033)` encima hacia perder uno de cada dos fotogramas.
+3. **La interfaz rehacia el mismo fotograma.** `update_gui` convertia y
+   redibujaba 20 veces por segundo aunque la camara no hubiera entregado nada
+   nuevo, y todo eso ocurre en el hilo principal de Tk: de ahi los botones
+   lentos. Ahora cada fotograma va numerado y la interfaz solo trabaja si el
+   numero cambio (en las pruebas se ahorra ~53 % de las pasadas), y los textos
+   solo se reescriben cuando su valor cambia.
+4. **Cada navegador recodificaba el video.** Ahora el JPEG se genera una vez
+   por fotograma y se reparte; si nadie mira la web, no se codifica nada.
+
+Otros arreglos de recursos: fuga de memoria del seguidor de objetos (su
+identificador incluia las coordenadas, asi que un objeto en movimiento creaba
+una entrada nueva por fotograma: ~30x menos entradas y ahora con tope), lista
+de personas cacheada (se leia del disco dentro del bucle de reconocimiento),
+auto-ajuste de camara 1 de cada 15 fotogramas, escrituras PWM repetidas
+descartadas y los hilos internos de OpenCV limitados para que no compitan con
+la interfaz. De regalo, `detected_red_objects` ahora se publica de verdad: las
+APIs `/api/all`, `/api/esp32` y `/red_objects` devolvian siempre lista vacia.
+
 ### Si la autodeteccion no encuentra el Arduino
 
 Fija el puerto a mano con una variable de entorno antes de arrancar:
