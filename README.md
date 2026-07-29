@@ -147,37 +147,42 @@ MEDIBOT_PERF_SEG=2 python3 main.py     # cada cuanto se imprime la medicion
 
 ### Encoders de los motores
 
-El shield saca dos pines del Arduino por cada header de encoder. Con el
-ULN2003 movido a A0-A3, los headers quedan asi:
+Se usa la **libreria oficial del shield** (`QGPMaker_Encoder`), que ya conoce
+el mapeo de pines y calcula las RPM. Con el ULN2003 movido a A0-A3 quedan
+libres los headers de encoder:
 
-| header | pines | motor | mide |
+| header | pines | motor | disponible |
 |---|---|---|---|
-| Encoder1 | D8, D9 | 1 | pulsos **y sentido** |
-| Encoder2 | D6, D7 | 2 | pulsos **y sentido** |
-| Encoder3 | D3 | 3 | solo pulsos (D2 lo usa el servo dispensador) |
-| Encoder4 | D4, D5 | 4 | pulsos **y sentido** |
+| Encoder1 | D8, D9 | M1 | si |
+| Encoder2 | D6, D7 | M2 | si |
+| Encoder4 | D4, D5 | M4 | si |
+| Encoder3 | D2, D3 | M3 | **no**: D2 es el unico sitio libre para el servo dispensador |
 
-Se leen por interrupciones de cambio de pin, no por sondeo: no se pierde
-ningun pulso aunque el Arduino este girando la ruleta (que bloquea segundos),
-y no cuesta CPU con los motores parados.
+**4320 cuentas = 1 vuelta** del eje de salida (12 PPR x 4 cuadratura x 90 de
+reductora).
 
 Por Serial:
 
 ```
-ENC        -> ENC,1520,-843,377,-1519     (cuentas acumuladas)
-ENCRESET   -> ENC,0,0,0,0                 (pone los contadores a cero)
+ENC        -> ENC,4320,-2160,0,864        posicion acumulada (con signo)
+ENCRPM     -> ENCRPM,120,-118,0,119       velocidad de cada motor en RPM
+ENCRESET   -> ENC,0,0,0,0                 pone las cuentas a cero
 ```
 
 Desde Python:
 
 ```python
-import medibot_serial
-medibot_serial.reiniciar_encoders()          # poner a cero
-cuentas = medibot_serial.leer_encoders()     # [m1, m2, m3, m4] o None
+import medibot_serial as ms
+
+ms.reiniciar_encoders()                  # poner a cero
+cuentas = ms.leer_encoders()             # [m1, m2, m3, m4] o None
+rpm     = ms.leer_rpm()                  # [m1, m2, m3, m4] o None
+vueltas = cuentas[0] / ms.CUENTAS_POR_VUELTA
 ```
 
-Devuelve `None` si el Arduino no responde, para poder distinguirlo de cuatro
-ceros legitimos (motores parados).
+El campo de M3 llega siempre a 0. Las tres funciones devuelven `None` si el
+Arduino no responde, para poder distinguirlo de cuatro ceros legitimos (que
+significan "motores parados").
 
 Los servos de camara pan/tilt estan desactivados (`USAR_SERVOS_CAMARA 0` en el
 sketch) porque este robot no lleva ese soporte; por eso D3 y D5 quedan para

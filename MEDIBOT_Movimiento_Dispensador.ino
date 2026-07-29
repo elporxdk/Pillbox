@@ -24,10 +24,10 @@
  *    0,1        -> Serial (USB, comandos desde la Pi/PC)  ¡RESERVADOS!
  *                  (en el shield salen por el header WIFI/BT: NO son libres)
  *    2          -> Servo dispensador (libreria Servo)   [header Encoder3]
- *    3          -> Encoder motor 3, canal unico          [header Encoder3]
- *    4,5        -> Encoder motor 4 (canales A y B)       [header Encoder4]
- *    6,7        -> Encoder motor 2 (canales A y B)       [header Encoder2]
- *    8,9        -> Encoder motor 1 (canales A y B)       [header Encoder1]
+ *    3          -> libre (el resto del header Encoder3, sin usar)
+ *    4,5        -> Encoder del motor M4                  [header Encoder4]
+ *    6,7        -> Encoder del motor M2                  [header Encoder2]
+ *    8,9        -> Encoder del motor M1                  [header Encoder1]
  *    10,11,12,13-> Mando PS2 (attention/command/data/clock) - OPCIONAL
  *                  Son sus pines de siempre: NO se tocan.
  *    A0..A3     -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
@@ -68,9 +68,15 @@
  *                  vuelta) para probar el paso a paso AISLADO del resto
  *
  *  ------------------- ORDENES ENCODERS -----------------------
- *   ENC            Responde ENC,<m1>,<m2>,<m3>,<m4> = pulsos acumulados
- *                  (m1, m2 y m4 con signo = sentido de giro; m3 sin signo)
- *   ENCRESET       Pone los cuatro contadores a cero
+ *  Libreria oficial del shield (QGPMaker_Encoder). Disponibles M1, M2 y M4;
+ *  el de M3 NO, porque su pin D2 es el unico sitio libre para el servo
+ *  dispensador. El campo <m3> va siempre a 0.
+ *   ENC            ENC,<m1>,<m2>,0,<m4>     posicion acumulada, con signo
+ *   ENCRPM         ENCRPM,<r1>,<r2>,0,<r4>  velocidad de cada motor en RPM
+ *   ENCRESET       Pone las cuentas a cero (calibrar / medir un recorrido)
+ *
+ *  4320 cuentas = 1 vuelta del eje de salida (12 PPR x 4 cuadratura x 90
+ *  reductora), segun el fabricante. Constante CUENTAS_POR_VUELTA.
  *
  *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
  *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
@@ -91,6 +97,7 @@
 #include <Wire.h>
 #include "PS2X_lib.h"
 #include "QGPMaker_MotorShield.h"
+#include "QGPMaker_Encoder.h"     // encoders de los motores (libreria del shield)
 #include <Stepper.h>
 #include <Servo.h>
 #include <EEPROM.h>
@@ -352,125 +359,59 @@ void handlePS2Servos() {
 }
 
 // ═════════════════════════════════════════════════════════════
-//  ENCODERS DE LOS MOTORES  (headers Encoder1..4 del shield)
+//  ENCODERS DE LOS MOTORES  (libreria oficial QGPMaker_Encoder)
 // ═════════════════════════════════════════════════════════════
-//  El shield saca dos pines del Arduino por cada header de encoder:
+//  Se usa la libreria del fabricante del shield en vez de leer los pines a
+//  mano: ella ya sabe que pines corresponden a cada motor, da la velocidad en
+//  RPM hecha, y no ata el sketch a los registros del ATmega (el codigo previo
+//  usaba PCINT/PINB/PIND, que solo existen en AVR).
 //
-//     Encoder1 -> D8, D9     (motor 1)
-//     Encoder2 -> D6, D7     (motor 2)
-//     Encoder3 -> D2, D3     (motor 3)   D2 lo usa el servo dispensador
-//     Encoder4 -> D4, D5     (motor 4)
+//     QGPMaker_Encoder encoderN(N);   // N = numero del motor (M1..M4)
+//     encoderN.read()                 // posicion acumulada (int32_t)
+//     encoderN.write(0)               // poner a cero (calibrar)
+//     encoderN.getRPM()               // velocidad de giro en RPM
 //
-//  Con el ULN2003 movido a A0..A3, los headers 1, 2 y 4 quedan COMPLETOS
-//  (canal A + canal B: se cuenta y ademas se sabe el sentido de giro).
-//  Del Encoder3 solo queda D3, porque D2 lo ocupa el servo dispensador, que no
-//  se puede mover a ningun otro sitio: ese se lee como canal unico (cuenta
-//  pulsos, sin detectar sentido). Para saber en que direccion va el motor 3
-//  basta con mirar la orden que se le dio.
-//
-//  COMO SE LEEN: por interrupciones de cambio de pin (pin change), no por
-//  sondeo. Asi no se pierde ni un pulso aunque el bucle principal este ocupado
-//  girando la ruleta (ruleta.step() bloquea varios segundos) y no cuesta CPU
-//  mientras los motores estan parados.
-//   - PCINT0 cubre PORTB: se activan SOLO D8 y D9 (los pines del mando PS2,
-//     D10-D13, estan en el mismo puerto pero se dejan enmascarados para que no
-//     disparen la interrupcion).
-//   - PCINT2 cubre PORTD: se activan D3, D4, D5, D6 y D7. D0/D1 (serie) nunca.
-//  El ULN2003 en A0-A3 (PORTC) no genera interrupciones: PCIE1 queda apagado.
-//
-//  ORDENES:  ENC        -> ENC,<m1>,<m2>,<m3>,<m4>   (cuentas acumuladas)
-//            ENCRESET   -> pone los cuatro contadores a cero
-// ═════════════════════════════════════════════════════════════
+//  QUE ENCODERS HAY DISPONIBLES: los de M1, M2 y M4.
+//  El de M3 NO se puede usar en este robot: su header (Encoder3) ocupa los
+//  pines D2 y D3, y D2 es el unico sitio que queda para el servo dispensador.
+//  No hay alternativa: el resto de pines estan tomados (D0/D1 son el serie,
+//  D4-D9 los otros encoders, D10-D13 el mando PS2, A0-A3 el ULN2003 y A4/A5
+//  el I2C), y los conectores de servo del propio shield no sirven porque el
+//  PCA9685 esta a 1600 Hz para los motores DC (un servo necesita 50 Hz).
+QGPMaker_Encoder encoder1(1);   // motor M1
+QGPMaker_Encoder encoder2(2);   // motor M2
+QGPMaker_Encoder encoder4(4);   // motor M4
 
-#define N_ENCODERS 4
-
-volatile long encCuenta[N_ENCODERS] = {0, 0, 0, 0};
-volatile uint8_t encPrevB = 0;   // ultimo estado leido de PORTB
-volatile uint8_t encPrevD = 0;   // ultimo estado leido de PORTD
-
-// --- PORTB: D8 (bit 0) y D9 (bit 1) = Encoder1 -> motor 1 ---
-ISR(PCINT0_vect) {
-  uint8_t ahora   = PINB;
-  uint8_t cambios = ahora ^ encPrevB;
-  encPrevB = ahora;
-
-  if (cambios & _BV(0)) {                     // cambio en el canal A (D8)
-    // Cuadratura: si A y B valen lo mismo gira en un sentido; si no, al otro.
-    if (((ahora >> 0) & 1) == ((ahora >> 1) & 1)) encCuenta[0]--;
-    else                                          encCuenta[0]++;
-  }
-}
-
-// --- PORTD: D6/D7 = Encoder2 (motor 2), D4/D5 = Encoder4 (motor 4),
-//            D3 = Encoder3 a canal unico (motor 3) ---
-ISR(PCINT2_vect) {
-  uint8_t ahora   = PIND;
-  uint8_t cambios = ahora ^ encPrevD;
-  encPrevD = ahora;
-
-  if (cambios & _BV(6)) {                     // Encoder2: A=D6, B=D7
-    if (((ahora >> 6) & 1) == ((ahora >> 7) & 1)) encCuenta[1]--;
-    else                                          encCuenta[1]++;
-  }
-  if (cambios & _BV(4)) {                     // Encoder4: A=D4, B=D5
-    if (((ahora >> 4) & 1) == ((ahora >> 5) & 1)) encCuenta[3]--;
-    else                                          encCuenta[3]++;
-  }
-#if !USAR_SERVOS_CAMARA
-  if (cambios & _BV(3)) {                     // Encoder3: solo canal A (D3)
-    encCuenta[2]++;                           // sin canal B no hay sentido
-  }
-#endif
-}
-
-void iniciarEncoders() {
-  // Entradas con pull-up: los encoders de colector abierto necesitan el
-  // pull-up, y si no hay nada enchufado el pin queda estable en alto (no
-  // flota, asi que no genera interrupciones fantasma).
-  pinMode(8, INPUT_PULLUP);
-  pinMode(9, INPUT_PULLUP);
-  pinMode(6, INPUT_PULLUP);
-  pinMode(7, INPUT_PULLUP);
-#if !USAR_SERVOS_CAMARA
-  pinMode(3, INPUT_PULLUP);
-  pinMode(4, INPUT_PULLUP);
-  pinMode(5, INPUT_PULLUP);
-#endif
-
-  encPrevB = PINB;   // estado inicial, para que el primer cambio sea real
-  encPrevD = PIND;
-
-  PCICR  |= _BV(PCIE0) | _BV(PCIE2);          // habilitar PORTB y PORTD
-  PCMSK0 |= _BV(PCINT0) | _BV(PCINT1);        // D8, D9  (NO D10-D13: son PS2)
-  PCMSK2 |= _BV(PCINT22) | _BV(PCINT23);      // D6, D7
-#if !USAR_SERVOS_CAMARA
-  PCMSK2 |= _BV(PCINT19) | _BV(PCINT20) | _BV(PCINT21);   // D3, D4, D5
-#endif
-}
-
-// Lectura segura: 'long' son 4 bytes y el AVR es de 8 bits, asi que una
-// interrupcion a mitad de lectura devolveria un valor corrupto.
-long leerEncoder(uint8_t i) {
-  if (i >= N_ENCODERS) return 0;
-  noInterrupts();
-  long valor = encCuenta[i];
-  interrupts();
-  return valor;
-}
+//  Cuentas por vuelta COMPLETA del eje de salida, segun el fabricante:
+//     12 PPR x 4 (cuadratura) x 90 (reductora) = 4320
+//  Sirve para pasar de cuentas a vueltas o a distancia recorrida:
+//     vueltas = encoder1.read() / (float)CUENTAS_POR_VUELTA;
+const long CUENTAS_POR_VUELTA = 4320;
 
 void reiniciarEncoders() {
-  noInterrupts();
-  for (uint8_t i = 0; i < N_ENCODERS; i++) encCuenta[i] = 0;
-  interrupts();
+  encoder1.write(0);
+  encoder2.write(0);
+  encoder4.write(0);
 }
 
+// Responde siempre con los cuatro campos para no romper a quien lo lea; el
+// tercero (M3) va a 0 porque ese encoder no esta disponible (ver arriba).
 void responderEncoders() {
-  Serial.print("ENC");
-  for (uint8_t i = 0; i < N_ENCODERS; i++) {
-    Serial.print(",");
-    Serial.print(leerEncoder(i));
-  }
-  Serial.println();
+  Serial.print("ENC,");
+  Serial.print(encoder1.read());
+  Serial.print(",");
+  Serial.print(encoder2.read());
+  Serial.print(",0,");
+  Serial.println(encoder4.read());
+}
+
+void responderRPM() {
+  Serial.print("ENCRPM,");
+  Serial.print(encoder1.getRPM());
+  Serial.print(",");
+  Serial.print(encoder2.getRPM());
+  Serial.print(",0,");
+  Serial.println(encoder4.getRPM());
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -647,8 +588,12 @@ void procesarComando(String linea) {
     // no debe recibir un ERR por algo que no es un fallo.
 
   } else if (cmd == "ENC") {
-    // Cuentas acumuladas de los cuatro encoders.
+    // Posicion acumulada de los encoders (cuentas).
     responderEncoders();
+
+  } else if (cmd == "ENCRPM") {
+    // Velocidad de giro de cada motor, en RPM (la calcula la libreria).
+    responderRPM();
 
   } else if (cmd == "ENCRESET") {
     // Poner los contadores a cero (p.ej. antes de medir un recorrido).
@@ -793,10 +738,9 @@ void setup() {
 #endif
 
   // ---- Encoders de los motores ----
-  //  Se preparan siempre: si no hay encoders enchufados, los pines quedan en
-  //  alto por el pull-up y no se dispara ninguna interrupcion, asi que no
-  //  cuesta nada tenerlo activado.
-  iniciarEncoders();
+  //  La libreria QGPMaker_Encoder se encarga de configurarlos; aqui solo se
+  //  ponen las cuentas a cero para partir de un origen conocido.
+  reiniciarEncoders();
 
   // Leer ultima posicion guardada en EEPROM
   byte saved = EEPROM.read(EEPROM_COMP_ADDR);
