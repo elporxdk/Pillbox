@@ -119,6 +119,39 @@ def hub_shutdown():
     return _peticion({"op": "shutdown"}, timeout=3.0, _reintentar=False)
 
 
+def leer_encoders(timeout=1.5):
+    """Cuentas de los 4 encoders de los motores: [m1, m2, m3, m4].
+
+    El Arduino los cuenta por interrupciones, asi que no se pierde ningun pulso
+    aunque este ocupado girando la ruleta. m1, m2 y m4 llevan SIGNO (el sentido
+    de giro se saca del canal B); m3 solo cuenta pulsos, porque en el shield su
+    segundo pin lo ocupa el servo dispensador.
+
+    Devuelve None si el Arduino no responde (asi se distingue "sin datos" de
+    "cuatro ceros", que es un valor legitimo: motores parados)."""
+    lineas = send_command("ENC", wait=timeout, until=["ENC", "ERR"])
+    for linea in lineas or []:
+        if str(linea).startswith("ENC,"):
+            try:
+                return [int(x) for x in str(linea).split(",")[1:5]]
+            except ValueError:
+                return None
+    return None
+
+
+def reiniciar_encoders(timeout=1.5):
+    """Pone los cuatro contadores a cero. Devuelve las cuentas tras el reinicio
+    (todo a cero) o None si el Arduino no responde."""
+    lineas = send_command("ENCRESET", wait=timeout, until=["ENC", "ERR"])
+    for linea in lineas or []:
+        if str(linea).startswith("ENC,"):
+            try:
+                return [int(x) for x in str(linea).split(",")[1:5]]
+            except ValueError:
+                return None
+    return None
+
+
 def send_command(cmd, wait=0.3, until=None):
     """Envia un comando al Arduino a traves del hub y devuelve la lista de
     lineas de respuesta. Si el hub no responde, devuelve un aviso en la lista.

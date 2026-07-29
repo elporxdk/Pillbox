@@ -145,6 +145,45 @@ MEDIBOT_GUI_MS=33 python3 main.py      # refresco de la interfaz (def.: 50 ms)
 MEDIBOT_PERF_SEG=2 python3 main.py     # cada cuanto se imprime la medicion
 ```
 
+### Encoders de los motores
+
+El shield saca dos pines del Arduino por cada header de encoder. Con el
+ULN2003 movido a A0-A3, los headers quedan asi:
+
+| header | pines | motor | mide |
+|---|---|---|---|
+| Encoder1 | D8, D9 | 1 | pulsos **y sentido** |
+| Encoder2 | D6, D7 | 2 | pulsos **y sentido** |
+| Encoder3 | D3 | 3 | solo pulsos (D2 lo usa el servo dispensador) |
+| Encoder4 | D4, D5 | 4 | pulsos **y sentido** |
+
+Se leen por interrupciones de cambio de pin, no por sondeo: no se pierde
+ningun pulso aunque el Arduino este girando la ruleta (que bloquea segundos),
+y no cuesta CPU con los motores parados.
+
+Por Serial:
+
+```
+ENC        -> ENC,1520,-843,377,-1519     (cuentas acumuladas)
+ENCRESET   -> ENC,0,0,0,0                 (pone los contadores a cero)
+```
+
+Desde Python:
+
+```python
+import medibot_serial
+medibot_serial.reiniciar_encoders()          # poner a cero
+cuentas = medibot_serial.leer_encoders()     # [m1, m2, m3, m4] o None
+```
+
+Devuelve `None` si el Arduino no responde, para poder distinguirlo de cuatro
+ceros legitimos (motores parados).
+
+Los servos de camara pan/tilt estan desactivados (`USAR_SERVOS_CAMARA 0` en el
+sketch) porque este robot no lleva ese soporte; por eso D3 y D5 quedan para
+encoders. Si algun dia montas el pan/tilt, pon ese `#define` a 1: recuperas los
+servos y pierdes los encoders 3 y 4.
+
 ### Si la autodeteccion no encuentra el Arduino
 
 Fija el puerto a mano con una variable de entorno antes de arrancar:

@@ -22,19 +22,24 @@
  *  MAPA DE PINES (Arduino Uno)
  *  ------------------------------------------------------------
  *    0,1        -> Serial (USB, comandos desde la Pi/PC)  ¡RESERVADOS!
- *    2          -> Servo dispensador (libreria Servo)
- *    3, 5       -> Servos de camara pan / tilt (libreria Servo)
- *    6,7,8,9    -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
+ *                  (en el shield salen por el header WIFI/BT: NO son libres)
+ *    2          -> Servo dispensador (libreria Servo)   [header Encoder3]
+ *    3          -> Encoder motor 3, canal unico          [header Encoder3]
+ *    4,5        -> Encoder motor 4 (canales A y B)       [header Encoder4]
+ *    6,7        -> Encoder motor 2 (canales A y B)       [header Encoder2]
+ *    8,9        -> Encoder motor 1 (canales A y B)       [header Encoder1]
  *    10,11,12,13-> Mando PS2 (attention/command/data/clock) - OPCIONAL
  *                  Son sus pines de siempre: NO se tocan.
- *    4          -> libre
- *    A0..A3     -> libres (sin cablear; el movimiento llega por COM)
- *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC
+ *    A0..A3     -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
+ *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC y servos brazo
  *
  *  NUNCA cablees el ULN2003 (ni nada) a los pines 0 y 1: son el RX/TX del USB.
  *  Con Serial.begin() el UART se apodera de ellos, digitalWrite deja de valer
  *  y el motor no gira; encima las respuestas del Arduino saldrian por una
  *  bobina y las subidas de sketch pueden fallar.
+ *
+ *  Los servos de camara pan/tilt estan DESACTIVADOS (USAR_SERVOS_CAMARA 0)
+ *  porque este robot no lleva ese soporte; asi D3 y D5 quedan para encoders.
  *
  *  Motores DC: por el Motor Shield (I2C). AFMS.begin(1600) para que giren
  *  (a 50 Hz casi no reciben potencia).
@@ -61,6 +66,11 @@
  *   GETPOS         Responde POS,<n> = compartimiento actualmente arriba
  *   STEPTEST[,<k>] Diagnostico: gira la ruleta k compartimientos (def. 8 = 1
  *                  vuelta) para probar el paso a paso AISLADO del resto
+ *
+ *  ------------------- ORDENES ENCODERS -----------------------
+ *   ENC            Responde ENC,<m1>,<m2>,<m3>,<m4> = pulsos acumulados
+ *                  (m1, m2 y m4 con signo = sentido de giro; m3 sin signo)
+ *   ENCRESET       Pone los cuatro contadores a cero
  *
  *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
  *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
@@ -128,31 +138,41 @@ const int  SERVO_DISPENSA = 90;   // posicion para soltar la pastilla
 Servo servoDispensador;
 
 // ---------------- Servos de camara (pan/tilt) ----------------
+//  OPCIONAL. Este robot NO lleva soporte pan/tilt, asi que vienen DESACTIVADOS
+//  y sus pines (D3 y D5) quedan libres para los encoders de los motores.
+//  Pon 1 aqui si algun dia montas el soporte: entonces D3/D5 pasan a los servos
+//  y pierdes los encoders 3 y 4 (comparten esos pines en el shield).
+#define USAR_SERVOS_CAMARA 0
+
+#if USAR_SERVOS_CAMARA
 //  Controlados por Vision via COM con  PWM,<pin>,<duty>  (pin 18 = pan, 13 = tilt).
-//  Usan pines libres 3 y 5 (libreria Servo estandar).
 const int PAN_PIN  = 3;
 const int TILT_PIN = 5;
 Servo servoPan;
 Servo servoTilt;
+#endif
 
 // ------------- Motor paso a paso (ruleta) -------------
-//  ULN2003 en los pines 6, 7, 8, 9  <-- CABLEADO REAL DE ESTE ROBOT.
+//  ULN2003 en A0, A1, A2, A3  <-- CABLEADO REAL DE ESTE ROBOT.
 //
-//  ATENCION, NO USAR LOS PINES 0 NI 1 PARA EL ULN2003:
-//    En el Uno son el RX/TX del puerto serie por USB, y estan soldados al chip
-//    USB de la placa. En cuanto se hace Serial.begin() el hardware del UART se
-//    apodera de ellos y digitalWrite() deja de tener efecto, asi que el motor
-//    NUNCA giraria. Ademas es contraproducente: todo lo que el Arduino
-//    responde (POS, OK,MOVE...) sale por el pin 1 y llegaria a una bobina
-//    dando tirones, el pin 0 cargado estorba a la recepcion de comandos, y las
-//    subidas de sketch (que usan 0/1) pueden fallar.
+//  POR QUE EN LOS ANALOGICOS: en el Uno, A0..A5 son pines digitales completos
+//  (digitalWrite funciona igual que en 0-13, y la libreria Stepper solo usa
+//  digitalWrite), asi que mueven el ULN2003 sin problema. Ponerlos aqui deja
+//  LIBRES los cuatro headers Encoder del shield (D2-D9) para los encoders de
+//  los motores. Excepcion: A6/A7 del Nano/Pro Mini son solo entrada analogica,
+//  no servirian; en el Uno no existen.
 //
-//  El mando PS2 conserva sus pines de siempre (10-13) y no estorba: 6,7,8,9
-//  estaban libres, asi que conviven sin tocar nada del mando.
-const int PIN_IN1 = 6;
-const int PIN_IN2 = 7;
-const int PIN_IN3 = 8;
-const int PIN_IN4 = 9;
+//  ATENCION, NO USAR NUNCA LOS PINES 0 NI 1:
+//    Son el RX/TX del puerto serie por USB (header WIFI/BT del shield) y estan
+//    soldados al chip USB de la placa. En cuanto se hace Serial.begin() el
+//    hardware del UART se apodera de ellos y digitalWrite() deja de tener
+//    efecto, asi que las bobinas conectadas ahi NUNCA reciben la secuencia de
+//    pasos y el motor solo vibra. Ademas todo lo que responde el Arduino
+//    (POS, OK,MOVE...) saldria por el pin 1 hacia una bobina.
+const int PIN_IN1 = A0;
+const int PIN_IN2 = A1;
+const int PIN_IN3 = A2;
+const int PIN_IN4 = A3;
 
 const int  PASOS_POR_VUELTA  = 2048;                                 // 28BYJ-48 (ajusta si es necesario)
 const int  N_COMPARTIMIENTOS = 8;
@@ -332,6 +352,128 @@ void handlePS2Servos() {
 }
 
 // ═════════════════════════════════════════════════════════════
+//  ENCODERS DE LOS MOTORES  (headers Encoder1..4 del shield)
+// ═════════════════════════════════════════════════════════════
+//  El shield saca dos pines del Arduino por cada header de encoder:
+//
+//     Encoder1 -> D8, D9     (motor 1)
+//     Encoder2 -> D6, D7     (motor 2)
+//     Encoder3 -> D2, D3     (motor 3)   D2 lo usa el servo dispensador
+//     Encoder4 -> D4, D5     (motor 4)
+//
+//  Con el ULN2003 movido a A0..A3, los headers 1, 2 y 4 quedan COMPLETOS
+//  (canal A + canal B: se cuenta y ademas se sabe el sentido de giro).
+//  Del Encoder3 solo queda D3, porque D2 lo ocupa el servo dispensador, que no
+//  se puede mover a ningun otro sitio: ese se lee como canal unico (cuenta
+//  pulsos, sin detectar sentido). Para saber en que direccion va el motor 3
+//  basta con mirar la orden que se le dio.
+//
+//  COMO SE LEEN: por interrupciones de cambio de pin (pin change), no por
+//  sondeo. Asi no se pierde ni un pulso aunque el bucle principal este ocupado
+//  girando la ruleta (ruleta.step() bloquea varios segundos) y no cuesta CPU
+//  mientras los motores estan parados.
+//   - PCINT0 cubre PORTB: se activan SOLO D8 y D9 (los pines del mando PS2,
+//     D10-D13, estan en el mismo puerto pero se dejan enmascarados para que no
+//     disparen la interrupcion).
+//   - PCINT2 cubre PORTD: se activan D3, D4, D5, D6 y D7. D0/D1 (serie) nunca.
+//  El ULN2003 en A0-A3 (PORTC) no genera interrupciones: PCIE1 queda apagado.
+//
+//  ORDENES:  ENC        -> ENC,<m1>,<m2>,<m3>,<m4>   (cuentas acumuladas)
+//            ENCRESET   -> pone los cuatro contadores a cero
+// ═════════════════════════════════════════════════════════════
+
+#define N_ENCODERS 4
+
+volatile long encCuenta[N_ENCODERS] = {0, 0, 0, 0};
+volatile uint8_t encPrevB = 0;   // ultimo estado leido de PORTB
+volatile uint8_t encPrevD = 0;   // ultimo estado leido de PORTD
+
+// --- PORTB: D8 (bit 0) y D9 (bit 1) = Encoder1 -> motor 1 ---
+ISR(PCINT0_vect) {
+  uint8_t ahora   = PINB;
+  uint8_t cambios = ahora ^ encPrevB;
+  encPrevB = ahora;
+
+  if (cambios & _BV(0)) {                     // cambio en el canal A (D8)
+    // Cuadratura: si A y B valen lo mismo gira en un sentido; si no, al otro.
+    if (((ahora >> 0) & 1) == ((ahora >> 1) & 1)) encCuenta[0]--;
+    else                                          encCuenta[0]++;
+  }
+}
+
+// --- PORTD: D6/D7 = Encoder2 (motor 2), D4/D5 = Encoder4 (motor 4),
+//            D3 = Encoder3 a canal unico (motor 3) ---
+ISR(PCINT2_vect) {
+  uint8_t ahora   = PIND;
+  uint8_t cambios = ahora ^ encPrevD;
+  encPrevD = ahora;
+
+  if (cambios & _BV(6)) {                     // Encoder2: A=D6, B=D7
+    if (((ahora >> 6) & 1) == ((ahora >> 7) & 1)) encCuenta[1]--;
+    else                                          encCuenta[1]++;
+  }
+  if (cambios & _BV(4)) {                     // Encoder4: A=D4, B=D5
+    if (((ahora >> 4) & 1) == ((ahora >> 5) & 1)) encCuenta[3]--;
+    else                                          encCuenta[3]++;
+  }
+#if !USAR_SERVOS_CAMARA
+  if (cambios & _BV(3)) {                     // Encoder3: solo canal A (D3)
+    encCuenta[2]++;                           // sin canal B no hay sentido
+  }
+#endif
+}
+
+void iniciarEncoders() {
+  // Entradas con pull-up: los encoders de colector abierto necesitan el
+  // pull-up, y si no hay nada enchufado el pin queda estable en alto (no
+  // flota, asi que no genera interrupciones fantasma).
+  pinMode(8, INPUT_PULLUP);
+  pinMode(9, INPUT_PULLUP);
+  pinMode(6, INPUT_PULLUP);
+  pinMode(7, INPUT_PULLUP);
+#if !USAR_SERVOS_CAMARA
+  pinMode(3, INPUT_PULLUP);
+  pinMode(4, INPUT_PULLUP);
+  pinMode(5, INPUT_PULLUP);
+#endif
+
+  encPrevB = PINB;   // estado inicial, para que el primer cambio sea real
+  encPrevD = PIND;
+
+  PCICR  |= _BV(PCIE0) | _BV(PCIE2);          // habilitar PORTB y PORTD
+  PCMSK0 |= _BV(PCINT0) | _BV(PCINT1);        // D8, D9  (NO D10-D13: son PS2)
+  PCMSK2 |= _BV(PCINT22) | _BV(PCINT23);      // D6, D7
+#if !USAR_SERVOS_CAMARA
+  PCMSK2 |= _BV(PCINT19) | _BV(PCINT20) | _BV(PCINT21);   // D3, D4, D5
+#endif
+}
+
+// Lectura segura: 'long' son 4 bytes y el AVR es de 8 bits, asi que una
+// interrupcion a mitad de lectura devolveria un valor corrupto.
+long leerEncoder(uint8_t i) {
+  if (i >= N_ENCODERS) return 0;
+  noInterrupts();
+  long valor = encCuenta[i];
+  interrupts();
+  return valor;
+}
+
+void reiniciarEncoders() {
+  noInterrupts();
+  for (uint8_t i = 0; i < N_ENCODERS; i++) encCuenta[i] = 0;
+  interrupts();
+}
+
+void responderEncoders() {
+  Serial.print("ENC");
+  for (uint8_t i = 0; i < N_ENCODERS; i++) {
+    Serial.print(",");
+    Serial.print(leerEncoder(i));
+  }
+  Serial.println();
+}
+
+// ═════════════════════════════════════════════════════════════
 //  DISPENSADOR — utilidades
 // ═════════════════════════════════════════════════════════════
 void liberarBobinas() {
@@ -487,6 +629,7 @@ void procesarComando(String linea) {
     }
 
   } else if (cmd == "PWM") {
+#if USAR_SERVOS_CAMARA
     // PWM,<pin>,<duty>  (protocolo de Vision para servos de camara).
     //  pin 18 = pan, 13 = tilt.  duty 2.5..12.5 % -> angulo 0..180 grados
     int coma2 = arg.indexOf(',');
@@ -498,6 +641,19 @@ void procesarComando(String linea) {
       if      (pin == 18) servoPan.write(ang);
       else if (pin == 13) servoTilt.write(ang);
     }
+#endif
+    // Sin soporte pan/tilt montado (USAR_SERVOS_CAMARA 0) el comando se acepta
+    // y se ignora en silencio: Vision lo envia igualmente al seguir una cara y
+    // no debe recibir un ERR por algo que no es un fallo.
+
+  } else if (cmd == "ENC") {
+    // Cuentas acumuladas de los cuatro encoders.
+    responderEncoders();
+
+  } else if (cmd == "ENCRESET") {
+    // Poner los contadores a cero (p.ej. antes de medir un recorrido).
+    reiniciarEncoders();
+    responderEncoders();
 
   } else if (cmd == "MOTORTEST") {
     // Diagnostico: prueba cada motor DC por separado, 1 s hacia adelante.
@@ -628,11 +784,19 @@ void setup() {
   servoDispensador.attach(SERVO_PIN);
   servoDispensador.write(SERVO_REPOSO);
 
+#if USAR_SERVOS_CAMARA
   // ---- Servos de camara (pan/tilt) ----
   servoPan.attach(PAN_PIN);
   servoTilt.attach(TILT_PIN);
   servoPan.write(90);
   servoTilt.write(90);
+#endif
+
+  // ---- Encoders de los motores ----
+  //  Se preparan siempre: si no hay encoders enchufados, los pines quedan en
+  //  alto por el pull-up y no se dispara ninguna interrupcion, asi que no
+  //  cuesta nada tenerlo activado.
+  iniciarEncoders();
 
   // Leer ultima posicion guardada en EEPROM
   byte saved = EEPROM.read(EEPROM_COMP_ADDR);
