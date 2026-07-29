@@ -34,25 +34,115 @@ Nada de esto cambia lo que ve el usuario: los mismos recuadros, las mismas
 etiquetas y las mismas APIs; solo cuesta mucho menos CPU.
 """
 
+import os
 import threading
+import time
 
 import cv2
 import numpy as np
 
 
-def ajustar_hilos_opencv(hilos=1):
-    """Limita los hilos internos de OpenCV.
+def ajustar_hilos_opencv(hilos=None):
+    """Configura los hilos internos de OpenCV.
 
-    POR QUE: OpenCV paraleliza cada operacion entre TODOS los nucleos. Como
-    aqui ya hay un hilo por camara (mas la interfaz y el servidor web), los
-    hilos de OpenCV se pelean con ellos: mucho cambio de contexto y una
-    interfaz a tirones. Con 1 hilo por operacion, cada camara usa un nucleo y
-    la GUI conserva el suyo, que es lo que hace que la UI vaya fluida."""
+    CUIDADO — leccion aprendida: limitar esto a 1 hilo parecia buena idea
+    (OpenCV paraleliza cada operacion entre TODOS los nucleos y se pelea con
+    los hilos de camara/GUI/web), pero se hizo por razonamiento, SIN medir en
+    la Raspberry real. Con menos hilos cada operacion de OpenCV tarda mas, y
+    varias de ellas estan dentro del camino critico de la captura.
+
+    Por eso ahora, por defecto, NO se toca nada: se respeta el ajuste
+    automatico de OpenCV, que es como se comportaba el proyecto originalmente.
+    Para experimentar sin editar codigo:
+
+        MEDIBOT_CV_THREADS=1 python3 main.py    # un hilo por operacion
+        MEDIBOT_CV_THREADS=4 python3 main.py    # cuatro
+        (sin variable)                          # automatico (por defecto)
+    """
     try:
         cv2.setUseOptimized(True)
+    except Exception:
+        pass
+    if hilos is None:
+        valor = os.environ.get("MEDIBOT_CV_THREADS", "").strip()
+        if not valor:
+            return                      # no tocar: automatico de OpenCV
+        try:
+            hilos = int(valor)
+        except ValueError:
+            return
+    try:
         cv2.setNumThreads(hilos)
     except Exception:
         pass
+
+
+class Perfilador:
+    """Mide cuanto tarda CADA etapa del bucle de video (media movil).
+
+    POR QUE EXISTE: cuando los FPS bajan no sirve de nada adivinar si la culpa
+    es de la lectura de la camara, de los detectores o de publicar el
+    fotograma. Esto lo mide en el equipo real y lo dice en numeros:
+
+        camara 148.2 ms | deteccion 3.1 ms | publicar 0.4 ms | total 151.7 ms
+
+    Con eso se sabe al instante si el cuello de botella esta en el driver de la
+    camara (nada que optimizar en Python: hay que tocar resolucion, formato o
+    FPS del sensor) o en nuestro procesamiento.
+
+    Coste: dos llamadas a perf_counter por etapa, del orden de microsegundos.
+    """
+
+    def __init__(self, ventana=60):
+        self.ventana = ventana
+        self._suma = {}
+        self._n = {}
+        self._lock = threading.Lock()
+
+    def anotar(self, etapa, milisegundos):
+        with self._lock:
+            self._suma[etapa] = self._suma.get(etapa, 0.0) + milisegundos
+            self._n[etapa] = self._n.get(etapa, 0) + 1
+            if self._n[etapa] >= self.ventana:      # media movil sencilla
+                self._suma[etapa] /= 2
+                self._n[etapa] //= 2
+
+    def medias(self):
+        """{etapa: ms medios}."""
+        with self._lock:
+            return {e: (self._suma[e] / self._n[e]) if self._n.get(e) else 0.0
+                    for e in self._suma}
+
+    def resumen(self):
+        """Linea legible con el reparto del tiempo y el cuello de botella."""
+        m = self.medias()
+        if not m:
+            return "sin datos aun"
+        partes = " | ".join(f"{e} {v:.1f} ms" for e, v in sorted(m.items()))
+        total = sum(m.values())
+        lento = max(m, key=m.get)
+        fps = 1000.0 / total if total > 0 else 0.0
+        return (f"{partes} | TOTAL {total:.1f} ms (~{fps:.1f} FPS) "
+                f"-> manda: {lento}")
+
+
+class Cronometro:
+    """Context manager para medir una etapa:  with Cronometro(perf, 'camara'):"""
+
+    __slots__ = ("perfilador", "etapa", "_t0")
+
+    def __init__(self, perfilador, etapa):
+        self.perfilador = perfilador
+        self.etapa = etapa
+
+    def __enter__(self):
+        self._t0 = time.perf_counter()
+        return self
+
+    def __exit__(self, *exc):
+        self.perfilador.anotar(self.etapa,
+                               (time.perf_counter() - self._t0) * 1000.0)
+        return False
 
 
 class FrameHub:

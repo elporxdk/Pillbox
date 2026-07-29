@@ -33,7 +33,15 @@ import medibot_vision   # motor de video: buzon de frames y detectores rapidos
 # Limitar los hilos internos de OpenCV: con un hilo por camara mas la interfaz
 # y el servidor web, dejar que OpenCV use todos los nucleos provocaba peleas
 # por CPU y una UI a tirones. Ver medibot_vision.ajustar_hilos_opencv().
-medibot_vision.ajustar_hilos_opencv(1)
+#  Por defecto NO se toca la configuracion de hilos de OpenCV (automatica,
+#  como siempre); se puede forzar con MEDIBOT_CV_THREADS=1 para experimentar.
+medibot_vision.ajustar_hilos_opencv()
+
+#  Perfilador del bucle de video: dice en NUMEROS cuanto tarda cada etapa
+#  (leer de la camara, detectar, publicar). Se imprime cada pocos segundos y
+#  sale en /api/all, para no tener que adivinar donde se van los FPS.
+perfilador = {0: medibot_vision.Perfilador(), 1: medibot_vision.Perfilador()}
+PERF_CADA_SEGUNDOS = float(os.environ.get("MEDIBOT_PERF_SEG", "5"))
 
 # Buzon compartido de fotogramas (numerados, con JPEG cacheado). Sustituye a
 # pasarse los frames por variables globales sueltas y recodificar por cliente.
@@ -122,14 +130,27 @@ VIDEO_PATH = "videos"
 CAMERA_INDICES = [0, 1] 
 # ================================================
 
-# ================= GPIO ========================= QUITALO SI NO LO USARAS CHAN
+# ================= SERVOS DE CAMARA (pan/tilt) =================
+#  Este robot NO lleva soporte pan/tilt: la camara va fija. Con esto en False
+#  no se envia ni una sola orden PWM al Arduino, que es lo correcto porque:
+#    - No hay servos que mover: seria trafico inutil.
+#    - Ese puerto serie lo COMPARTEN Vision y el dispensador (via serial_hub),
+#      asi que cada orden de sobra le quita turno a un DISPENSE.
+#  El firmware del Arduino tambien los tiene desactivados
+#  (#define USAR_SERVOS_CAMARA 0), asi que ambos lados coinciden.
+#  Ponlo en True si algun dia montas el soporte pan/tilt.
+USAR_SERVOS_CAMARA = False
+
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(PWM_X, GPIO.OUT)
-GPIO.setup(PWM_Y, GPIO.OUT)
-pwm_x = GPIO.PWM(PWM_X, 50)
-pwm_y = GPIO.PWM(PWM_Y, 50)
-pwm_x.start(7.5)
-pwm_y.start(7.5)
+if USAR_SERVOS_CAMARA:
+    GPIO.setup(PWM_X, GPIO.OUT)
+    GPIO.setup(PWM_Y, GPIO.OUT)
+    pwm_x = GPIO.PWM(PWM_X, 50)
+    pwm_y = GPIO.PWM(PWM_Y, 50)
+    pwm_x.start(7.5)
+    pwm_y.start(7.5)
+else:
+    pwm_x = pwm_y = None
 
 # ---- Pines de movimiento (joystick W/A/S/D) ----
 for _mpin in MOVE_PINS.values():
@@ -164,6 +185,8 @@ _pwm_y_actual = None
 
 def _escribir_pwm_x(valor):
     global _pwm_x_actual
+    if not USAR_SERVOS_CAMARA:
+        return                      # camara fija: no hay nada que mover
     if valor != _pwm_x_actual:
         pwm_x.ChangeDutyCycle(valor)
         _pwm_x_actual = valor
@@ -171,18 +194,24 @@ def _escribir_pwm_x(valor):
 
 def _escribir_pwm_y(valor):
     global _pwm_y_actual
+    if not USAR_SERVOS_CAMARA:
+        return
     if valor != _pwm_y_actual:
         pwm_y.ChangeDutyCycle(valor)
         _pwm_y_actual = valor
 
 
 def center_pwm():
-    """Centrar la camara"""
+    """Centrar la camara. Con USAR_SERVOS_CAMARA=False no hace nada (la camara
+    va fija), pero se mantiene la llamada para no cambiar el flujo del programa
+    si algun dia se monta el soporte pan/tilt."""
     _escribir_pwm_x(7.5)
     _escribir_pwm_y(7.5)
 
 def move_servos(x_pos, y_pos):
-    """Mueve los servomotores basado en la posición del rostro"""
+    """Mueve los servomotores segun la posición del rostro u objeto seguido.
+    Con USAR_SERVOS_CAMARA=False no hace nada: el seguimiento se sigue
+    calculando y mostrando en el estado, pero la camara no se mueve."""
     if x_pos == "left":
         _escribir_pwm_x(5.5)
     elif x_pos == "right":
@@ -705,14 +734,19 @@ def process_camera(camera_index):
 
     es_principal = (camera_index == 0)      # la cámara 1 manda sobre los servos
     n_frame = 0
+    perf = perfilador[camera_index]
+    ultimo_informe = time.time()
 
     while online:
         try:
-            # Leer frame. camera.read() ya BLOQUEA hasta que el sensor entrega
-            # el siguiente fotograma, o sea que la camara marca el ritmo: por
-            # eso se elimino el time.sleep(0.033) que habia al final del bucle
-            # (dormir encima del bloqueo hacia perder uno de cada dos frames).
-            ret, frame = read_frame_from_camera(camera, camera_index)
+            # ---- Etapa 1: leer de la camara -------------------------------
+            # camera.read() BLOQUEA hasta que el sensor entrega el fotograma,
+            # asi que aqui se mide el coste REAL del driver (USB + decodificar
+            # MJPEG). Si esta etapa domina, el limite no esta en nuestro codigo
+            # Python sino en la camara: hay que bajar resolucion o cambiar el
+            # formato/FPS del sensor.
+            with medibot_vision.Cronometro(perf, "camara"):
+                ret, frame = read_frame_from_camera(camera, camera_index)
             if not ret or frame is None:
                 print(f"Error leyendo frame de cámara {camera_index + 1}, reintentando...")
                 time.sleep(0.1)
@@ -720,6 +754,16 @@ def process_camera(camera_index):
 
             n_frame += 1
             current_time = time.time()
+
+            # Informe periodico: reparto del tiempo y quien manda de verdad.
+            if current_time - ultimo_informe >= PERF_CADA_SEGUNDOS:
+                ultimo_informe = current_time
+                fps_actual = fps1 if es_principal else fps2
+                print(f"[perf cam{camera_index + 1}] {fps_actual} FPS | {perf.resumen()}")
+
+            # Etapa 2: todo nuestro procesamiento (detectores + dibujo). Se
+            # mide con marcas porque el bloque es largo y tiene ramas.
+            t_proceso = time.perf_counter()
 
             # Auto-ajuste de camara: caro y de efecto lento -> no cada frame.
             if n_frame % AUTOAJUSTE_CADA_N_FRAMES == 0:
@@ -887,12 +931,20 @@ def process_camera(camera_index):
             # (processed_frame.copy() y last_frameN.copy()). Ahora el frame se
             # publica una vez en el buzon: nadie lo modifica despues, asi que
             # compartir la referencia es seguro y no cuesta memoria.
-            if processed_frame.shape[1] != VIEW_W or processed_frame.shape[0] != VIEW_H:
-                salida = cv2.resize(processed_frame, (VIEW_W, VIEW_H))
-            else:
-                salida = processed_frame
+            perf.anotar("proceso", (time.perf_counter() - t_proceso) * 1000.0)
 
-            frame_hub.publicar(camera_index, salida)
+            # ---- Etapa 3: publicar el fotograma ---------------------------
+            with medibot_vision.Cronometro(perf, "publicar"):
+                if processed_frame.shape[1] != VIEW_W or processed_frame.shape[0] != VIEW_H:
+                    # resize crea un array NUEVO, asi que el bufer que devolvio
+                    # la camara queda libre enseguida (importante con
+                    # CAP_PROP_BUFFERSIZE=1: si se retuviera, el driver se
+                    # quedaria sin bufer donde capturar el siguiente).
+                    salida = cv2.resize(processed_frame, (VIEW_W, VIEW_H))
+                else:
+                    salida = processed_frame.copy()
+
+                frame_hub.publicar(camera_index, salida)
 
             # Sin time.sleep(): el ritmo lo marca camera.read(), que ya espera
             # al sensor. Dormir aqui era lo que tiraba los FPS a la mitad.
@@ -2163,6 +2215,10 @@ def api_all():
         "tracking_enabled": object_tracker.tracking_enabled,
         "recognition_enabled": recognition_enabled,
         "tracking_data": tracking_data,
+        # Reparto REAL del tiempo del bucle de video, en milisegundos por
+        # etapa. Sirve para ver de un vistazo si los FPS los limita la camara
+        # ("camara" alto) o nuestro procesamiento ("proceso" alto).
+        "perf": {"cam1": perfilador[0].medias(), "cam2": perfilador[1].medias()},
         "red_objects": detected_red_objects,
         "largest_red_object": max(detected_red_objects, key=lambda x: x['area']) if detected_red_objects else None,
         "camera_settings": {
@@ -3048,6 +3104,9 @@ _ultima_seq_gui = {0: -1, 1: -1}
 _ultima_seq_fs = -1
 _camara_fs = None      # que camara se esta volcando a pantalla completa
 
+# Cada cuanto repasa la interfaz (ms). 50 ms es el valor de siempre.
+GUI_REFRESCO_MS = int(os.environ.get("MEDIBOT_GUI_MS", "50"))
+
 # Estado ya reflejado en los textos de la interfaz. Reconfigurar un widget de
 # Tk fuerza un redibujado; hacerlo 20 veces por segundo con el MISMO texto es
 # trabajo puro para nada. Solo se toca el widget cuando el valor cambia.
@@ -3167,10 +3226,12 @@ def update_gui():
             pass
 
     # Programar siguiente actualización.
-    #  33 ms (~30 Hz) en vez de 50 ms: ahora cada pasada es barata (si no hay
-    #  fotograma nuevo no hace practicamente nada), asi que se puede mirar mas
-    #  a menudo y el video va mas fluido gastando MENOS CPU que antes.
-    root.after(33, update_gui)
+    #  Se mantienen los 50 ms de SIEMPRE. Se probo a bajarlo a 33 ms (mas
+    #  fluido, y cada pasada ahora es barata), pero fue otro cambio hecho sin
+    #  medir en la Raspberry: mas pasadas = mas veces creando la imagen de Tk
+    #  en el hilo principal, que es justo lo que compite con la captura.
+    #  Ajustable sin tocar codigo:  MEDIBOT_GUI_MS=33 python3 main.py
+    root.after(GUI_REFRESCO_MS, update_gui)
 
 def on_closing():
     """Maneja el cierre de la aplicación"""

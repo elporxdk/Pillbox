@@ -119,6 +119,46 @@ def hub_shutdown():
     return _peticion({"op": "shutdown"}, timeout=3.0, _reintentar=False)
 
 
+# Encoders de los motores (libreria QGPMaker_Encoder en el Arduino).
+#  Disponibles M1, M2 y M4. El de M3 NO: su pin es el unico sitio libre para el
+#  servo dispensador, asi que su valor llega siempre como 0.
+CUENTAS_POR_VUELTA = 4320   # 12 PPR x 4 (cuadratura) x 90 (reductora)
+
+
+def _pedir_encoders(cmd, prefijo, timeout):
+    """Envia una orden de encoders y devuelve sus 4 numeros, o None si el
+    Arduino no responde. Devolver None (y no ceros) permite distinguir 'sin
+    datos' de 'motores parados', que es un valor legitimo."""
+    lineas = send_command(cmd, wait=timeout, until=[prefijo, "ERR"])
+    for linea in lineas or []:
+        texto = str(linea)
+        if texto.startswith(prefijo + ","):
+            try:
+                return [int(x) for x in texto.split(",")[1:5]]
+            except ValueError:
+                return None
+    return None
+
+
+def leer_encoders(timeout=1.5):
+    """Posicion acumulada de los encoders: [m1, m2, m3, m4] (m3 siempre 0).
+    Los valores llevan signo: el sentido de giro va incluido.
+    Para pasar a vueltas del eje:  vueltas = cuentas / CUENTAS_POR_VUELTA"""
+    return _pedir_encoders("ENC", "ENC", timeout)
+
+
+def leer_rpm(timeout=1.5):
+    """Velocidad de cada motor en RPM: [m1, m2, m3, m4] (m3 siempre 0).
+    La calcula la propia libreria del shield en el Arduino."""
+    return _pedir_encoders("ENCRPM", "ENCRPM", timeout)
+
+
+def reiniciar_encoders(timeout=1.5):
+    """Pone las cuentas a cero (calibrar, o medir un recorrido desde aqui).
+    Devuelve las cuentas tras el reinicio, o None si el Arduino no responde."""
+    return _pedir_encoders("ENCRESET", "ENC", timeout)
+
+
 def send_command(cmd, wait=0.3, until=None):
     """Envia un comando al Arduino a traves del hub y devuelve la lista de
     lineas de respuesta. Si el hub no responde, devuelve un aviso en la lista.

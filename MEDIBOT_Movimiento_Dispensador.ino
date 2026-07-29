@@ -21,14 +21,25 @@
  *  ------------------------------------------------------------
  *  MAPA DE PINES (Arduino Uno)
  *  ------------------------------------------------------------
- *    0,1        -> Serial (USB, comandos desde la Pi/PC)
- *    2          -> Servo dispensador (libreria Servo)
- *    3, 5       -> Servos de camara pan / tilt (libreria Servo)
- *    4,6,7,12   -> Mando PS2 (data/attention/command/clock) - OPCIONAL
- *    8,9,10,11  -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
- *    13         -> libre
- *    A0..A3     -> libres (sin cablear; el movimiento llega por COM)
- *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC
+ *    0,1        -> Serial (USB, comandos desde la Pi/PC)  ¡RESERVADOS!
+ *                  (en el shield salen por el header WIFI/BT: NO son libres)
+ *    2          -> Servo dispensador (libreria Servo)   [header Encoder3]
+ *    3          -> libre (el resto del header Encoder3, sin usar)
+ *    4,5        -> Encoder del motor M4                  [header Encoder4]
+ *    6,7        -> Encoder del motor M2                  [header Encoder2]
+ *    8,9        -> Encoder del motor M1                  [header Encoder1]
+ *    10,11,12,13-> Mando PS2 (attention/command/data/clock) - OPCIONAL
+ *                  Son sus pines de siempre: NO se tocan.
+ *    A0..A3     -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
+ *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC y servos brazo
+ *
+ *  NUNCA cablees el ULN2003 (ni nada) a los pines 0 y 1: son el RX/TX del USB.
+ *  Con Serial.begin() el UART se apodera de ellos, digitalWrite deja de valer
+ *  y el motor no gira; encima las respuestas del Arduino saldrian por una
+ *  bobina y las subidas de sketch pueden fallar.
+ *
+ *  Los servos de camara pan/tilt estan DESACTIVADOS (USAR_SERVOS_CAMARA 0)
+ *  porque este robot no lleva ese soporte; asi D3 y D5 quedan para encoders.
  *
  *  Motores DC: por el Motor Shield (I2C). AFMS.begin(1600) para que giren
  *  (a 50 Hz casi no reciben potencia).
@@ -56,6 +67,17 @@
  *   STEPTEST[,<k>] Diagnostico: gira la ruleta k compartimientos (def. 8 = 1
  *                  vuelta) para probar el paso a paso AISLADO del resto
  *
+ *  ------------------- ORDENES ENCODERS -----------------------
+ *  Libreria oficial del shield (QGPMaker_Encoder). Disponibles M1, M2 y M4;
+ *  el de M3 NO, porque su pin D2 es el unico sitio libre para el servo
+ *  dispensador. El campo <m3> va siempre a 0.
+ *   ENC            ENC,<m1>,<m2>,0,<m4>     posicion acumulada, con signo
+ *   ENCRPM         ENCRPM,<r1>,<r2>,0,<r4>  velocidad de cada motor en RPM
+ *   ENCRESET       Pone las cuentas a cero (calibrar / medir un recorrido)
+ *
+ *  4320 cuentas = 1 vuelta del eje de salida (12 PPR x 4 cuadratura x 90
+ *  reductora), segun el fabricante. Constante CUENTAS_POR_VUELTA.
+ *
  *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
  *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
  *   FWD/BACK/...   la direccion SOLA tambien vale (para probar por el Monitor)
@@ -75,6 +97,7 @@
 #include <Wire.h>
 #include "PS2X_lib.h"
 #include "QGPMaker_MotorShield.h"
+#include "QGPMaker_Encoder.h"     // encoders de los motores (libreria del shield)
 #include <Stepper.h>
 #include <Servo.h>
 #include <EEPROM.h>
@@ -122,20 +145,41 @@ const int  SERVO_DISPENSA = 90;   // posicion para soltar la pastilla
 Servo servoDispensador;
 
 // ---------------- Servos de camara (pan/tilt) ----------------
+//  OPCIONAL. Este robot NO lleva soporte pan/tilt, asi que vienen DESACTIVADOS
+//  y sus pines (D3 y D5) quedan libres para los encoders de los motores.
+//  Pon 1 aqui si algun dia montas el soporte: entonces D3/D5 pasan a los servos
+//  y pierdes los encoders 3 y 4 (comparten esos pines en el shield).
+#define USAR_SERVOS_CAMARA 0
+
+#if USAR_SERVOS_CAMARA
 //  Controlados por Vision via COM con  PWM,<pin>,<duty>  (pin 18 = pan, 13 = tilt).
-//  Usan pines libres 3 y 5 (libreria Servo estandar).
 const int PAN_PIN  = 3;
 const int TILT_PIN = 5;
 Servo servoPan;
 Servo servoTilt;
+#endif
 
 // ------------- Motor paso a paso (ruleta) -------------
-//  ULN2003 en los pines 8, 9, 10, 11 (mismo cableado que el dispensador que
-//  ya funcionaba). El mando PS2 se movio a 4/6/7/12 para no chocar con estos.
-const int PIN_IN1 = 8;
-const int PIN_IN2 = 9;
-const int PIN_IN3 = 10;
-const int PIN_IN4 = 11;
+//  ULN2003 en A0, A1, A2, A3  <-- CABLEADO REAL DE ESTE ROBOT.
+//
+//  POR QUE EN LOS ANALOGICOS: en el Uno, A0..A5 son pines digitales completos
+//  (digitalWrite funciona igual que en 0-13, y la libreria Stepper solo usa
+//  digitalWrite), asi que mueven el ULN2003 sin problema. Ponerlos aqui deja
+//  LIBRES los cuatro headers Encoder del shield (D2-D9) para los encoders de
+//  los motores. Excepcion: A6/A7 del Nano/Pro Mini son solo entrada analogica,
+//  no servirian; en el Uno no existen.
+//
+//  ATENCION, NO USAR NUNCA LOS PINES 0 NI 1:
+//    Son el RX/TX del puerto serie por USB (header WIFI/BT del shield) y estan
+//    soldados al chip USB de la placa. En cuanto se hace Serial.begin() el
+//    hardware del UART se apodera de ellos y digitalWrite() deja de tener
+//    efecto, asi que las bobinas conectadas ahi NUNCA reciben la secuencia de
+//    pasos y el motor solo vibra. Ademas todo lo que responde el Arduino
+//    (POS, OK,MOVE...) saldria por el pin 1 hacia una bobina.
+const int PIN_IN1 = A0;
+const int PIN_IN2 = A1;
+const int PIN_IN3 = A2;
+const int PIN_IN4 = A3;
 
 const int  PASOS_POR_VUELTA  = 2048;                                 // 28BYJ-48 (ajusta si es necesario)
 const int  N_COMPARTIMIENTOS = 8;
@@ -315,6 +359,62 @@ void handlePS2Servos() {
 }
 
 // ═════════════════════════════════════════════════════════════
+//  ENCODERS DE LOS MOTORES  (libreria oficial QGPMaker_Encoder)
+// ═════════════════════════════════════════════════════════════
+//  Se usa la libreria del fabricante del shield en vez de leer los pines a
+//  mano: ella ya sabe que pines corresponden a cada motor, da la velocidad en
+//  RPM hecha, y no ata el sketch a los registros del ATmega (el codigo previo
+//  usaba PCINT/PINB/PIND, que solo existen en AVR).
+//
+//     QGPMaker_Encoder encoderN(N);   // N = numero del motor (M1..M4)
+//     encoderN.read()                 // posicion acumulada (int32_t)
+//     encoderN.write(0)               // poner a cero (calibrar)
+//     encoderN.getRPM()               // velocidad de giro en RPM
+//
+//  QUE ENCODERS HAY DISPONIBLES: los de M1, M2 y M4.
+//  El de M3 NO se puede usar en este robot: su header (Encoder3) ocupa los
+//  pines D2 y D3, y D2 es el unico sitio que queda para el servo dispensador.
+//  No hay alternativa: el resto de pines estan tomados (D0/D1 son el serie,
+//  D4-D9 los otros encoders, D10-D13 el mando PS2, A0-A3 el ULN2003 y A4/A5
+//  el I2C), y los conectores de servo del propio shield no sirven porque el
+//  PCA9685 esta a 1600 Hz para los motores DC (un servo necesita 50 Hz).
+QGPMaker_Encoder encoder1(1);   // motor M1
+QGPMaker_Encoder encoder2(2);   // motor M2
+QGPMaker_Encoder encoder4(4);   // motor M4
+
+//  Cuentas por vuelta COMPLETA del eje de salida, segun el fabricante:
+//     12 PPR x 4 (cuadratura) x 90 (reductora) = 4320
+//  Sirve para pasar de cuentas a vueltas o a distancia recorrida:
+//     vueltas = encoder1.read() / (float)CUENTAS_POR_VUELTA;
+const long CUENTAS_POR_VUELTA = 4320;
+
+void reiniciarEncoders() {
+  encoder1.write(0);
+  encoder2.write(0);
+  encoder4.write(0);
+}
+
+// Responde siempre con los cuatro campos para no romper a quien lo lea; el
+// tercero (M3) va a 0 porque ese encoder no esta disponible (ver arriba).
+void responderEncoders() {
+  Serial.print("ENC,");
+  Serial.print(encoder1.read());
+  Serial.print(",");
+  Serial.print(encoder2.read());
+  Serial.print(",0,");
+  Serial.println(encoder4.read());
+}
+
+void responderRPM() {
+  Serial.print("ENCRPM,");
+  Serial.print(encoder1.getRPM());
+  Serial.print(",");
+  Serial.print(encoder2.getRPM());
+  Serial.print(",0,");
+  Serial.println(encoder4.getRPM());
+}
+
+// ═════════════════════════════════════════════════════════════
 //  DISPENSADOR — utilidades
 // ═════════════════════════════════════════════════════════════
 void liberarBobinas() {
@@ -470,6 +570,7 @@ void procesarComando(String linea) {
     }
 
   } else if (cmd == "PWM") {
+#if USAR_SERVOS_CAMARA
     // PWM,<pin>,<duty>  (protocolo de Vision para servos de camara).
     //  pin 18 = pan, 13 = tilt.  duty 2.5..12.5 % -> angulo 0..180 grados
     int coma2 = arg.indexOf(',');
@@ -481,6 +582,23 @@ void procesarComando(String linea) {
       if      (pin == 18) servoPan.write(ang);
       else if (pin == 13) servoTilt.write(ang);
     }
+#endif
+    // Sin soporte pan/tilt montado (USAR_SERVOS_CAMARA 0) el comando se acepta
+    // y se ignora en silencio: Vision lo envia igualmente al seguir una cara y
+    // no debe recibir un ERR por algo que no es un fallo.
+
+  } else if (cmd == "ENC") {
+    // Posicion acumulada de los encoders (cuentas).
+    responderEncoders();
+
+  } else if (cmd == "ENCRPM") {
+    // Velocidad de giro de cada motor, en RPM (la calcula la libreria).
+    responderRPM();
+
+  } else if (cmd == "ENCRESET") {
+    // Poner los contadores a cero (p.ej. antes de medir un recorrido).
+    reiniciarEncoders();
+    responderEncoders();
 
   } else if (cmd == "MOTORTEST") {
     // Diagnostico: prueba cada motor DC por separado, 1 s hacia adelante.
@@ -579,11 +697,12 @@ void setup() {
   // Inicializar PS2X (OPCIONAL). Se intenta unas veces; si NO hay mando
   // conectado se CONTINUA igual (antes se colgaba en un bucle infinito y el
   // Arduino nunca respondia por Serial).
-  //  PS2 en pines 12(clock), 7(command), 6(attention), 4(data) — libres, para
-  //  no chocar con el stepper (8-11) ni los servos (2/3/5).
+  //  PS2 en 13(clock), 11(command), 10(attention), 12(data): son sus pines de
+  //  SIEMPRE y NO se tocan (el mando esta cableado asi de fabrica en el robot).
+  //  No hace falta moverlos: con el stepper en 6-9 no se pisan.
   ps2Presente = false;
   for (int intento = 0; intento < 10; intento++) {
-    if (ps2x.config_gamepad(12, 7, 6, 4, true, true) == 0) {
+    if (ps2x.config_gamepad(13, 11, 10, 12, true, true) == 0) {
       ps2Presente = true;
       break;
     }
@@ -610,11 +729,18 @@ void setup() {
   servoDispensador.attach(SERVO_PIN);
   servoDispensador.write(SERVO_REPOSO);
 
+#if USAR_SERVOS_CAMARA
   // ---- Servos de camara (pan/tilt) ----
   servoPan.attach(PAN_PIN);
   servoTilt.attach(TILT_PIN);
   servoPan.write(90);
   servoTilt.write(90);
+#endif
+
+  // ---- Encoders de los motores ----
+  //  La libreria QGPMaker_Encoder se encarga de configurarlos; aqui solo se
+  //  ponen las cuentas a cero para partir de un origen conocido.
+  reiniciarEncoders();
 
   // Leer ultima posicion guardada en EEPROM
   byte saved = EEPROM.read(EEPROM_COMP_ADDR);
