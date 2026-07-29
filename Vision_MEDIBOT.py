@@ -130,14 +130,27 @@ VIDEO_PATH = "videos"
 CAMERA_INDICES = [0, 1] 
 # ================================================
 
-# ================= GPIO ========================= QUITALO SI NO LO USARAS CHAN
+# ================= SERVOS DE CAMARA (pan/tilt) =================
+#  Este robot NO lleva soporte pan/tilt: la camara va fija. Con esto en False
+#  no se envia ni una sola orden PWM al Arduino, que es lo correcto porque:
+#    - No hay servos que mover: seria trafico inutil.
+#    - Ese puerto serie lo COMPARTEN Vision y el dispensador (via serial_hub),
+#      asi que cada orden de sobra le quita turno a un DISPENSE.
+#  El firmware del Arduino tambien los tiene desactivados
+#  (#define USAR_SERVOS_CAMARA 0), asi que ambos lados coinciden.
+#  Ponlo en True si algun dia montas el soporte pan/tilt.
+USAR_SERVOS_CAMARA = False
+
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(PWM_X, GPIO.OUT)
-GPIO.setup(PWM_Y, GPIO.OUT)
-pwm_x = GPIO.PWM(PWM_X, 50)
-pwm_y = GPIO.PWM(PWM_Y, 50)
-pwm_x.start(7.5)
-pwm_y.start(7.5)
+if USAR_SERVOS_CAMARA:
+    GPIO.setup(PWM_X, GPIO.OUT)
+    GPIO.setup(PWM_Y, GPIO.OUT)
+    pwm_x = GPIO.PWM(PWM_X, 50)
+    pwm_y = GPIO.PWM(PWM_Y, 50)
+    pwm_x.start(7.5)
+    pwm_y.start(7.5)
+else:
+    pwm_x = pwm_y = None
 
 # ---- Pines de movimiento (joystick W/A/S/D) ----
 for _mpin in MOVE_PINS.values():
@@ -172,6 +185,8 @@ _pwm_y_actual = None
 
 def _escribir_pwm_x(valor):
     global _pwm_x_actual
+    if not USAR_SERVOS_CAMARA:
+        return                      # camara fija: no hay nada que mover
     if valor != _pwm_x_actual:
         pwm_x.ChangeDutyCycle(valor)
         _pwm_x_actual = valor
@@ -179,18 +194,24 @@ def _escribir_pwm_x(valor):
 
 def _escribir_pwm_y(valor):
     global _pwm_y_actual
+    if not USAR_SERVOS_CAMARA:
+        return
     if valor != _pwm_y_actual:
         pwm_y.ChangeDutyCycle(valor)
         _pwm_y_actual = valor
 
 
 def center_pwm():
-    """Centrar la camara"""
+    """Centrar la camara. Con USAR_SERVOS_CAMARA=False no hace nada (la camara
+    va fija), pero se mantiene la llamada para no cambiar el flujo del programa
+    si algun dia se monta el soporte pan/tilt."""
     _escribir_pwm_x(7.5)
     _escribir_pwm_y(7.5)
 
 def move_servos(x_pos, y_pos):
-    """Mueve los servomotores basado en la posición del rostro"""
+    """Mueve los servomotores segun la posición del rostro u objeto seguido.
+    Con USAR_SERVOS_CAMARA=False no hace nada: el seguimiento se sigue
+    calculando y mostrando en el estado, pero la camara no se mueve."""
     if x_pos == "left":
         _escribir_pwm_x(5.5)
     elif x_pos == "right":
