@@ -156,21 +156,113 @@ else:
 for _mpin in MOVE_PINS.values():
     GPIO.setup(_mpin, GPIO.OUT, initial=GPIO.LOW)
 
-movement_state = {"w": False, "a": False, "s": False, "d": False}
+# ================= MOVIMIENTO DEL CHASIS =================
+#  Los SEIS movimientos del robot, con los MISMOS nombres que entiende el
+#  firmware (tabla MAPA_DIRECCIONES del sketch). Una sola lista de nombres
+#  compartida entre web, teclado y Arduino es lo que impide que los tres se
+#  desincronicen.
+#
+#  La diferencia entre estos dos pares es real en este robot:
+#    IZQUIERDA / DERECHA  -> se desplaza de lado SIN cambiar de orientacion
+#    GIRO_IZQ / GIRO_DER  -> gira sobre su propio eje SIN desplazarse
+ADELANTE  = "FWD"
+ATRAS     = "BACK"
+IZQUIERDA = "LEFT"
+DERECHA   = "RIGHT"
+GIRO_IZQ  = "SPINL"
+GIRO_DER  = "SPINR"
+PARADO    = "STOP"
+
+MOVIMIENTOS = (ADELANTE, ATRAS, IZQUIERDA, DERECHA, GIRO_IZQ, GIRO_DER, PARADO)
+
+ETIQUETAS_MOVIMIENTO = {
+    ADELANTE: "Adelante", ATRAS: "Atras",
+    IZQUIERDA: "Izquierda", DERECHA: "Derecha",
+    GIRO_IZQ: "Giro izq.", GIRO_DER: "Giro der.",
+    PARADO: "Parar",
+}
+
+#  Teclas del joystick -> movimiento. W/A/S/D como siempre; Q y E se anaden
+#  para los giros sobre el eje, que antes no se podian pedir.
+TECLAS_MOVIMIENTO = {
+    "w": ADELANTE, "s": ATRAS, "a": IZQUIERDA, "d": DERECHA,
+    "q": GIRO_IZQ, "e": GIRO_DER,
+}
+
+#  Diagonales: misma interpretacion que hace el firmware (adelante + lateral =
+#  giro sobre el eje), para no tener dos criterios distintos.
+_DIAGONALES = {
+    frozenset(("w", "a")): GIRO_IZQ, frozenset(("w", "d")): GIRO_DER,
+    frozenset(("s", "a")): GIRO_IZQ, frozenset(("s", "d")): GIRO_DER,
+}
+
+movement_state = {k: False for k in TECLAS_MOVIMIENTO}
+movimiento_actual = PARADO
+
+
+def movimiento_desde_teclas(teclas):
+    """Traduce las teclas pulsadas al movimiento correspondiente. Una sola
+    funcion decide esto para el teclado, la web y los botones."""
+    pulsadas = frozenset(t for t in teclas if t in TECLAS_MOVIMIENTO)
+    if not pulsadas:
+        return PARADO
+    if pulsadas in _DIAGONALES:
+        return _DIAGONALES[pulsadas]
+    if len(pulsadas) == 1:
+        return TECLAS_MOVIMIENTO[next(iter(pulsadas))]
+    return PARADO          # combinacion contradictoria -> parar, por seguridad
+
+
+def enviar_movimiento(mov):
+    """Manda el movimiento al Arduino, SOLO si cambia respecto al anterior.
+
+    Se usa MOVE,<dir> en lugar del viejo protocolo de cuatro pines GPIO porque
+    nombra el movimiento explicitamente: con pines habia que deducir 'adelante
+    + izquierda = giro', y web y firmware podian interpretarlo distinto. Ademas
+    los giros sobre el eje ni siquiera eran representables con cuatro pines.
+
+    Mandar solo los cambios evita inundar el puerto serie, que Vision comparte
+    con el dispensador a traves del hub."""
+    global movimiento_actual
+    if mov not in MOVIMIENTOS or mov == movimiento_actual:
+        return mov in MOVIMIENTOS
+    movimiento_actual = mov
+    serial_send(f"MOVE,{mov}")
+    return True
+
 
 def apply_movement():
-    """Refleja movement_state en los pines GPIO de movimiento"""
-    for _d, _pin in MOVE_PINS.items():
-        try:
-            GPIO.output(_pin, GPIO.HIGH if movement_state[_d] else GPIO.LOW)
-        except Exception:
-            pass
+    """Refleja movement_state en el robot."""
+    enviar_movimiento(movimiento_desde_teclas(
+        [k for k, v in movement_state.items() if v]))
+
 
 def set_movement(directions):
-    """Activa las direcciones indicadas (iterable de 'w','a','s','d') y apaga el resto"""
+    """Activa las direcciones indicadas (iterable de teclas) y apaga el resto."""
     for _d in movement_state:
         movement_state[_d] = _d in directions
     apply_movement()
+
+
+def detener_movimiento():
+    """Para el chasis y limpia el estado del joystick."""
+    for _d in movement_state:
+        movement_state[_d] = False
+    enviar_movimiento(PARADO)
+
+
+def lanzar_truco(numero):
+    """Lanza uno de los movimientos especiales (1..4) del Arduino: los mismos
+    que los botones Triangulo/Circulo/Cuadrado/X del mando PS2."""
+    try:
+        n = int(numero)
+    except (TypeError, ValueError):
+        return False
+    if not 1 <= n <= 4:
+        return False
+    serial_send(f"TRUCO,{n}")
+    return True
+
 
 # Ultimo ciclo de trabajo ESCRITO en cada servo.
 #  POR QUE: estas funciones se llaman en el bucle de video, o sea decenas de
@@ -1458,6 +1550,22 @@ HTML_TEMPLATE = """
         html[data-theme="light"] .brand-tag { color: #5a6772; }
 
         /* ===== Joystick / Movimiento ===== */
+        /* Botonera de movimiento (6 movimientos + 4 trucos) */
+        .mov-panel { margin-top: 10px; }
+        .mov-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .mov-trucos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+        .mov-btn {
+            background: #1a1a1a; color: #00ffff; border: 1px solid #00ffff;
+            border-radius: 6px; padding: 8px 4px; font-size: .78em; cursor: pointer;
+            transition: background .15s ease;
+        }
+        .mov-btn:hover, .mov-btn:active { background: #00ffff; color: #000; }
+        .mov-btn.stop { border-color: #ff5555; color: #ff5555; }
+        .mov-btn.stop:hover { background: #ff5555; color: #000; }
+        .mov-btn.truco { border-color: #ffb300; color: #ffb300; }
+        .mov-btn.truco:hover { background: #ffb300; color: #000; }
+        html[data-theme="light"] .mov-btn { background: #eef4f8; color: #0a7c78; border-color: #0aa6a0; }
+
         .joystick-wrap { display: flex; justify-content: center; margin: 20px 0; }
         .joystick-base {
             position: relative; width: 180px; height: 180px; border-radius: 50%;
@@ -1552,6 +1660,19 @@ HTML_TEMPLATE = """
                             <div class="joystick-stick" id="joyStick"></div>
                         </div>
                         <div class="cam-joy-dirs">Dir: <span id="move-dirs">—</span></div>
+                    </div>
+                    <!-- Botonera de movimiento: los SEIS movimientos del robot,
+                         con los mismos nombres que el firmware y el mando PS2.
+                         Se genera desde /movimientos para que no haya nombres
+                         escritos a mano que se puedan desincronizar. -->
+                    <div class="mov-panel">
+                        <div class="mov-grid" id="mov-grid"></div>
+                        <div class="mov-trucos">
+                            <button class="mov-btn truco" onclick="lanzarTruco(1)" title="Triángulo">Trompo</button>
+                            <button class="mov-btn truco" onclick="lanzarTruco(2)" title="Círculo">Zig-zag</button>
+                            <button class="mov-btn truco" onclick="lanzarTruco(3)" title="Cuadrado">Baile</button>
+                            <button class="mov-btn truco" onclick="lanzarTruco(4)" title="X">Celebrar</button>
+                        </div>
                     </div>
                 </div>
                 <div class="camera-info">
@@ -2000,6 +2121,48 @@ HTML_TEMPLATE = """
             }
         }
         
+        // ===== Botonera de movimiento y trucos =====
+        //  Los botones se construyen a partir de /movimientos, que devuelve la
+        //  MISMA lista que usan el firmware y el mando PS2. Asi no hay nombres
+        //  duplicados a mano que puedan quedar desincronizados.
+        function enviarMovimiento(mov) {
+            fetch('/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ movimiento: mov })
+            }).catch(() => {});
+        }
+
+        function lanzarTruco(n) {
+            fetch('/truco', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ truco: n })
+            }).catch(() => {});
+        }
+
+        (function construirBotonera() {
+            const grid = document.getElementById('mov-grid');
+            if (!grid) return;
+            fetch('/movimientos').then(r => r.json()).then(d => {
+                //  Orden de la rejilla 3x3: los laterales a los lados, los
+                //  giros en las esquinas y parar en el centro, para que la
+                //  disposicion se entienda de un vistazo.
+                const orden = ['SPINL', 'FWD', 'SPINR',
+                               'LEFT',  'STOP', 'RIGHT',
+                               '',      'BACK', ''];
+                const etiquetas = {};
+                (d.movimientos || []).forEach(m => { etiquetas[m.id] = m.etiqueta; });
+                grid.innerHTML = orden.map(id => {
+                    if (!id) return '<span></span>';
+                    const clase = (id === 'STOP') ? 'mov-btn stop' : 'mov-btn';
+                    const txt = etiquetas[id] || id;
+                    return '<button class="' + clase + '" onclick="enviarMovimiento(\'' +
+                           id + '\')">' + txt + '</button>';
+                }).join('');
+            }).catch(() => {});
+        })();
+
         // ===== Control de movimiento (joystick) =====
         (function() {
             const activeDirs = new Set();
@@ -2589,17 +2752,58 @@ def switch_camera_endpoint():
 
 @app.route("/move", methods=["POST"])
 def move_endpoint():
-    """Recibe comandos de movimiento del joystick web y los aplica a los GPIO"""
+    """Movimiento del robot desde la web.
+
+    Admite las dos formas, para no romper nada que ya funcionara:
+      {"directions": ["w","a"]}   joystick por teclas (como siempre)
+      {"movimiento": "SPINL"}     movimiento con nombre (incluye los giros)
+    """
     data = request.get_json(silent=True) or {}
-    directions = [d for d in data.get("directions", []) if d in MOVE_PINS]
+
+    mov = str(data.get("movimiento", "")).strip().upper()
+    if mov:
+        if not enviar_movimiento(mov):
+            return jsonify({"ok": False,
+                            "message": f"Movimiento desconocido: {mov}",
+                            "validos": list(MOVIMIENTOS)}), 400
+        # Mantener coherente el estado del joystick de teclas
+        for _d in movement_state:
+            movement_state[_d] = (TECLAS_MOVIMIENTO.get(_d) == mov)
+        return jsonify({"ok": True, "movimiento": mov, "state": movement_state})
+
+    directions = [d for d in data.get("directions", []) if d in TECLAS_MOVIMIENTO]
     set_movement(directions)
-    return jsonify({"directions": sorted(directions), "state": movement_state})
+    return jsonify({"ok": True, "directions": sorted(directions),
+                    "movimiento": movimiento_actual, "state": movement_state})
+
 
 @app.route("/stop_movement", methods=["POST"])
 def stop_movement_endpoint():
     """Detiene todo el movimiento"""
-    set_movement([])
-    return jsonify({"message": "Movimiento detenido", "state": movement_state})
+    detener_movimiento()
+    return jsonify({"ok": True, "message": "Movimiento detenido",
+                    "movimiento": movimiento_actual, "state": movement_state})
+
+
+@app.route("/movimientos")
+def movimientos_endpoint():
+    """Lista los movimientos disponibles y su etiqueta, para que la interfaz
+    web se construya a partir de esta lista y no de nombres escritos a mano."""
+    return jsonify({"movimientos": [{"id": m, "etiqueta": ETIQUETAS_MOVIMIENTO[m]}
+                                    for m in MOVIMIENTOS],
+                    "actual": movimiento_actual})
+
+
+@app.route("/truco", methods=["POST"])
+def truco_endpoint():
+    """Lanza uno de los cuatro movimientos especiales (1..4). Son exactamente
+    los mismos que los botones Triangulo/Circulo/Cuadrado/X del mando PS2."""
+    data = request.get_json(silent=True) or {}
+    numero = data.get("truco", 0)
+    if not lanzar_truco(numero):
+        return jsonify({"ok": False, "message": "Truco invalido (usa 1..4)"}), 400
+    return jsonify({"ok": True, "truco": int(numero)})
+
 
 # ================= GESTIÓN DE PERSONAS ===========
 def add_person():
@@ -3828,11 +4032,11 @@ def make_joystick(parent, size=160):
 
     def kp(e):
         k = e.keysym.lower()
-        if k in MOVE_PINS and k not in st["keys"]:
+        if k in TECLAS_MOVIMIENTO and k not in st["keys"]:
             st["keys"].add(k); from_keys()
     def kr(e):
         k = e.keysym.lower()
-        if k in MOVE_PINS and k in st["keys"]:
+        if k in TECLAS_MOVIMIENTO and k in st["keys"]:
             st["keys"].discard(k); from_keys()
 
     canvas.bind('<Button-1>', md)
@@ -3885,11 +4089,11 @@ def draw_joystick_overlay(img):
 
 def _fs_kp(e):
     k = e.keysym.lower()
-    if k in MOVE_PINS:
+    if k in TECLAS_MOVIMIENTO:
         fs_keys.add(k); set_movement(fs_keys | fs_mouse)
 def _fs_kr(e):
     k = e.keysym.lower()
-    if k in MOVE_PINS:
+    if k in TECLAS_MOVIMIENTO:
         fs_keys.discard(k); set_movement(fs_keys | fs_mouse)
 
 def _fs_from_mouse(x, y):
