@@ -346,6 +346,13 @@ void mostrarCalibracion() {
   }
 }
 
+//  OJO AL TIPO: los movimientos se pasan siempre como uint8_t, NUNCA como
+//  "Movimiento", aunque el enum exista. Motivo: el IDE de Arduino genera solo
+//  los prototipos de las funciones y los inserta ARRIBA del sketch, antes de
+//  estas declaraciones; si una firma usa un tipo propio, el prototipo lo
+//  menciona cuando todavia no existe y la compilacion falla con
+//  "'Movimiento' was not declared in this scope". Usando uint8_t no puede
+//  pasar, y el enum sigue sirviendo para nombrar los valores con claridad.
 enum Movimiento : uint8_t {
   MOV_PARADO = 0,
   MOV_ADELANTE,
@@ -396,10 +403,10 @@ void fijarVelocidad(int valor) {
 //  Ultimo estado ESCRITO al shield. Cada orden a un motor es una transaccion
 //  I2C y el bucle repetia las mismas cuatro decenas de veces por segundo; asi
 //  solo se escribe cuando algo cambia de verdad.
-Movimiento movActual = MOV_PARADO;
+uint8_t movActual = MOV_PARADO;
 uint8_t    velActual = 0;
 
-void aplicarChasis(Movimiento mov, uint8_t velocidad) {
+void aplicarChasis(uint8_t mov, uint8_t velocidad) {
   if (mov >= MOV_TOTAL) mov = MOV_PARADO;
   if (mov == MOV_PARADO) velocidad = 0;
 
@@ -438,7 +445,7 @@ void stopMoving() { aplicarChasis(MOV_PARADO, 0); }
 // ═════════════════════════════════════════════════════════════
 
 struct PasoTruco {
-  Movimiento mov;
+  uint8_t mov;
   uint16_t   ms;
   uint8_t    vel;
 };
@@ -538,7 +545,7 @@ bool atenderTruco() {
 //  interpretan como giro sobre el eje, igual que antes.
 void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) {
   int activos = (int)adelante + (int)atras + (int)izquierda + (int)derecha;
-  Movimiento mov;
+  uint8_t mov;
 
   if (activos >= 3 || (adelante && atras) || (izquierda && derecha)) mov = MOV_PARADO;
   else if (adelante && izquierda) mov = MOV_GIRO_IZQ;
@@ -569,7 +576,7 @@ void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) 
 //  editar una linea, y el coste de recorrerla es despreciable.
 struct MapaBoton {
   uint16_t   boton;
-  Movimiento mov;
+  uint8_t mov;
 };
 
 const MapaBoton MAPA_PS2[] = {
@@ -610,7 +617,7 @@ bool modoConducir = true;
 
 //  Lee el stick y traduce a movimiento + velocidad proporcional.
 //  Devuelve MOV_PARADO si el stick esta en reposo.
-Movimiento leerStickIzquierdo(uint8_t* velocidad) {
+uint8_t leerStickIzquierdo(uint8_t* velocidad) {
   *velocidad = 0;
   if (!modoConducir) return MOV_PARADO;
 
@@ -643,7 +650,7 @@ bool handlePS2Movement() {
 
   //  2) Stick analogico: velocidad proporcional a la inclinacion.
   uint8_t velStick;
-  Movimiento movStick = leerStickIzquierdo(&velStick);
+  uint8_t movStick = leerStickIzquierdo(&velStick);
   if (movStick != MOV_PARADO) {
     aplicarChasis(movStick, velStick);
     return true;
@@ -849,7 +856,7 @@ void dispensar(int n) {
 //  que mando, web y logica interna no pueden desincronizarse.
 struct MapaDireccion {
   const char* nombre;
-  Movimiento  mov;
+  uint8_t     mov;
 };
 
 const MapaDireccion MAPA_DIRECCIONES[] = {
@@ -864,7 +871,7 @@ const MapaDireccion MAPA_DIRECCIONES[] = {
 const uint8_t N_DIRECCIONES = sizeof(MAPA_DIRECCIONES) / sizeof(MAPA_DIRECCIONES[0]);
 
 // Busca un nombre en la tabla. Devuelve MOV_TOTAL si no es una direccion.
-Movimiento direccionDesdeTexto(const String& dir) {
+uint8_t direccionDesdeTexto(const String& dir) {
   for (uint8_t i = 0; i < N_DIRECCIONES; i++) {
     if (dir == MAPA_DIRECCIONES[i].nombre) return MAPA_DIRECCIONES[i].mov;
   }
@@ -877,7 +884,7 @@ bool esDireccion(const String& cmd) {
 
 void moverDireccion(String dir) {
   dir.toUpperCase();
-  Movimiento mov = direccionDesdeTexto(dir);
+  uint8_t mov = direccionDesdeTexto(dir);
   if (mov == MOV_TOTAL) mov = MOV_PARADO;   // desconocido -> detener, por seguridad
 
   cancelarTruco();                          // una orden manual manda sobre el truco
@@ -1018,7 +1025,7 @@ void procesarComando(String linea) {
       fijarVelocidad(arg.toInt());
       // Reaplicar en caliente: si el robot ya se esta moviendo, el cambio de
       // velocidad se nota al instante en vez de esperar a la siguiente orden.
-      Movimiento m = movActual;
+      uint8_t m = movActual;
       movActual = MOV_TOTAL;               // forzar la reescritura
       aplicarChasis(m, m == MOV_PARADO ? 0 : velocidadChasis);
     }
@@ -1047,7 +1054,7 @@ void procesarComando(String linea) {
           motorInvertido[motor - 1] = inv;
           guardarCalibracion();
           // Reaplicar por si el robot estaba en marcha con la calibracion vieja
-          Movimiento m = movActual;
+          uint8_t m = movActual;
           movActual = MOV_TOTAL;
           aplicarChasis(m, m == MOV_PARADO ? 0 : velocidadChasis);
           mostrarCalibracion();
@@ -1111,7 +1118,7 @@ void procesarComando(String linea) {
     for (uint8_t m = MOV_ADELANTE; m <= MOV_GIRO_DER; m++) {
       Serial.print("  ");
       Serial.println(nombres[m - MOV_ADELANTE]);
-      aplicarChasis((Movimiento)m, velocidadChasis);
+      aplicarChasis(m, velocidadChasis);
       delay(1500);
       stopMoving();
       delay(600);
