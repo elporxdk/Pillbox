@@ -327,22 +327,22 @@ uint8_t esquinaDesdeTexto(String t) {
 //  Muestra la calibracion y AVISA si dos motores reclaman la misma esquina,
 //  que es el error tipico al anotar y deja movimientos imposibles.
 void mostrarCalibracion() {
-  Serial.println("CAL: motor -> esquina, invertido");
+  Serial.println(F("CAL: motor -> esquina, invertido"));
   bool usada[4] = { false, false, false, false };
   bool repetida = false;
   for (uint8_t i = 0; i < 4; i++) {
-    Serial.print("  M");
+    Serial.print(F("  M"));
     Serial.print(i + 1);
-    Serial.print(" -> ");
+    Serial.print(F(" -> "));
     Serial.print(NOMBRE_ESQUINA[posicionMotor[i]]);
-    Serial.print(", ");
+    Serial.print(F(", "));
     Serial.println(motorInvertido[i] ? "invertido" : "normal");
     if (usada[posicionMotor[i]]) repetida = true;
     usada[posicionMotor[i]] = true;
   }
   if (repetida) {
-    Serial.println("  AVISO: hay dos motores en la misma esquina. Revisa el");
-    Serial.println("  MOTORTEST: cada motor debe ocupar una esquina distinta.");
+    Serial.println(F("  AVISO: hay dos motores en la misma esquina. Revisa el"));
+    Serial.println(F("  MOTORTEST: cada motor debe ocupar una esquina distinta."));
   }
 }
 
@@ -396,7 +396,7 @@ uint8_t indiceVelocidad = 0;
 
 void fijarVelocidad(int valor) {
   velocidadChasis = (uint8_t)constrain(valor, VEL_CHASIS_MIN, VEL_CHASIS_MAX);
-  Serial.print("VEL,");
+  Serial.print(F("VEL,"));
   Serial.println(velocidadChasis);
 }
 
@@ -502,7 +502,7 @@ void lanzarTruco(uint8_t indice) {
   trucoActivo = indice;
   trucoPaso   = 0;
   trucoDesde  = millis();
-  Serial.print("TRUCO,");
+  Serial.print(F("TRUCO,"));
   Serial.println(TRUCOS[indice].nombre);
 }
 
@@ -526,7 +526,7 @@ bool atenderTruco() {
     if (trucoPaso >= t.n) {                    // truco terminado
       trucoActivo = -1;
       stopMoving();
-      Serial.println("TRUCO,FIN");
+      Serial.println(F("TRUCO,FIN"));
       return false;
     }
     trucoDesde = millis();
@@ -764,20 +764,20 @@ void reiniciarEncoders() {
 // Responde siempre con los cuatro campos para no romper a quien lo lea; el
 // tercero (M3) va a 0 porque ese encoder no esta disponible (ver arriba).
 void responderEncoders() {
-  Serial.print("ENC,");
+  Serial.print(F("ENC,"));
   Serial.print(encoder1.read());
-  Serial.print(",");
+  Serial.print(F(","));
   Serial.print(encoder2.read());
-  Serial.print(",0,");
+  Serial.print(F(",0,"));
   Serial.println(encoder4.read());
 }
 
 void responderRPM() {
-  Serial.print("ENCRPM,");
+  Serial.print(F("ENCRPM,"));
   Serial.print(encoder1.getRPM());
-  Serial.print(",");
+  Serial.print(F(","));
   Serial.print(encoder2.getRPM());
-  Serial.print(",0,");
+  Serial.print(F(",0,"));
   Serial.println(encoder4.getRPM());
 }
 
@@ -819,7 +819,7 @@ void irACompartimiento(int destino) {
   avanzarComps((destino - compActual + N_COMPARTIMIENTOS) % N_COMPARTIMIENTOS);
   compActual = destino;
   EEPROM.write(EEPROM_COMP_ADDR, compActual);
-  Serial.print("POS,");
+  Serial.print(F("POS,"));
   Serial.println(compActual);
 }
 
@@ -842,9 +842,9 @@ void dispensar(int n) {
   compActual = 1;
   EEPROM.write(EEPROM_COMP_ADDR, compActual);
 
-  Serial.print("DISPENSADO,");
+  Serial.print(F("DISPENSADO,"));
   Serial.println(n);
-  Serial.print("POS,");
+  Serial.print(F("POS,"));
   Serial.println(compActual);
 }
 
@@ -896,7 +896,7 @@ void moverDireccion(String dir) {
   vDerecha   = (mov == MOV_DERECHA);
 
   aplicarChasis(mov, velocidadChasis);
-  Serial.print("OK,MOVE,");
+  Serial.print(F("OK,MOVE,"));
   Serial.println(dir);
 }
 
@@ -918,23 +918,23 @@ void procesarComando(String linea) {
     // ACK inmediato: confirma que el comando LLEGO y el giro va a empezar. Asi
     // se distingue "no llego" de "llego pero el Arduino se reinicio a mitad de
     // giro" (bajon de tension). El POS,<n> final llega al terminar de girar.
-    Serial.print("OK,GOTO,"); Serial.println(arg.toInt());
+    Serial.print(F("OK,GOTO,")); Serial.println(arg.toInt());
     irACompartimiento(arg.toInt());
   } else if (cmd == "DISPENSE" || cmd == "DISPENSAR") {
     int n = (arg.length() > 0) ? arg.toInt() : compActual;
-    Serial.print("OK,DISPENSE,"); Serial.println(n);   // ACK inmediato (ver arriba)
+    Serial.print(F("OK,DISPENSE,")); Serial.println(n);   // ACK inmediato (ver arriba)
     dispensar(n);
   } else if (cmd == "HOME") {
-    Serial.println("OK,HOME");                          // ACK inmediato (ver arriba)
+    Serial.println(F("OK,HOME"));                          // ACK inmediato (ver arriba)
     irAHome();
-    Serial.print("POS,");
+    Serial.print(F("POS,"));
     Serial.println(compActual);
   } else if (cmd == "SERVO") {
     servoDispensador.write(constrain(arg.toInt(), 0, 90));
-    Serial.print("SERVO,");
+    Serial.print(F("SERVO,"));
     Serial.println(arg.toInt());
   } else if (cmd == "GETPOS") {
-    Serial.print("POS,");
+    Serial.print(F("POS,"));
     Serial.println(compActual);
 
   } else if (cmd == "MOVE") {
@@ -987,9 +987,9 @@ void procesarComando(String linea) {
     // Los mismos que Triangulo/Circulo/Cuadrado/X en el mando, para que la web
     // y el control fisico ofrezcan exactamente lo mismo.
     if (arg.length() == 0) {
-      Serial.print("TRUCOS");
+      Serial.print(F("TRUCOS"));
       for (uint8_t i = 0; i < N_TRUCOS; i++) {
-        Serial.print(",");
+        Serial.print(F(","));
         Serial.print(TRUCOS[i].nombre);
       }
       Serial.println();
@@ -998,7 +998,7 @@ void procesarComando(String linea) {
       if (n >= 1 && n <= N_TRUCOS) {
         lanzarTruco(n - 1);
       } else {
-        Serial.print("ERR,TRUCO,");
+        Serial.print(F("ERR,TRUCO,"));
         Serial.println(arg);
       }
     }
@@ -1019,7 +1019,7 @@ void procesarComando(String linea) {
   } else if (cmd == "VEL") {
     // VEL,<n>  ajusta la velocidad del chasis (200..255). VEL sola la consulta.
     if (arg.length() == 0) {
-      Serial.print("VEL,");
+      Serial.print(F("VEL,"));
       Serial.println(velocidadChasis);
     } else {
       fijarVelocidad(arg.toInt());
@@ -1039,16 +1039,16 @@ void procesarComando(String linea) {
       int c1 = arg.indexOf(',');
       int c2 = (c1 >= 0) ? arg.indexOf(',', c1 + 1) : -1;
       if (c1 < 0 || c2 < 0) {
-        Serial.println("ERR,CAL: usa  CAL,<motor 1-4>,<DI|DD|TI|TD>,<0|1>");
+        Serial.println(F("ERR,CAL: usa  CAL,<motor 1-4>,<DI|DD|TI|TD>,<0|1>"));
       } else {
         int     motor   = arg.substring(0, c1).toInt();
         uint8_t esquina = esquinaDesdeTexto(arg.substring(c1 + 1, c2));
         bool    inv     = (arg.substring(c2 + 1).toInt() != 0);
 
         if (motor < 1 || motor > 4) {
-          Serial.println("ERR,CAL: el motor va de 1 a 4");
+          Serial.println(F("ERR,CAL: el motor va de 1 a 4"));
         } else if (esquina > 3) {
-          Serial.println("ERR,CAL: la esquina es DI, DD, TI o TD");
+          Serial.println(F("ERR,CAL: la esquina es DI, DD, TI o TD"));
         } else {
           posicionMotor[motor - 1]  = esquina;
           motorInvertido[motor - 1] = inv;
@@ -1079,52 +1079,52 @@ void procesarComando(String linea) {
     //
     // Se llama a los motores directamente (sin aplicarChasis) a proposito:
     // aqui interesa el motor fisico, no el movimiento ya corregido.
-    Serial.println("=== CALIBRACION: levanta el robot, ruedas al aire ===");
-    Serial.println("Mira el robot DESDE ATRAS, como si condujeras.");
-    Serial.println("Para cada motor anota: que rueda se mueve y hacia donde.");
+    Serial.println(F("=== CALIBRACION: levanta el robot, ruedas al aire ==="));
+    Serial.println(F("Mira el robot DESDE ATRAS, como si condujeras."));
+    Serial.println(F("Para cada motor anota: que rueda se mueve y hacia donde."));
     stopMoving();
     for (uint8_t i = 0; i < 4; i++) {
-      Serial.print("\n--- MOTOR M");
+      Serial.print(F("\n--- MOTOR M"));
       Serial.print(i + 1);
-      Serial.println(" ---");
+      Serial.println(F(" ---"));
 
-      Serial.println("  run(FORWARD) 2 s ... ¿que rueda y hacia donde?");
+      Serial.println(F("  run(FORWARD) 2 s ... ¿que rueda y hacia donde?"));
       MOTORES[i]->setSpeed(velocidadChasis);
       MOTORES[i]->run(FORWARD);
       delay(2000);
       MOTORES[i]->run(RELEASE);
       delay(800);
 
-      Serial.println("  run(BACKWARD) 2 s ... (debe ser justo al reves)");
+      Serial.println(F("  run(BACKWARD) 2 s ... (debe ser justo al reves)"));
       MOTORES[i]->setSpeed(velocidadChasis);
       MOTORES[i]->run(BACKWARD);
       delay(2000);
       MOTORES[i]->run(RELEASE);
       delay(800);
     }
-    Serial.println("\n=== FIN ===");
-    Serial.println("Ahora escribe una linea por motor:");
-    Serial.println("   CAL,<motor 1-4>,<esquina DI|DD|TI|TD>,<invertido 0|1>");
-    Serial.println("Ejemplo: si el motor 1 resulto ser la rueda trasera");
-    Serial.println("derecha y ademas gira al reves ->  CAL,1,TD,1");
-    Serial.println("Se guarda solo en la EEPROM. Comprueba luego con MOVTEST.");
+    Serial.println(F("\n=== FIN ==="));
+    Serial.println(F("Ahora escribe una linea por motor:"));
+    Serial.println(F("   CAL,<motor 1-4>,<esquina DI|DD|TI|TD>,<invertido 0|1>"));
+    Serial.println(F("Ejemplo: si el motor 1 resulto ser la rueda trasera"));
+    Serial.println(F("derecha y ademas gira al reves ->  CAL,1,TD,1"));
+    Serial.println(F("Se guarda solo en la EEPROM. Comprueba luego con MOVTEST."));
 
   } else if (cmd == "MOVTEST") {
     // Comprueba la calibracion: hace los 6 movimientos, 1,5 s cada uno.
     // Si alguno no se corresponde con su nombre, la calibracion esta mal.
     const char* nombres[] = { "ADELANTE", "ATRAS", "IZQUIERDA", "DERECHA",
                               "GIRO_IZQ", "GIRO_DER" };
-    Serial.println("=== COMPROBACION DE MOVIMIENTOS ===");
+    Serial.println(F("=== COMPROBACION DE MOVIMIENTOS ==="));
     for (uint8_t m = MOV_ADELANTE; m <= MOV_GIRO_DER; m++) {
-      Serial.print("  ");
+      Serial.print(F("  "));
       Serial.println(nombres[m - MOV_ADELANTE]);
       aplicarChasis(m, velocidadChasis);
       delay(1500);
       stopMoving();
       delay(600);
     }
-    Serial.println("=== FIN. Si alguno no hace lo que dice su nombre,");
-    Serial.println("    corrige esa linea CAL y repite MOVTEST. ===");
+    Serial.println(F("=== FIN. Si alguno no hace lo que dice su nombre,"));
+    Serial.println(F("    corrige esa linea CAL y repite MOVTEST. ==="));
 
   } else if (cmd == "STEPTEST") {
     // Diagnostico del PASO A PASO, aislado del resto (como MOTORTEST para los DC).
@@ -1137,39 +1137,39 @@ void procesarComando(String linea) {
     //  - Si NO gira ni aqui -> revisar cableado ULN2003 en 8/9/10/11 y su 5V.
     int comps = (arg.length() > 0) ? arg.toInt() : N_COMPARTIMIENTOS;
     comps = constrain(comps, 1, 64);
-    Serial.print("STEPTEST: girando ");
+    Serial.print(F("STEPTEST: girando "));
     Serial.print(comps);
-    Serial.println(" compartimiento(s) hacia adelante...");
+    Serial.println(F(" compartimiento(s) hacia adelante..."));
     for (int i = 0; i < comps; i++) {
       ruleta.step(PASOS_POR_COMP);
-      Serial.print("  comp ");
+      Serial.print(F("  comp "));
       Serial.println(i + 1);
     }
     liberarBobinas();
-    Serial.println("STEPTEST: fin");
+    Serial.println(F("STEPTEST: fin"));
 
   } else if (cmd == "I2CSCAN") {
     // Diagnostico: escanea el bus I2C y lista las direcciones que responden.
     // El Motor Shield (tipo Adafruit v2 / QGPMaker) suele estar en 0x60.
     // Si NO aparece 0x60, el shield no se comunica (revisar SDA/SCL, encastre
     // o que la libreria sea la correcta para tu shield).
-    Serial.println("I2CSCAN: buscando dispositivos I2C...");
+    Serial.println(F("I2CSCAN: buscando dispositivos I2C..."));
     int encontrados = 0;
     for (byte addr = 1; addr < 127; addr++) {
       Wire.beginTransmission(addr);
       if (Wire.endTransmission() == 0) {
-        Serial.print("  encontrado 0x");
-        if (addr < 16) Serial.print("0");
+        Serial.print(F("  encontrado 0x"));
+        if (addr < 16) Serial.print(F("0"));
         Serial.println(addr, HEX);
         encontrados++;
       }
     }
-    Serial.print("I2CSCAN: ");
+    Serial.print(F("I2CSCAN: "));
     Serial.print(encontrados);
-    Serial.println(" dispositivo(s). El Motor Shield suele estar en 0x60.");
+    Serial.println(F(" dispositivo(s). El Motor Shield suele estar en 0x60."));
 
   } else {
-    Serial.print("ERR,");
+    Serial.print(F("ERR,"));
     Serial.println(linea);
   }
 }
@@ -1267,9 +1267,9 @@ void setup() {
   }
 
   // Enviar posicion actual al host
-  Serial.print("POS,");
+  Serial.print(F("POS,"));
   Serial.println(compActual);
-  Serial.println("LISTO");
+  Serial.println(F("LISTO"));
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -1302,7 +1302,7 @@ void loop() {
     // que ninguna de las dos funciones se pierda al compartir el mismo stick.
     if (ps2x.ButtonPressed(PSB_SELECT)) {
       modoConducir = !modoConducir;
-      Serial.print("MODO,");
+      Serial.print(F("MODO,"));
       Serial.println(modoConducir ? "CONDUCIR" : "BRAZO");
     }
 
