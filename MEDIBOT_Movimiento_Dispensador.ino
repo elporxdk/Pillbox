@@ -78,46 +78,12 @@
  *  4320 cuentas = 1 vuelta del eje de salida (12 PPR x 4 cuadratura x 90
  *  reductora), segun el fabricante. Constante CUENTAS_POR_VUELTA.
  *
- *  ------------------- ORDENES MOVIMIENTO (Vision / web) ------
- *   MOVE,<dir>     FWD | BACK | LEFT | RIGHT | SPINL | SPINR | STOP
- *                  LEFT/RIGHT = desplazamiento lateral (no gira)
- *                  SPINL/SPINR = giro sobre su propio eje
+ *  ------------------- ORDENES MOVIMIENTO / CAMARA (Vision) ----
+ *   MOVE,<dir>     dir = FWD | BACK | LEFT | RIGHT | STOP
  *   FWD/BACK/...   la direccion SOLA tambien vale (para probar por el Monitor)
- *   TRUCO[,<n>]    Lanza el truco n (1..4). Sin argumento, los lista.
  *   GPIO,<pin>,<v> Protocolo de Vision: pin 17=adel,27=atras,22=izq,23=der; v=0/1
  *   GPIO,CLEANUP,0 Detiene el chasis y limpia el estado de movimiento
  *   PWM,<pin>,<d>  Servos de camara: pin 18=pan, 13=tilt; d = duty % (2.5..12.5)
- *
- *  ------------------- MANDO PS2 ------------------------------
- *   PAD ARRIBA/ABAJO  avanzar / retroceder
- *   PAD IZQ/DER       desplazamiento lateral   (L1 y R1 hacen lo mismo)
- *   L2 / R2           giro sobre su propio eje, izquierda / derecha
- *   Stick izquierdo   conduccion analogica: la velocidad sube con la inclinacion
- *   TRIANGULO         truco 1: trompo         CIRCULO   truco 2: zig-zag
- *   CUADRADO          truco 3: baile          X         truco 4: celebracion
- *   SELECT            alterna el stick izquierdo entre conducir y mover el brazo
- *
- *   START             cambia la velocidad (200 -> 220 -> 240 -> 255 -> 200)
- *
- *  ------------------- CALIBRACION DEL CHASIS -----------------
- *  Los movimientos NO se adivinan: se calculan a partir de dos datos que se
- *  miden una sola vez con MOTORTEST y se anotan arriba del sketch:
- *     - en que esquina del robot esta cada motor
- *     - si ese motor gira al reves de lo que dice FORWARD
- *  Con eso, todos los movimientos son correctos por construccion.
- *  Se guarda en la EEPROM: se calibra UNA vez desde el Monitor Serial, SIN
- *  editar ni recompilar el sketch, y sobrevive a apagar el robot.
- *
- *   MOTORTEST      Prueba los motores UNO A UNO (adelante y atras) para saber
- *                  que rueda es cada uno. Levanta el robot antes.
- *   CAL,<m>,<esq>,<inv>   Anota un motor:  m=1..4, esq=DI|DD|TI|TD, inv=0|1
- *                  Ejemplo:  CAL,1,TD,1
- *   CAL            Muestra la calibracion actual
- *   CALRESET       Vuelve a la de partida
- *   MOVTEST        Hace los 6 movimientos seguidos para comprobar que la
- *                  calibracion es correcta.
- *   VEL[,<n>]      Ajusta la velocidad del chasis (200..255). Sin argumento,
- *                  responde la actual.
  *
  *  Respuestas del Arduino:
  *   LISTO          al arrancar
@@ -239,455 +205,122 @@ bool vIzquierda = false;
 bool vDerecha   = false;
 
 // ═════════════════════════════════════════════════════════════
-//  CHASIS — calibracion y movimientos
+//  FUNCIONES DE MOVIMIENTO (chasis)
 // ═════════════════════════════════════════════════════════════
-//  POR QUE ESTA ASI Y NO CON PATRONES "A OJO":
-//  Las descripciones de lo que hace el robot ("tambalea", "gira", "se mueve
-//  de lado") son ambiguas y se contradecian entre si, asi que deducir de ahi
-//  el patron de cada movimiento era jugar a adivinar. En vez de eso, aqui se
-//  declaran DOS DATOS OBJETIVOS sobre el hardware, que se miden una sola vez
-//  con la orden MOTORTEST:
-//
-//     1. En que esquina del robot esta cada motor.
-//     2. Si ese motor gira al reves de lo que dice run(FORWARD).
-//
-//  Con esos dos datos, TODOS los movimientos salen calculados y son correctos
-//  por construccion. Si el robot se recablea, se vuelve a medir y ya esta: no
-//  hay que tocar ni una linea de logica.
-//
-//  ---------- COMO CALIBRAR (una sola vez, SIN recompilar) ----------
-//  La calibracion se guarda en la EEPROM, asi que se hace desde el Monitor
-//  Serial y sobrevive a apagar el robot. No hay que editar el sketch.
-//
-//  1. Abre el Monitor Serial a 9600 con "Nueva linea".
-//  2. Levanta el robot para que las ruedas giren al aire.
-//  3. Escribe:  MOTORTEST
-//     Prueba motor por motor. Para cada uno anota:
-//        - QUE rueda se movio, mirando el robot DESDE ATRAS (como si
-//          condujeras):  DI = delantera izq,  DD = delantera der,
-//                        TI = trasera izq,    TD = trasera der
-//        - Si con "FORWARD" giro hacia ADELANTE (0) o hacia ATRAS (1).
-//  4. Escribe una linea por motor. Por ejemplo, si el motor 1 resulto ser la
-//     rueda trasera derecha y ademas gira al reves:
-//              CAL,1,TD,1
-//     ...y asi con los cuatro. Se guarda solo en la EEPROM.
-//  5. Comprueba con:  MOVTEST   (hace los 6 movimientos seguidos)
-//     Si alguno no hace lo que dice su nombre, corrige esa linea CAL y repite.
-//
-//  Ordenes utiles:  CAL (ver la actual)   CALRESET (volver a la de fabrica)
-// ═════════════════════════════════════════════════════════════
-
-// Las cuatro esquinas del robot.
-#define RUEDA_DEL_IZQ  0
-#define RUEDA_DEL_DER  1
-#define RUEDA_TRA_IZQ  2
-#define RUEDA_TRA_DER  3
-
-const char* NOMBRE_ESQUINA[4] = { "DI", "DD", "TI", "TD" };
-
-//  Calibracion VIVA (se carga de la EEPROM al arrancar). Estos son solo los
-//  valores de partida si la EEPROM aun no tiene nada guardado.
-uint8_t posicionMotor[4]  = { RUEDA_DEL_IZQ, RUEDA_DEL_DER,
-                              RUEDA_TRA_IZQ, RUEDA_TRA_DER };
-bool    motorInvertido[4] = { false, false, false, false };
-
-// ---- Guardado en EEPROM ----
-//  Se usa una direccion lejos de la del dispensador (que ocupa la 0) y un
-//  byte "magico" al principio: si no esta, es que la EEPROM nunca se calibro
-//  (placa nueva o borrada) y se usan los valores de partida.
-#define EEPROM_CAL_ADDR   10
-#define EEPROM_CAL_MAGIC  0x5A
-
-void guardarCalibracion() {
-  EEPROM.write(EEPROM_CAL_ADDR, EEPROM_CAL_MAGIC);
-  for (uint8_t i = 0; i < 4; i++) {
-    EEPROM.write(EEPROM_CAL_ADDR + 1 + i, posicionMotor[i]);
-    EEPROM.write(EEPROM_CAL_ADDR + 5 + i, motorInvertido[i] ? 1 : 0);
-  }
+void forward() {
+  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(FORWARD);
+  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(FORWARD);
+  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(FORWARD);
+  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(FORWARD);
 }
 
-void cargarCalibracion() {
-  if (EEPROM.read(EEPROM_CAL_ADDR) != EEPROM_CAL_MAGIC) return;   // sin calibrar
-  for (uint8_t i = 0; i < 4; i++) {
-    uint8_t pos = EEPROM.read(EEPROM_CAL_ADDR + 1 + i);
-    if (pos < 4) posicionMotor[i] = pos;
-    motorInvertido[i] = (EEPROM.read(EEPROM_CAL_ADDR + 5 + i) == 1);
-  }
+void backward() {
+  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(BACKWARD);
+  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(BACKWARD);
+  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(BACKWARD);
+  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(BACKWARD);
 }
 
-//  Traduce "DI"/"DD"/"TI"/"TD" (o 0..3) al numero de esquina. 255 = no valido.
-uint8_t esquinaDesdeTexto(String t) {
-  t.trim();
-  t.toUpperCase();
-  for (uint8_t i = 0; i < 4; i++) if (t == NOMBRE_ESQUINA[i]) return i;
-  if (t.length() == 1 && t[0] >= '0' && t[0] <= '3') return t[0] - '0';
-  return 255;
+void turnLeft() {
+  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(BACKWARD);
+  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(BACKWARD);
+  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(FORWARD);
+  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(FORWARD);
 }
 
-//  Muestra la calibracion y AVISA si dos motores reclaman la misma esquina,
-//  que es el error tipico al anotar y deja movimientos imposibles.
-void mostrarCalibracion() {
-  Serial.println(F("CAL: motor -> esquina, invertido"));
-  bool usada[4] = { false, false, false, false };
-  bool repetida = false;
-  for (uint8_t i = 0; i < 4; i++) {
-    Serial.print(F("  M"));
-    Serial.print(i + 1);
-    Serial.print(F(" -> "));
-    Serial.print(NOMBRE_ESQUINA[posicionMotor[i]]);
-    Serial.print(F(", "));
-    Serial.println(motorInvertido[i] ? "invertido" : "normal");
-    if (usada[posicionMotor[i]]) repetida = true;
-    usada[posicionMotor[i]] = true;
-  }
-  if (repetida) {
-    Serial.println(F("  AVISO: hay dos motores en la misma esquina. Revisa el"));
-    Serial.println(F("  MOTORTEST: cada motor debe ocupar una esquina distinta."));
-  }
+void turnRight() {
+  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(FORWARD);
+  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(FORWARD);
+  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(BACKWARD);
+  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(BACKWARD);
 }
 
-//  OJO AL TIPO: los movimientos se pasan siempre como uint8_t, NUNCA como
-//  "Movimiento", aunque el enum exista. Motivo: el IDE de Arduino genera solo
-//  los prototipos de las funciones y los inserta ARRIBA del sketch, antes de
-//  estas declaraciones; si una firma usa un tipo propio, el prototipo lo
-//  menciona cuando todavia no existe y la compilacion falla con
-//  "'Movimiento' was not declared in this scope". Usando uint8_t no puede
-//  pasar, y el enum sigue sirviendo para nombrar los valores con claridad.
-enum Movimiento : uint8_t {
-  MOV_PARADO = 0,
-  MOV_ADELANTE,
-  MOV_ATRAS,
-  MOV_IZQUIERDA,     // desplazamiento lateral, sin cambiar de orientacion
-  MOV_DERECHA,
-  MOV_GIRO_IZQ,      // gira sobre su propio eje, sin desplazarse
-  MOV_GIRO_DER,
-  MOV_TOTAL
-};
-
-//  Que debe hacer cada RUEDA (no cada motor) en cada movimiento.
-//  Esto es geometria del robot, no cableado: siempre es igual en cualquier
-//  robot de 4 ruedas. Las columnas van en el orden de las esquinas de arriba.
-//  El desplazamiento lateral necesita ruedas mecanum u omnidireccionales; con
-//  ruedas normales ese patron hace que el robot se arrastre de lado.
-const int8_t PATRON_POR_RUEDA[MOV_TOTAL][4] = {
-  //  DEL_IZQ  DEL_DER  TRA_IZQ  TRA_DER
-  {    0,       0,       0,       0    },   // MOV_PARADO
-  {   +1,      +1,      +1,      +1    },   // MOV_ADELANTE
-  {   -1,      -1,      -1,      -1    },   // MOV_ATRAS
-  {   -1,      +1,      +1,      -1    },   // MOV_IZQUIERDA (lateral)
-  {   +1,      -1,      -1,      +1    },   // MOV_DERECHA
-  {   -1,      +1,      -1,      +1    },   // MOV_GIRO_IZQ (izq atras, der adelante)
-  {   +1,      -1,      +1,      -1    },   // MOV_GIRO_DER
-};
-
-QGPMaker_DCMotor* MOTORES[4] = { DCMotor_1, DCMotor_2, DCMotor_3, DCMotor_4 };
-
-// ---------------- Velocidad del chasis ----------------
-//  Ajustable en marcha entre 200 y 255: por debajo de 200 estos motores con
-//  reductora apenas arrancan con carga, y 255 es el maximo del PWM.
-const uint8_t VEL_CHASIS_MIN = 200;
-const uint8_t VEL_CHASIS_MAX = 255;
-uint8_t velocidadChasis = VEL_CHASIS_MIN;
-
-//  Escalones que recorre el boton START del mando.
-const uint8_t VELOCIDADES[]  = { 200, 220, 240, 255 };
-const uint8_t N_VELOCIDADES  = sizeof(VELOCIDADES) / sizeof(VELOCIDADES[0]);
-uint8_t indiceVelocidad = 0;
-
-void fijarVelocidad(int valor) {
-  velocidadChasis = (uint8_t)constrain(valor, VEL_CHASIS_MIN, VEL_CHASIS_MAX);
-  Serial.print(F("VEL,"));
-  Serial.println(velocidadChasis);
+void moveLeft() {
+  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(BACKWARD);
+  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(FORWARD);
+  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(BACKWARD);
+  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(FORWARD);
 }
 
-//  Ultimo estado ESCRITO al shield. Cada orden a un motor es una transaccion
-//  I2C y el bucle repetia las mismas cuatro decenas de veces por segundo; asi
-//  solo se escribe cuando algo cambia de verdad.
-uint8_t movActual = MOV_PARADO;
-uint8_t    velActual = 0;
-
-void aplicarChasis(uint8_t mov, uint8_t velocidad) {
-  if (mov >= MOV_TOTAL) mov = MOV_PARADO;
-  if (mov == MOV_PARADO) velocidad = 0;
-
-  if (mov == movActual && velocidad == velActual) return;   // nada que cambiar
-  movActual = mov;
-  velActual = velocidad;
-
-  for (uint8_t i = 0; i < 4; i++) {
-    //  De motor -> a que esquina ocupa -> que tiene que hacer esa esquina,
-    //  y por ultimo se corrige si ese motor esta cableado del reves.
-    int8_t sentido = PATRON_POR_RUEDA[mov][posicionMotor[i]];
-    if (motorInvertido[i]) sentido = -sentido;
-
-    if (sentido == 0) {
-      MOTORES[i]->setSpeed(0);
-      MOTORES[i]->run(RELEASE);
-    } else {
-      MOTORES[i]->setSpeed(velocidad);
-      MOTORES[i]->run(sentido > 0 ? FORWARD : BACKWARD);
-    }
-  }
+void moveRight() {
+  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(FORWARD);
+  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(BACKWARD);
+  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(FORWARD);
+  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(BACKWARD);
 }
 
-void stopMoving() { aplicarChasis(MOV_PARADO, 0); }
-
-// ═════════════════════════════════════════════════════════════
-//  TRUCOS — coreografias no bloqueantes
-// ═════════════════════════════════════════════════════════════
-//  Cada truco es una LISTA DE PASOS (movimiento + duracion). Un pequeno motor
-//  de estados los va sirviendo con millis(), asi que el robot puede bailar sin
-//  congelar el resto del programa: el mando, el serie y el dispensador siguen
-//  respondiendo. Con delay() todo se habria quedado bloqueado varios segundos.
-//
-//  Anadir un truco nuevo es escribir su tabla y meterla en TRUCOS[]; no hay
-//  que tocar ninguna otra parte del codigo.
-// ═════════════════════════════════════════════════════════════
-
-struct PasoTruco {
-  uint8_t mov;
-  uint16_t   ms;
-  uint8_t    vel;
-};
-
-//  TRIANGULO: trompo completo, primero a un lado y luego al otro.
-const PasoTruco TRUCO_TROMPO[] PROGMEM = {
-  { MOV_GIRO_DER, 1100, 220 }, { MOV_PARADO,  150,   0 },
-  { MOV_GIRO_IZQ, 1100, 220 }, { MOV_PARADO,    0,   0 },
-};
-
-//  CIRCULO: zig-zag lateral.
-const PasoTruco TRUCO_ZIGZAG[] PROGMEM = {
-  { MOV_IZQUIERDA, 350, 200 }, { MOV_ADELANTE, 250, 200 },
-  { MOV_DERECHA,   350, 200 }, { MOV_ADELANTE, 250, 200 },
-  { MOV_IZQUIERDA, 350, 200 }, { MOV_DERECHA,  350, 200 },
-  { MOV_PARADO,      0,   0 },
-};
-
-//  CUADRADO: baile, giros cortos alternos a un lado y a otro.
-const PasoTruco TRUCO_BAILE[] PROGMEM = {
-  { MOV_GIRO_IZQ, 260, 230 }, { MOV_GIRO_DER, 260, 230 },
-  { MOV_GIRO_IZQ, 260, 230 }, { MOV_GIRO_DER, 260, 230 },
-  { MOV_ADELANTE, 220, 200 }, { MOV_ATRAS,    220, 200 },
-  { MOV_GIRO_DER, 500, 230 }, { MOV_PARADO,     0,   0 },
-};
-
-//  EQUIS: celebracion, avance y retroceso rapidos y un giro final.
-const PasoTruco TRUCO_CELEBRA[] PROGMEM = {
-  { MOV_ADELANTE, 200, 240 }, { MOV_ATRAS,    200, 240 },
-  { MOV_ADELANTE, 200, 240 }, { MOV_ATRAS,    200, 240 },
-  { MOV_GIRO_IZQ, 700, 240 }, { MOV_PARADO,     0,   0 },
-};
-
-struct Truco {
-  const PasoTruco* pasos;
-  uint8_t          n;
-  const char*      nombre;
-};
-
-const Truco TRUCOS[] = {
-  { TRUCO_TROMPO,  4, "TROMPO"  },
-  { TRUCO_ZIGZAG,  7, "ZIGZAG"  },
-  { TRUCO_BAILE,   8, "BAILE"   },
-  { TRUCO_CELEBRA, 6, "CELEBRA" },
-};
-const uint8_t N_TRUCOS = sizeof(TRUCOS) / sizeof(TRUCOS[0]);
-
-int8_t        trucoActivo = -1;    // -1 = ninguno
-uint8_t       trucoPaso   = 0;
-unsigned long trucoDesde  = 0;
-
-void lanzarTruco(uint8_t indice) {
-  if (indice >= N_TRUCOS || trucoActivo >= 0) return;   // uno cada vez
-  trucoActivo = indice;
-  trucoPaso   = 0;
-  trucoDesde  = millis();
-  Serial.print(F("TRUCO,"));
-  Serial.println(TRUCOS[indice].nombre);
-}
-
-void cancelarTruco() {
-  if (trucoActivo < 0) return;
-  trucoActivo = -1;
-  stopMoving();
-}
-
-//  Sirve el paso que toque. Devuelve true si hay un truco en marcha (y por
-//  tanto manda sobre el chasis).
-bool atenderTruco() {
-  if (trucoActivo < 0) return false;
-
-  const Truco& t = TRUCOS[trucoActivo];
-  PasoTruco paso;
-  memcpy_P(&paso, &t.pasos[trucoPaso], sizeof(PasoTruco));
-
-  if (millis() - trucoDesde >= paso.ms) {      // paso terminado
-    trucoPaso++;
-    if (trucoPaso >= t.n) {                    // truco terminado
-      trucoActivo = -1;
-      stopMoving();
-      Serial.println(F("TRUCO,FIN"));
-      return false;
-    }
-    trucoDesde = millis();
-    memcpy_P(&paso, &t.pasos[trucoPaso], sizeof(PasoTruco));
-  }
-
-  aplicarChasis(paso.mov, paso.vel);
-  return true;
+void stopMoving() {
+  DCMotor_1->setSpeed(0); DCMotor_1->run(RELEASE);
+  DCMotor_2->setSpeed(0); DCMotor_2->run(RELEASE);
+  DCMotor_3->setSpeed(0); DCMotor_3->run(RELEASE);
+  DCMotor_4->setSpeed(0); DCMotor_4->run(RELEASE);
 }
 
 // ═════════════════════════════════════════════════════════════
-//  DECISION DE MOVIMIENTO (compartida: COM y mando)
+//  DECISION DE MOVIMIENTO (compartida: COM virtual y RPi fisico)
 // ═════════════════════════════════════════════════════════════
-//  Se conserva la firma de siempre para no romper el protocolo GPIO de Vision:
-//  cuatro banderas -> un movimiento. Las combinaciones adelante+lateral se
-//  interpretan como giro sobre el eje, igual que antes.
 void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) {
   int activos = (int)adelante + (int)atras + (int)izquierda + (int)derecha;
-  uint8_t mov;
 
-  if (activos >= 3 || (adelante && atras) || (izquierda && derecha)) mov = MOV_PARADO;
-  else if (adelante && izquierda) mov = MOV_GIRO_IZQ;
-  else if (adelante && derecha)   mov = MOV_GIRO_DER;
-  else if (atras && izquierda)    mov = MOV_GIRO_IZQ;
-  else if (atras && derecha)      mov = MOV_GIRO_DER;
-  else if (adelante)              mov = MOV_ADELANTE;
-  else if (atras)                 mov = MOV_ATRAS;
-  else if (izquierda)             mov = MOV_IZQUIERDA;
-  else if (derecha)               mov = MOV_DERECHA;
-  else                            mov = MOV_PARADO;
-
-  aplicarChasis(mov, velocidadChasis);
+  if (activos >= 3 || (adelante && atras) || (izquierda && derecha)) {
+    stopMoving();                     // Combinaciones inválidas → stop
+  } else if (adelante && izquierda) { turnLeft();   }
+  else if   (adelante && derecha)   { turnRight();  }
+  else if   (atras    && izquierda) { turnLeft();   }
+  else if   (atras    && derecha)   { turnRight();  }
+  else if   (adelante)              { forward();    }
+  else if   (atras)                 { backward();   }
+  else if   (izquierda)             { moveLeft();   }
+  else if   (derecha)               { moveRight();  }
+  else                              { stopMoving(); } // Nada activo
 }
 
 // ═════════════════════════════════════════════════════════════
 //  CONTROL POR PS2X — MOVIMIENTO
 // ═════════════════════════════════════════════════════════════
-//  MAPA DE BOTONES (el que pediste):
-//     PAD ARRIBA / ABAJO  -> avanzar / retroceder
-//     PAD IZQ / DER       -> desplazamiento lateral
-//     L1 / R1             -> lo mismo que PAD IZQ / PAD DER
-//     L2 / R2             -> giro sobre su propio eje, izq / der
-//     TRIANGULO, CIRCULO, CUADRADO, X -> trucos
-//     SELECT              -> cambia el stick izquierdo entre conducir y brazo
-//
-//  Tabla en vez de una escalera de if/else: anadir o cambiar un boton es
-//  editar una linea, y el coste de recorrerla es despreciable.
-struct MapaBoton {
-  uint16_t   boton;
-  uint8_t mov;
-};
-
-const MapaBoton MAPA_PS2[] = {
-  { PSB_PAD_UP,    MOV_ADELANTE  },
-  { PSB_PAD_DOWN,  MOV_ATRAS     },
-  { PSB_PAD_LEFT,  MOV_IZQUIERDA },
-  { PSB_L1,        MOV_IZQUIERDA },   // L1 = PAD IZQUIERDA
-  { PSB_PAD_RIGHT, MOV_DERECHA   },
-  { PSB_R1,        MOV_DERECHA   },   // R1 = PAD DERECHA
-  { PSB_L2,        MOV_GIRO_IZQ  },
-  { PSB_R2,        MOV_GIRO_DER  },
-};
-const uint8_t N_MAPA_PS2 = sizeof(MAPA_PS2) / sizeof(MAPA_PS2[0]);
-
-//  Botones que lanzan trucos, en el mismo orden que TRUCOS[].
-const uint16_t BOTONES_TRUCO[N_TRUCOS] = {
-  PSB_TRIANGLE, PSB_CIRCLE, PSB_SQUARE, PSB_CROSS
-};
-
-// ---- Joystick analogico izquierdo ----
-//  Los ejes valen 0..255 con el centro en ~128. En el eje Y, 0 es ARRIBA.
-const uint8_t CENTRO_STICK  = 128;
-const uint8_t ZONA_MUERTA   = 40;    // holgura del stick en reposo
-const uint8_t VEL_MINIMA    = 90;    // por debajo, el motor no llega a mover
-
-//  Convierte cuanto se ha empujado el stick (0..127) en velocidad del motor.
-uint8_t velocidadDesdeStick(uint8_t desvio) {
-  if (desvio <= ZONA_MUERTA) return 0;
-  // El tope es la velocidad configurada (VEL,<n>), no un 255 fijo:
-  // asi el ajuste de velocidad vale tambien para la conduccion analogica.
-  long v = (long)(desvio - ZONA_MUERTA) * (velocidadChasis - VEL_MINIMA);
-  v /= (127 - ZONA_MUERTA);
-  return (uint8_t)constrain(v + VEL_MINIMA, VEL_MINIMA, velocidadChasis);
-}
-
-//  El stick izquierdo puede conducir o manejar el brazo; SELECT alterna.
-bool modoConducir = true;
-
-//  Lee el stick y traduce a movimiento + velocidad proporcional.
-//  Devuelve MOV_PARADO si el stick esta en reposo.
-uint8_t leerStickIzquierdo(uint8_t* velocidad) {
-  *velocidad = 0;
-  if (!modoConducir) return MOV_PARADO;
-
-  int ejeY = (int)CENTRO_STICK - (int)ps2x.Analog(PSS_LY);   // + = adelante
-  int ejeX = (int)ps2x.Analog(PSS_LX) - (int)CENTRO_STICK;   // + = derecha
-  int absY = abs(ejeY), absX = abs(ejeX);
-
-  if (absY <= ZONA_MUERTA && absX <= ZONA_MUERTA) return MOV_PARADO;
-
-  //  Manda el eje mas inclinado: asi no se mezclan ordenes contradictorias.
-  if (absY >= absX) {
-    *velocidad = velocidadDesdeStick(min(absY, 127));
-    return (ejeY > 0) ? MOV_ADELANTE : MOV_ATRAS;
-  }
-  *velocidad = velocidadDesdeStick(min(absX, 127));
-  return (ejeX > 0) ? MOV_DERECHA : MOV_IZQUIERDA;
-}
-
-//  Decide que quiere el mando. Devuelve true si el PS2 toma el control del
-//  chasis (para que no lo pise el movimiento recibido por COM).
+// Retorna true si el PS2X tomó el control del movimiento
 bool handlePS2Movement() {
-  //  1) Trucos: tienen prioridad y se lanzan al pulsar (no mientras se pulsa).
-  for (uint8_t i = 0; i < N_TRUCOS; i++) {
-    if (ps2x.ButtonPressed(BOTONES_TRUCO[i])) {
-      lanzarTruco(i);
-      return true;
+  if (ps2x.Button(PSB_PAD_UP)) {
+    if (ps2x.Button(PSB_L2)) {
+      DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(FORWARD);
+      DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(FORWARD);
+    } else if (ps2x.Button(PSB_R2)) {
+      DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(FORWARD);
+      DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(FORWARD);
+    } else {
+      forward();
     }
-  }
-  if (trucoActivo >= 0) return true;      // truco en marcha: manda el
-
-  //  2) Stick analogico: velocidad proporcional a la inclinacion.
-  uint8_t velStick;
-  uint8_t movStick = leerStickIzquierdo(&velStick);
-  if (movStick != MOV_PARADO) {
-    aplicarChasis(movStick, velStick);
     return true;
+
+  } else if (ps2x.Button(PSB_PAD_DOWN)) {
+    if (ps2x.Button(PSB_L2)) {
+      DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(BACKWARD);
+      DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(BACKWARD);
+    } else if (ps2x.Button(PSB_R2)) {
+      DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(BACKWARD);
+      DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(BACKWARD);
+    } else {
+      backward();
+    }
+    return true;
+
+  } else if (ps2x.Button(PSB_PAD_LEFT)) {
+    turnLeft();  return true;
+  } else if (ps2x.Button(PSB_PAD_RIGHT)) {
+    turnRight(); return true;
+  } else if (ps2x.Button(PSB_L1)) {
+    moveLeft();  return true;
+  } else if (ps2x.Button(PSB_R1)) {
+    moveRight(); return true;
   }
 
-  //  3) Botones digitales, a velocidad fija.
-  for (uint8_t i = 0; i < N_MAPA_PS2; i++) {
-    if (ps2x.Button(MAPA_PS2[i].boton)) {
-      aplicarChasis(MAPA_PS2[i].mov, velocidadChasis);
-      return true;
-    }
-  }
-  return false;                            // el mando no pide nada
+  return false; // PS2X no presionó ningún botón de movimiento
 }
 
 // ═════════════════════════════════════════════════════════════
 //  CONTROL POR PS2X — SERVOS DEL BRAZO
 // ═════════════════════════════════════════════════════════════
 void handlePS2Servos() {
-  //  El stick izquierdo lo comparten la conduccion y los servos 1 y 2. Con
-  //  SELECT se alterna: asi se conserva el control del brazo SIN renunciar al
-  //  joystick para conducir. Los servos 3 y 4 (stick derecho) van siempre.
-  if (modoConducir) {
-    //  Solo stick derecho -> servos 3 y 4
-    if (ps2x.Analog(PSS_RY) > 240) {
-      if (Servo3->readDegrees() > ARM_MIN[2]) Servo3->writeServo(Servo3->readDegrees() - 1);
-    } else if (ps2x.Analog(PSS_RY) < 10) {
-      if (Servo3->readDegrees() < ARM_MAX[2]) Servo3->writeServo(Servo3->readDegrees() + 1);
-    }
-    if (ps2x.Analog(PSS_RX) > 240) {
-      if (Servo4->readDegrees() > ARM_MIN[3]) Servo4->writeServo(Servo4->readDegrees() - 1);
-    } else if (ps2x.Analog(PSS_RX) < 10) {
-      if (Servo4->readDegrees() < ARM_MAX[3]) Servo4->writeServo(Servo4->readDegrees() + 1);
-    }
-    return;
-  }
-  //  Modo BRAZO: los dos sticks manejan los cuatro servos (como siempre).
   // Stick izquierdo X → Servo1
   if (ps2x.Analog(PSS_LX) > 240) {
     if (Servo1->readDegrees() > ARM_MIN[0])
@@ -764,20 +397,20 @@ void reiniciarEncoders() {
 // Responde siempre con los cuatro campos para no romper a quien lo lea; el
 // tercero (M3) va a 0 porque ese encoder no esta disponible (ver arriba).
 void responderEncoders() {
-  Serial.print(F("ENC,"));
+  Serial.print("ENC,");
   Serial.print(encoder1.read());
-  Serial.print(F(","));
+  Serial.print(",");
   Serial.print(encoder2.read());
-  Serial.print(F(",0,"));
+  Serial.print(",0,");
   Serial.println(encoder4.read());
 }
 
 void responderRPM() {
-  Serial.print(F("ENCRPM,"));
+  Serial.print("ENCRPM,");
   Serial.print(encoder1.getRPM());
-  Serial.print(F(","));
+  Serial.print(",");
   Serial.print(encoder2.getRPM());
-  Serial.print(F(",0,"));
+  Serial.print(",0,");
   Serial.println(encoder4.getRPM());
 }
 
@@ -819,7 +452,7 @@ void irACompartimiento(int destino) {
   avanzarComps((destino - compActual + N_COMPARTIMIENTOS) % N_COMPARTIMIENTOS);
   compActual = destino;
   EEPROM.write(EEPROM_COMP_ADDR, compActual);
-  Serial.print(F("POS,"));
+  Serial.print("POS,");
   Serial.println(compActual);
 }
 
@@ -842,62 +475,34 @@ void dispensar(int n) {
   compActual = 1;
   EEPROM.write(EEPROM_COMP_ADDR, compActual);
 
-  Serial.print(F("DISPENSADO,"));
+  Serial.print("DISPENSADO,");
   Serial.println(n);
-  Serial.print(F("POS,"));
+  Serial.print("POS,");
   Serial.println(compActual);
 }
 
-// ═════════════════════════════════════════════════════════════
-//  ORDENES DE MOVIMIENTO POR TEXTO (web, monitor serie)
-// ═════════════════════════════════════════════════════════════
-//  Una sola tabla nombre->movimiento, compartida por MOVE,<dir> y por la
-//  direccion escrita suelta. La web usa EXACTAMENTE estos mismos nombres, asi
-//  que mando, web y logica interna no pueden desincronizarse.
-struct MapaDireccion {
-  const char* nombre;
-  uint8_t     mov;
-};
-
-const MapaDireccion MAPA_DIRECCIONES[] = {
-  { "FWD",       MOV_ADELANTE  }, { "FORWARD",   MOV_ADELANTE  }, { "ADELANTE",  MOV_ADELANTE  },
-  { "BACK",      MOV_ATRAS     }, { "BACKWARD",  MOV_ATRAS     }, { "ATRAS",     MOV_ATRAS     },
-  { "LEFT",      MOV_IZQUIERDA }, { "IZQUIERDA", MOV_IZQUIERDA }, { "IZQ",       MOV_IZQUIERDA },
-  { "RIGHT",     MOV_DERECHA   }, { "DERECHA",   MOV_DERECHA   }, { "DER",       MOV_DERECHA   },
-  { "SPINL",     MOV_GIRO_IZQ  }, { "GIRO_IZQ",  MOV_GIRO_IZQ  }, { "GIROIZQ",   MOV_GIRO_IZQ  },
-  { "SPINR",     MOV_GIRO_DER  }, { "GIRO_DER",  MOV_GIRO_DER  }, { "GIRODER",   MOV_GIRO_DER  },
-  { "STOP",      MOV_PARADO    }, { "PARAR",     MOV_PARADO    },
-};
-const uint8_t N_DIRECCIONES = sizeof(MAPA_DIRECCIONES) / sizeof(MAPA_DIRECCIONES[0]);
-
-// Busca un nombre en la tabla. Devuelve MOV_TOTAL si no es una direccion.
-uint8_t direccionDesdeTexto(const String& dir) {
-  for (uint8_t i = 0; i < N_DIRECCIONES; i++) {
-    if (dir == MAPA_DIRECCIONES[i].nombre) return MAPA_DIRECCIONES[i].mov;
-  }
-  return MOV_TOTAL;
-}
-
-bool esDireccion(const String& cmd) {
-  return direccionDesdeTexto(cmd) != MOV_TOTAL;
-}
-
+// Aplica una direccion de movimiento a partir de un texto. Acepta ingles y
+// espanol. Sirve tanto para "MOVE,<dir>" como para escribir la direccion sola.
 void moverDireccion(String dir) {
   dir.toUpperCase();
-  uint8_t mov = direccionDesdeTexto(dir);
-  if (mov == MOV_TOTAL) mov = MOV_PARADO;   // desconocido -> detener, por seguridad
-
-  cancelarTruco();                          // una orden manual manda sobre el truco
-  // Reflejar la orden en las banderas del protocolo GPIO, para que el estado
-  // que ve Vision y el que aplica el Arduino no se contradigan.
-  vAdelante  = (mov == MOV_ADELANTE);
-  vAtras     = (mov == MOV_ATRAS);
-  vIzquierda = (mov == MOV_IZQUIERDA);
-  vDerecha   = (mov == MOV_DERECHA);
-
-  aplicarChasis(mov, velocidadChasis);
-  Serial.print(F("OK,MOVE,"));
+  vAdelante = vAtras = vIzquierda = vDerecha = false;
+  if      (dir == "FWD"  || dir == "FORWARD"  || dir == "ADELANTE") vAdelante  = true;
+  else if (dir == "BACK" || dir == "BACKWARD" || dir == "ATRAS")    vAtras     = true;
+  else if (dir == "LEFT" || dir == "IZQUIERDA"|| dir == "IZQ")      vIzquierda = true;
+  else if (dir == "RIGHT"|| dir == "DERECHA"  || dir == "DER")      vDerecha   = true;
+  // "STOP" (u otro valor) -> las cuatro quedan en false: detener
+  aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
+  Serial.print("OK,MOVE,");
   Serial.println(dir);
+}
+
+// True si 'cmd' es una direccion de movimiento suelta (sin el prefijo MOVE).
+bool esDireccion(const String &cmd) {
+  return cmd == "FWD" || cmd == "FORWARD" || cmd == "ADELANTE" ||
+         cmd == "BACK" || cmd == "BACKWARD" || cmd == "ATRAS" ||
+         cmd == "LEFT" || cmd == "IZQUIERDA" || cmd == "IZQ" ||
+         cmd == "RIGHT" || cmd == "DERECHA" || cmd == "DER" ||
+         cmd == "STOP";
 }
 
 void procesarComando(String linea) {
@@ -918,23 +523,23 @@ void procesarComando(String linea) {
     // ACK inmediato: confirma que el comando LLEGO y el giro va a empezar. Asi
     // se distingue "no llego" de "llego pero el Arduino se reinicio a mitad de
     // giro" (bajon de tension). El POS,<n> final llega al terminar de girar.
-    Serial.print(F("OK,GOTO,")); Serial.println(arg.toInt());
+    Serial.print("OK,GOTO,"); Serial.println(arg.toInt());
     irACompartimiento(arg.toInt());
   } else if (cmd == "DISPENSE" || cmd == "DISPENSAR") {
     int n = (arg.length() > 0) ? arg.toInt() : compActual;
-    Serial.print(F("OK,DISPENSE,")); Serial.println(n);   // ACK inmediato (ver arriba)
+    Serial.print("OK,DISPENSE,"); Serial.println(n);   // ACK inmediato (ver arriba)
     dispensar(n);
   } else if (cmd == "HOME") {
-    Serial.println(F("OK,HOME"));                          // ACK inmediato (ver arriba)
+    Serial.println("OK,HOME");                          // ACK inmediato (ver arriba)
     irAHome();
-    Serial.print(F("POS,"));
+    Serial.print("POS,");
     Serial.println(compActual);
   } else if (cmd == "SERVO") {
     servoDispensador.write(constrain(arg.toInt(), 0, 90));
-    Serial.print(F("SERVO,"));
+    Serial.print("SERVO,");
     Serial.println(arg.toInt());
   } else if (cmd == "GETPOS") {
-    Serial.print(F("POS,"));
+    Serial.print("POS,");
     Serial.println(compActual);
 
   } else if (cmd == "MOVE") {
@@ -982,27 +587,6 @@ void procesarComando(String linea) {
     // y se ignora en silencio: Vision lo envia igualmente al seguir una cara y
     // no debe recibir un ERR por algo que no es un fallo.
 
-  } else if (cmd == "TRUCO") {
-    // TRUCO,<n>  lanza el truco n (1..4). Sin argumento lista los disponibles.
-    // Los mismos que Triangulo/Circulo/Cuadrado/X en el mando, para que la web
-    // y el control fisico ofrezcan exactamente lo mismo.
-    if (arg.length() == 0) {
-      Serial.print(F("TRUCOS"));
-      for (uint8_t i = 0; i < N_TRUCOS; i++) {
-        Serial.print(F(","));
-        Serial.print(TRUCOS[i].nombre);
-      }
-      Serial.println();
-    } else {
-      int n = arg.toInt();
-      if (n >= 1 && n <= N_TRUCOS) {
-        lanzarTruco(n - 1);
-      } else {
-        Serial.print(F("ERR,TRUCO,"));
-        Serial.println(arg);
-      }
-    }
-
   } else if (cmd == "ENC") {
     // Posicion acumulada de los encoders (cuentas).
     responderEncoders();
@@ -1016,115 +600,22 @@ void procesarComando(String linea) {
     reiniciarEncoders();
     responderEncoders();
 
-  } else if (cmd == "VEL") {
-    // VEL,<n>  ajusta la velocidad del chasis (200..255). VEL sola la consulta.
-    if (arg.length() == 0) {
-      Serial.print(F("VEL,"));
-      Serial.println(velocidadChasis);
-    } else {
-      fijarVelocidad(arg.toInt());
-      // Reaplicar en caliente: si el robot ya se esta moviendo, el cambio de
-      // velocidad se nota al instante en vez de esperar a la siguiente orden.
-      uint8_t m = movActual;
-      movActual = MOV_TOTAL;               // forzar la reescritura
-      aplicarChasis(m, m == MOV_PARADO ? 0 : velocidadChasis);
-    }
-
-  } else if (cmd == "CAL") {
-    // CAL                      muestra la calibracion actual
-    // CAL,<motor>,<esq>,<inv>  la cambia y la guarda en la EEPROM
-    if (arg.length() == 0) {
-      mostrarCalibracion();
-    } else {
-      int c1 = arg.indexOf(',');
-      int c2 = (c1 >= 0) ? arg.indexOf(',', c1 + 1) : -1;
-      if (c1 < 0 || c2 < 0) {
-        Serial.println(F("ERR,CAL: usa  CAL,<motor 1-4>,<DI|DD|TI|TD>,<0|1>"));
-      } else {
-        int     motor   = arg.substring(0, c1).toInt();
-        uint8_t esquina = esquinaDesdeTexto(arg.substring(c1 + 1, c2));
-        bool    inv     = (arg.substring(c2 + 1).toInt() != 0);
-
-        if (motor < 1 || motor > 4) {
-          Serial.println(F("ERR,CAL: el motor va de 1 a 4"));
-        } else if (esquina > 3) {
-          Serial.println(F("ERR,CAL: la esquina es DI, DD, TI o TD"));
-        } else {
-          posicionMotor[motor - 1]  = esquina;
-          motorInvertido[motor - 1] = inv;
-          guardarCalibracion();
-          // Reaplicar por si el robot estaba en marcha con la calibracion vieja
-          uint8_t m = movActual;
-          movActual = MOV_TOTAL;
-          aplicarChasis(m, m == MOV_PARADO ? 0 : velocidadChasis);
-          mostrarCalibracion();
-        }
-      }
-    }
-
-  } else if (cmd == "CALRESET") {
-    // Vuelve a la calibracion de partida (M1..M4 en orden, ninguno invertido).
-    for (uint8_t i = 0; i < 4; i++) {
-      posicionMotor[i]  = i;
-      motorInvertido[i] = false;
-    }
-    guardarCalibracion();
-    mostrarCalibracion();
-
   } else if (cmd == "MOTORTEST") {
-    // ---- CALIBRACION DEL CHASIS ----
-    // Prueba los motores UNO A UNO, primero adelante y luego atras, parando
-    // entre medias. Sirve para anotar la calibracion con CAL sin adivinar
-    // nada: basta con mirar que rueda se mueve y hacia donde.
-    //
-    // Se llama a los motores directamente (sin aplicarChasis) a proposito:
-    // aqui interesa el motor fisico, no el movimiento ya corregido.
-    Serial.println(F("=== CALIBRACION: levanta el robot, ruedas al aire ==="));
-    Serial.println(F("Mira el robot DESDE ATRAS, como si condujeras."));
-    Serial.println(F("Para cada motor anota: que rueda se mueve y hacia donde."));
-    stopMoving();
-    for (uint8_t i = 0; i < 4; i++) {
-      Serial.print(F("\n--- MOTOR M"));
-      Serial.print(i + 1);
-      Serial.println(F(" ---"));
-
-      Serial.println(F("  run(FORWARD) 2 s ... ¿que rueda y hacia donde?"));
-      MOTORES[i]->setSpeed(velocidadChasis);
-      MOTORES[i]->run(FORWARD);
-      delay(2000);
-      MOTORES[i]->run(RELEASE);
-      delay(800);
-
-      Serial.println(F("  run(BACKWARD) 2 s ... (debe ser justo al reves)"));
-      MOTORES[i]->setSpeed(velocidadChasis);
-      MOTORES[i]->run(BACKWARD);
-      delay(2000);
-      MOTORES[i]->run(RELEASE);
-      delay(800);
+    // Diagnostico: prueba cada motor DC por separado, 1 s hacia adelante.
+    // Sirve para aislar si el problema es el Motor Shield, el cableado o la
+    // alimentacion (si NINGUNO gira, casi seguro falta alimentacion externa
+    // al shield: los motores no arrancan solo con el USB del Arduino).
+    Serial.println("MOTORTEST: probando motores 1..4 (1 s c/u)");
+    QGPMaker_DCMotor* motores[4] = { DCMotor_1, DCMotor_2, DCMotor_3, DCMotor_4 };
+    for (int i = 0; i < 4; i++) {
+      Serial.print("  motor "); Serial.println(i + 1);
+      motores[i]->setSpeed(VELOCIDAD);
+      motores[i]->run(FORWARD);
+      delay(1000);
+      motores[i]->run(RELEASE);
+      delay(300);
     }
-    Serial.println(F("\n=== FIN ==="));
-    Serial.println(F("Ahora escribe una linea por motor:"));
-    Serial.println(F("   CAL,<motor 1-4>,<esquina DI|DD|TI|TD>,<invertido 0|1>"));
-    Serial.println(F("Ejemplo: si el motor 1 resulto ser la rueda trasera"));
-    Serial.println(F("derecha y ademas gira al reves ->  CAL,1,TD,1"));
-    Serial.println(F("Se guarda solo en la EEPROM. Comprueba luego con MOVTEST."));
-
-  } else if (cmd == "MOVTEST") {
-    // Comprueba la calibracion: hace los 6 movimientos, 1,5 s cada uno.
-    // Si alguno no se corresponde con su nombre, la calibracion esta mal.
-    const char* nombres[] = { "ADELANTE", "ATRAS", "IZQUIERDA", "DERECHA",
-                              "GIRO_IZQ", "GIRO_DER" };
-    Serial.println(F("=== COMPROBACION DE MOVIMIENTOS ==="));
-    for (uint8_t m = MOV_ADELANTE; m <= MOV_GIRO_DER; m++) {
-      Serial.print(F("  "));
-      Serial.println(nombres[m - MOV_ADELANTE]);
-      aplicarChasis(m, velocidadChasis);
-      delay(1500);
-      stopMoving();
-      delay(600);
-    }
-    Serial.println(F("=== FIN. Si alguno no hace lo que dice su nombre,"));
-    Serial.println(F("    corrige esa linea CAL y repite MOVTEST. ==="));
+    Serial.println("MOTORTEST: fin");
 
   } else if (cmd == "STEPTEST") {
     // Diagnostico del PASO A PASO, aislado del resto (como MOTORTEST para los DC).
@@ -1137,39 +628,39 @@ void procesarComando(String linea) {
     //  - Si NO gira ni aqui -> revisar cableado ULN2003 en 8/9/10/11 y su 5V.
     int comps = (arg.length() > 0) ? arg.toInt() : N_COMPARTIMIENTOS;
     comps = constrain(comps, 1, 64);
-    Serial.print(F("STEPTEST: girando "));
+    Serial.print("STEPTEST: girando ");
     Serial.print(comps);
-    Serial.println(F(" compartimiento(s) hacia adelante..."));
+    Serial.println(" compartimiento(s) hacia adelante...");
     for (int i = 0; i < comps; i++) {
       ruleta.step(PASOS_POR_COMP);
-      Serial.print(F("  comp "));
+      Serial.print("  comp ");
       Serial.println(i + 1);
     }
     liberarBobinas();
-    Serial.println(F("STEPTEST: fin"));
+    Serial.println("STEPTEST: fin");
 
   } else if (cmd == "I2CSCAN") {
     // Diagnostico: escanea el bus I2C y lista las direcciones que responden.
     // El Motor Shield (tipo Adafruit v2 / QGPMaker) suele estar en 0x60.
     // Si NO aparece 0x60, el shield no se comunica (revisar SDA/SCL, encastre
     // o que la libreria sea la correcta para tu shield).
-    Serial.println(F("I2CSCAN: buscando dispositivos I2C..."));
+    Serial.println("I2CSCAN: buscando dispositivos I2C...");
     int encontrados = 0;
     for (byte addr = 1; addr < 127; addr++) {
       Wire.beginTransmission(addr);
       if (Wire.endTransmission() == 0) {
-        Serial.print(F("  encontrado 0x"));
-        if (addr < 16) Serial.print(F("0"));
+        Serial.print("  encontrado 0x");
+        if (addr < 16) Serial.print("0");
         Serial.println(addr, HEX);
         encontrados++;
       }
     }
-    Serial.print(F("I2CSCAN: "));
+    Serial.print("I2CSCAN: ");
     Serial.print(encontrados);
-    Serial.println(F(" dispositivo(s). El Motor Shield suele estar en 0x60."));
+    Serial.println(" dispositivo(s). El Motor Shield suele estar en 0x60.");
 
   } else {
-    Serial.print(F("ERR,"));
+    Serial.print("ERR,");
     Serial.println(linea);
   }
 }
@@ -1246,12 +737,6 @@ void setup() {
   servoTilt.write(90);
 #endif
 
-  // ---- Calibracion del chasis ----
-  //  Se lee de la EEPROM: se hace UNA vez con MOTORTEST + CAL y queda
-  //  guardada, asi que sobrevive a apagar el robot y a volver a subir el
-  //  sketch. Si la EEPROM aun no tiene nada, se usan los valores de partida.
-  cargarCalibracion();
-
   // ---- Encoders de los motores ----
   //  La libreria QGPMaker_Encoder se encarga de configurarlos; aqui solo se
   //  ponen las cuentas a cero para partir de un origen conocido.
@@ -1267,59 +752,44 @@ void setup() {
   }
 
   // Enviar posicion actual al host
-  Serial.print(F("POS,"));
+  Serial.print("POS,");
   Serial.println(compActual);
-  Serial.println(F("LISTO"));
+  Serial.println("LISTO");
 }
 
 // ═════════════════════════════════════════════════════════════
-//  LOOP PRINCIPAL — sin delay(), todo por millis()
+//  LOOP PRINCIPAL
 // ═════════════════════════════════════════════════════════════
-//  Antes el bucle hacia delay(30) + delay(2) en cada vuelta: durante esos
-//  32 ms el Arduino no leia el puerto serie ni atendia nada. Ahora cada tarea
-//  tiene su propio ritmo y el bucle no se detiene nunca, asi que el mando y la
-//  web responden al instante y los trucos pueden bailar mientras tanto.
-const unsigned long PERIODO_PS2_MS = 20;   // leer el mando ~50 veces/segundo
-
-unsigned long ultimaLecturaPS2 = 0;
-
 void loop() {
-  // ── Ordenes de la RPi/PC por Serial (no bloqueante) ──
+  // ── Dispensador: comandos de la RPi/PC por Serial (no bloqueante) ──
   leerSerial();
 
-  // ── Trucos en marcha: mandan sobre el chasis mientras duran ──
-  bool trucoManda = atenderTruco();
-
-  // ── Mando PS2 ──────────────────────────────────────────────
+  // ── Movimiento ────────────────────────────────────────────
   bool ps2xActivo = false;
-  unsigned long ahora = millis();
 
-  if (ps2Presente && (ahora - ultimaLecturaPS2 >= PERIODO_PS2_MS)) {
-    ultimaLecturaPS2 = ahora;
+  if (ps2Presente) {
+    // Hay mando PS2 conectado: tiene prioridad sobre los comandos por COM.
     ps2x.read_gamepad(false, 0);
+    delay(30);
 
-    // SELECT alterna el stick izquierdo entre conducir y mover el brazo, para
-    // que ninguna de las dos funciones se pierda al compartir el mismo stick.
-    if (ps2x.ButtonPressed(PSB_SELECT)) {
-      modoConducir = !modoConducir;
-      Serial.print(F("MODO,"));
-      Serial.println(modoConducir ? "CONDUCIR" : "BRAZO");
+    // Botón X: vibración
+    if (ps2x.Button(PSB_CROSS)) {
+      ps2x.read_gamepad(true, 200);
+      delay(300);
+      ps2x.read_gamepad(false, 0);
     }
 
-    //  START recorre los escalones de velocidad, para ajustarla sin soltar el
-    //  mando. Con una tabla explicita en vez de aritmetica: asi no hay forma
-    //  de saltarse un escalon por un redondeo mal puesto.
-    if (ps2x.ButtonPressed(PSB_START)) {
-      indiceVelocidad = (indiceVelocidad + 1) % N_VELOCIDADES;
-      fijarVelocidad(VELOCIDADES[indiceVelocidad]);
-    }
-
-    if (!trucoManda) ps2xActivo = handlePS2Movement();
-    handlePS2Servos();                  // brazo (solo cuando NO se conduce)
+    ps2xActivo = handlePS2Movement();
+    handlePS2Servos();     // servos del brazo (solo con mando PS2)
+  } else {
+    delay(30);
   }
 
-  // ── Sin mando ni truco: aplica lo recibido por COM desde Vision ──
-  if (!trucoManda && !ps2xActivo) {
+  if (!ps2xActivo) {
+    // Sin mando (o mando inactivo): aplica el movimiento recibido por COM
+    // desde Vision (MOVE/GPIO). El robot se maneja igual sin PS2.
     aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
   }
+
+  delay(2);
 }
