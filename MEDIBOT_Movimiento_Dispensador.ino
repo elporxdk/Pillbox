@@ -85,6 +85,18 @@
  *   GPIO,CLEANUP,0 Detiene el chasis y limpia el estado de movimiento
  *   PWM,<pin>,<d>  Servos de camara: pin 18=pan, 13=tilt; d = duty % (2.5..12.5)
  *
+ *  ------------------- MANDO PS2 ------------------------------
+ *   PAD ARRIBA/ABAJO   avanzar / retroceder
+ *   PAD IZQ/DER        girar sobre su propio eje
+ *   L1 / R1            desplazamiento lateral (sin cambiar de orientacion)
+ *   L2 / R2 + PAD      giro amplio: empuja solo un lado del robot
+ *   X                  vibracion del mando
+ *
+ *  El cableado real NO coincide con la logica ingenua: M1 y M3 giran al reves
+ *  y los lados son M1/M3 contra M2/M4. Se corrige por software en las seis
+ *  funciones de movimiento; no hay que tocar ningun cable. Si los giros
+ *  izquierda/derecha salen cambiados, pon INVERTIR_GIRO a true.
+ *
  *  Respuestas del Arduino:
  *   LISTO          al arrancar
  *   POS,<n>        compartimiento arriba tras un giro o al consultar
@@ -207,54 +219,106 @@ bool vDerecha   = false;
 // ═════════════════════════════════════════════════════════════
 //  FUNCIONES DE MOVIMIENTO (chasis)
 // ═════════════════════════════════════════════════════════════
-void forward() {
-  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(FORWARD);
-  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(FORWARD);
-  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(FORWARD);
-  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(FORWARD);
+//  CORRECCION DEL CABLEADO, POR SOFTWARE (no se toca ningun cable):
+//
+//  En este robot los motores NO estan como daba por hecho el codigo original:
+//     - M1 y M3 giran al REVES de lo que dice run(FORWARD).
+//     - Los lados son M1/M3 contra M2/M4 (no M1/M2 contra M3/M4).
+//
+//  Se dedujo del unico dato en que coincidieron todas las pruebas: la antigua
+//  moveLeft(), que enviaba (M1 atras, M2 adelante, M3 atras, M4 adelante),
+//  hacia AVANZAR el robot. De ahi sale todo lo demas, y explica lo que se veia:
+//     forward() mandaba los 4 hacia adelante -> los dos lados se oponian, o sea
+//     el robot GIRABA sobre su eje (que sobre el suelo se ve como "tambalea").
+//
+//  Abajo, cada movimiento declara lo que hay que MANDAR a cada motor para que
+//  el robot haga de verdad lo que dice el nombre de la funcion.
+//  Si algun dia se recablea, solo hay que corregir estas seis lineas.
+// ═════════════════════════════════════════════════════════════
+
+//  Si al probar resulta que "girar izquierda" y "girar derecha" salen
+//  cambiados, pon esto en true y quedan intercambiados. Es lo unico que no se
+//  puede deducir de las pruebas hechas (se sabia que giraba, no hacia que lado).
+const bool INVERTIR_GIRO = false;
+
+// Manda un sentido a un motor.  -1 = atras, +1 = adelante, 0 = suelto.
+void ponerMotor(QGPMaker_DCMotor* m, int8_t sentido) {
+  if (sentido == 0) {
+    m->setSpeed(0);
+    m->run(RELEASE);
+  } else {
+    m->setSpeed(VELOCIDAD);
+    m->run(sentido > 0 ? FORWARD : BACKWARD);
+  }
 }
 
-void backward() {
-  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(BACKWARD);
-  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(BACKWARD);
-  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(BACKWARD);
-  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(BACKWARD);
+// Aplica un patron a los cuatro motores de golpe.
+void patron(int8_t m1, int8_t m2, int8_t m3, int8_t m4) {
+  ponerMotor(DCMotor_1, m1);
+  ponerMotor(DCMotor_2, m2);
+  ponerMotor(DCMotor_3, m3);
+  ponerMotor(DCMotor_4, m4);
 }
 
-void turnLeft() {
-  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(BACKWARD);
-  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(BACKWARD);
-  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(FORWARD);
-  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(FORWARD);
+void forward()  { patron(-1, +1, -1, +1); }   // los 4 hacia adelante de verdad
+void backward() { patron(+1, -1, +1, -1); }
+
+// Giro sobre su propio eje: un lado adelante y el otro atras.
+void turnLeft()  { if (INVERTIR_GIRO) patron(-1,-1,-1,-1); else patron(+1,+1,+1,+1); }
+void turnRight() { if (INVERTIR_GIRO) patron(+1,+1,+1,+1); else patron(-1,-1,-1,-1); }
+
+// Desplazamiento lateral, sin cambiar de orientacion (necesita ruedas mecanum).
+void moveLeft()  { patron(-1, -1, +1, +1); }
+void moveRight() { patron(+1, +1, -1, -1); }
+
+// Giros amplios: solo empuja un lado, el otro queda suelto (L2/R2 del mando).
+void arcoLadoA(int8_t s) { patron(-s, 0, -s, 0); }   // lado M1/M3 (van invertidos)
+void arcoLadoB(int8_t s) { patron(0, s, 0, s); }     // lado M2/M4
+
+void stopMoving();   // definida mas abajo (necesita el control de repeticion)
+
+// ═════════════════════════════════════════════════════════════
+//  APLICAR UN MOVIMIENTO SIN REPETIR ORDENES
+// ═════════════════════════════════════════════════════════════
+//  POR QUE: cada setSpeed()/run() es una transaccion I2C con el shield. Al
+//  quitar los delay() del bucle para que el robot responda al instante, el
+//  bucle pasa a dar miles de vueltas por segundo; si en cada una se
+//  reenviaran las 8 ordenes I2C, el bus se saturaria y el robot respondería
+//  PEOR, no mejor. Guardando cual es el movimiento que YA esta puesto, solo
+//  se habla con el shield cuando de verdad cambia algo.
+#define MOVC_STOP    0
+#define MOVC_FWD     1
+#define MOVC_BACK    2
+#define MOVC_TURNL   3
+#define MOVC_TURNR   4
+#define MOVC_MOVEL   5
+#define MOVC_MOVER   6
+#define MOVC_ARC_AF  7   // arco: solo lado M1/M3, hacia adelante
+#define MOVC_ARC_BF  8   // arco: solo lado M2/M4, hacia adelante
+#define MOVC_ARC_AB  9   // arco: solo lado M1/M3, hacia atras
+#define MOVC_ARC_BB 10   // arco: solo lado M2/M4, hacia atras
+
+uint8_t movAplicado = 255;   // 255 = todavia no se ha mandado nada
+
+void aplicarMov(uint8_t codigo) {
+  if (codigo == movAplicado) return;    // ya esta asi: no repetir el I2C
+  movAplicado = codigo;
+  switch (codigo) {
+    case MOVC_FWD:    forward();       break;
+    case MOVC_BACK:   backward();      break;
+    case MOVC_TURNL:  turnLeft();      break;
+    case MOVC_TURNR:  turnRight();     break;
+    case MOVC_MOVEL:  moveLeft();      break;
+    case MOVC_MOVER:  moveRight();     break;
+    case MOVC_ARC_AF: arcoLadoA(+1);   break;
+    case MOVC_ARC_BF: arcoLadoB(+1);   break;
+    case MOVC_ARC_AB: arcoLadoA(-1);   break;
+    case MOVC_ARC_BB: arcoLadoB(-1);   break;
+    default:          patron(0,0,0,0); break;   // parado
+  }
 }
 
-void turnRight() {
-  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(FORWARD);
-  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(FORWARD);
-  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(BACKWARD);
-  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(BACKWARD);
-}
-
-void moveLeft() {
-  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(BACKWARD);
-  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(FORWARD);
-  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(BACKWARD);
-  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(FORWARD);
-}
-
-void moveRight() {
-  DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(FORWARD);
-  DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(BACKWARD);
-  DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(FORWARD);
-  DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(BACKWARD);
-}
-
-void stopMoving() {
-  DCMotor_1->setSpeed(0); DCMotor_1->run(RELEASE);
-  DCMotor_2->setSpeed(0); DCMotor_2->run(RELEASE);
-  DCMotor_3->setSpeed(0); DCMotor_3->run(RELEASE);
-  DCMotor_4->setSpeed(0); DCMotor_4->run(RELEASE);
-}
+void stopMoving() { aplicarMov(MOVC_STOP); }
 
 // ═════════════════════════════════════════════════════════════
 //  DECISION DE MOVIMIENTO (compartida: COM virtual y RPi fisico)
@@ -263,55 +327,48 @@ void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) 
   int activos = (int)adelante + (int)atras + (int)izquierda + (int)derecha;
 
   if (activos >= 3 || (adelante && atras) || (izquierda && derecha)) {
-    stopMoving();                     // Combinaciones inválidas → stop
-  } else if (adelante && izquierda) { turnLeft();   }
-  else if   (adelante && derecha)   { turnRight();  }
-  else if   (atras    && izquierda) { turnLeft();   }
-  else if   (atras    && derecha)   { turnRight();  }
-  else if   (adelante)              { forward();    }
-  else if   (atras)                 { backward();   }
-  else if   (izquierda)             { moveLeft();   }
-  else if   (derecha)               { moveRight();  }
-  else                              { stopMoving(); } // Nada activo
+    aplicarMov(MOVC_STOP);            // Combinaciones inválidas → stop
+  } else if (adelante && izquierda) { aplicarMov(MOVC_TURNL); }
+  else if   (adelante && derecha)   { aplicarMov(MOVC_TURNR); }
+  else if   (atras    && izquierda) { aplicarMov(MOVC_TURNL); }
+  else if   (atras    && derecha)   { aplicarMov(MOVC_TURNR); }
+  else if   (adelante)              { aplicarMov(MOVC_FWD);   }
+  else if   (atras)                 { aplicarMov(MOVC_BACK);  }
+  else if   (izquierda)             { aplicarMov(MOVC_MOVEL); }
+  else if   (derecha)               { aplicarMov(MOVC_MOVER); }
+  else                              { aplicarMov(MOVC_STOP);  } // Nada activo
 }
 
 // ═════════════════════════════════════════════════════════════
 //  CONTROL POR PS2X — MOVIMIENTO
 // ═════════════════════════════════════════════════════════════
 // Retorna true si el PS2X tomó el control del movimiento
+//  MAPA DEL MANDO (ahora cada boton hace lo que dice su nombre):
+//     PAD ARRIBA / ABAJO   avanzar / retroceder
+//     PAD IZQ / DER        girar sobre su propio eje
+//     L1 / R1              desplazamiento lateral (sin girar)
+//     L2 / R2 con el PAD   giro amplio: empuja solo un lado
 bool handlePS2Movement() {
   if (ps2x.Button(PSB_PAD_UP)) {
-    if (ps2x.Button(PSB_L2)) {
-      DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(FORWARD);
-      DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(FORWARD);
-    } else if (ps2x.Button(PSB_R2)) {
-      DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(FORWARD);
-      DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(FORWARD);
-    } else {
-      forward();
-    }
+    if      (ps2x.Button(PSB_L2)) aplicarMov(MOVC_ARC_BF);
+    else if (ps2x.Button(PSB_R2)) aplicarMov(MOVC_ARC_AF);
+    else                          aplicarMov(MOVC_FWD);
     return true;
 
   } else if (ps2x.Button(PSB_PAD_DOWN)) {
-    if (ps2x.Button(PSB_L2)) {
-      DCMotor_2->setSpeed(VELOCIDAD); DCMotor_2->run(BACKWARD);
-      DCMotor_4->setSpeed(VELOCIDAD); DCMotor_4->run(BACKWARD);
-    } else if (ps2x.Button(PSB_R2)) {
-      DCMotor_1->setSpeed(VELOCIDAD); DCMotor_1->run(BACKWARD);
-      DCMotor_3->setSpeed(VELOCIDAD); DCMotor_3->run(BACKWARD);
-    } else {
-      backward();
-    }
+    if      (ps2x.Button(PSB_L2)) aplicarMov(MOVC_ARC_BB);
+    else if (ps2x.Button(PSB_R2)) aplicarMov(MOVC_ARC_AB);
+    else                          aplicarMov(MOVC_BACK);
     return true;
 
   } else if (ps2x.Button(PSB_PAD_LEFT)) {
-    turnLeft();  return true;
+    aplicarMov(MOVC_TURNL); return true;
   } else if (ps2x.Button(PSB_PAD_RIGHT)) {
-    turnRight(); return true;
+    aplicarMov(MOVC_TURNR); return true;
   } else if (ps2x.Button(PSB_L1)) {
-    moveLeft();  return true;
+    aplicarMov(MOVC_MOVEL); return true;
   } else if (ps2x.Button(PSB_R1)) {
-    moveRight(); return true;
+    aplicarMov(MOVC_MOVER); return true;
   }
 
   return false; // PS2X no presionó ningún botón de movimiento
@@ -397,20 +454,20 @@ void reiniciarEncoders() {
 // Responde siempre con los cuatro campos para no romper a quien lo lea; el
 // tercero (M3) va a 0 porque ese encoder no esta disponible (ver arriba).
 void responderEncoders() {
-  Serial.print("ENC,");
+  Serial.print(F("ENC,"));
   Serial.print(encoder1.read());
-  Serial.print(",");
+  Serial.print(F(","));
   Serial.print(encoder2.read());
-  Serial.print(",0,");
+  Serial.print(F(",0,"));
   Serial.println(encoder4.read());
 }
 
 void responderRPM() {
-  Serial.print("ENCRPM,");
+  Serial.print(F("ENCRPM,"));
   Serial.print(encoder1.getRPM());
-  Serial.print(",");
+  Serial.print(F(","));
   Serial.print(encoder2.getRPM());
-  Serial.print(",0,");
+  Serial.print(F(",0,"));
   Serial.println(encoder4.getRPM());
 }
 
@@ -452,7 +509,7 @@ void irACompartimiento(int destino) {
   avanzarComps((destino - compActual + N_COMPARTIMIENTOS) % N_COMPARTIMIENTOS);
   compActual = destino;
   EEPROM.write(EEPROM_COMP_ADDR, compActual);
-  Serial.print("POS,");
+  Serial.print(F("POS,"));
   Serial.println(compActual);
 }
 
@@ -475,9 +532,9 @@ void dispensar(int n) {
   compActual = 1;
   EEPROM.write(EEPROM_COMP_ADDR, compActual);
 
-  Serial.print("DISPENSADO,");
+  Serial.print(F("DISPENSADO,"));
   Serial.println(n);
-  Serial.print("POS,");
+  Serial.print(F("POS,"));
   Serial.println(compActual);
 }
 
@@ -492,7 +549,7 @@ void moverDireccion(String dir) {
   else if (dir == "RIGHT"|| dir == "DERECHA"  || dir == "DER")      vDerecha   = true;
   // "STOP" (u otro valor) -> las cuatro quedan en false: detener
   aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
-  Serial.print("OK,MOVE,");
+  Serial.print(F("OK,MOVE,"));
   Serial.println(dir);
 }
 
@@ -523,23 +580,23 @@ void procesarComando(String linea) {
     // ACK inmediato: confirma que el comando LLEGO y el giro va a empezar. Asi
     // se distingue "no llego" de "llego pero el Arduino se reinicio a mitad de
     // giro" (bajon de tension). El POS,<n> final llega al terminar de girar.
-    Serial.print("OK,GOTO,"); Serial.println(arg.toInt());
+    Serial.print(F("OK,GOTO,")); Serial.println(arg.toInt());
     irACompartimiento(arg.toInt());
   } else if (cmd == "DISPENSE" || cmd == "DISPENSAR") {
     int n = (arg.length() > 0) ? arg.toInt() : compActual;
-    Serial.print("OK,DISPENSE,"); Serial.println(n);   // ACK inmediato (ver arriba)
+    Serial.print(F("OK,DISPENSE,")); Serial.println(n);   // ACK inmediato (ver arriba)
     dispensar(n);
   } else if (cmd == "HOME") {
-    Serial.println("OK,HOME");                          // ACK inmediato (ver arriba)
+    Serial.println(F("OK,HOME"));                          // ACK inmediato (ver arriba)
     irAHome();
-    Serial.print("POS,");
+    Serial.print(F("POS,"));
     Serial.println(compActual);
   } else if (cmd == "SERVO") {
     servoDispensador.write(constrain(arg.toInt(), 0, 90));
-    Serial.print("SERVO,");
+    Serial.print(F("SERVO,"));
     Serial.println(arg.toInt());
   } else if (cmd == "GETPOS") {
-    Serial.print("POS,");
+    Serial.print(F("POS,"));
     Serial.println(compActual);
 
   } else if (cmd == "MOVE") {
@@ -605,17 +662,17 @@ void procesarComando(String linea) {
     // Sirve para aislar si el problema es el Motor Shield, el cableado o la
     // alimentacion (si NINGUNO gira, casi seguro falta alimentacion externa
     // al shield: los motores no arrancan solo con el USB del Arduino).
-    Serial.println("MOTORTEST: probando motores 1..4 (1 s c/u)");
+    Serial.println(F("MOTORTEST: probando motores 1..4 (1 s c/u)"));
     QGPMaker_DCMotor* motores[4] = { DCMotor_1, DCMotor_2, DCMotor_3, DCMotor_4 };
     for (int i = 0; i < 4; i++) {
-      Serial.print("  motor "); Serial.println(i + 1);
+      Serial.print(F("  motor ")); Serial.println(i + 1);
       motores[i]->setSpeed(VELOCIDAD);
       motores[i]->run(FORWARD);
       delay(1000);
       motores[i]->run(RELEASE);
       delay(300);
     }
-    Serial.println("MOTORTEST: fin");
+    Serial.println(F("MOTORTEST: fin"));
 
   } else if (cmd == "STEPTEST") {
     // Diagnostico del PASO A PASO, aislado del resto (como MOTORTEST para los DC).
@@ -628,39 +685,39 @@ void procesarComando(String linea) {
     //  - Si NO gira ni aqui -> revisar cableado ULN2003 en 8/9/10/11 y su 5V.
     int comps = (arg.length() > 0) ? arg.toInt() : N_COMPARTIMIENTOS;
     comps = constrain(comps, 1, 64);
-    Serial.print("STEPTEST: girando ");
+    Serial.print(F("STEPTEST: girando "));
     Serial.print(comps);
-    Serial.println(" compartimiento(s) hacia adelante...");
+    Serial.println(F(" compartimiento(s) hacia adelante..."));
     for (int i = 0; i < comps; i++) {
       ruleta.step(PASOS_POR_COMP);
-      Serial.print("  comp ");
+      Serial.print(F("  comp "));
       Serial.println(i + 1);
     }
     liberarBobinas();
-    Serial.println("STEPTEST: fin");
+    Serial.println(F("STEPTEST: fin"));
 
   } else if (cmd == "I2CSCAN") {
     // Diagnostico: escanea el bus I2C y lista las direcciones que responden.
     // El Motor Shield (tipo Adafruit v2 / QGPMaker) suele estar en 0x60.
     // Si NO aparece 0x60, el shield no se comunica (revisar SDA/SCL, encastre
     // o que la libreria sea la correcta para tu shield).
-    Serial.println("I2CSCAN: buscando dispositivos I2C...");
+    Serial.println(F("I2CSCAN: buscando dispositivos I2C..."));
     int encontrados = 0;
     for (byte addr = 1; addr < 127; addr++) {
       Wire.beginTransmission(addr);
       if (Wire.endTransmission() == 0) {
-        Serial.print("  encontrado 0x");
-        if (addr < 16) Serial.print("0");
+        Serial.print(F("  encontrado 0x"));
+        if (addr < 16) Serial.print(F("0"));
         Serial.println(addr, HEX);
         encontrados++;
       }
     }
-    Serial.print("I2CSCAN: ");
+    Serial.print(F("I2CSCAN: "));
     Serial.print(encontrados);
-    Serial.println(" dispositivo(s). El Motor Shield suele estar en 0x60.");
+    Serial.println(F(" dispositivo(s). El Motor Shield suele estar en 0x60."));
 
   } else {
-    Serial.print("ERR,");
+    Serial.print(F("ERR,"));
     Serial.println(linea);
   }
 }
@@ -752,44 +809,50 @@ void setup() {
   }
 
   // Enviar posicion actual al host
-  Serial.print("POS,");
+  Serial.print(F("POS,"));
   Serial.println(compActual);
-  Serial.println("LISTO");
+  Serial.println(F("LISTO"));
 }
 
 // ═════════════════════════════════════════════════════════════
-//  LOOP PRINCIPAL
+//  LOOP PRINCIPAL — sin delay(), todo por millis()
 // ═════════════════════════════════════════════════════════════
+//  POR QUE ERA POCO SENSIBLE: el bucle hacia delay(30) + delay(2) en cada
+//  vuelta, y ademas delay(300) al pulsar X. Durante esos milisegundos el
+//  Arduino no leia el puerto serie ni miraba el mando: de ahi el retraso al
+//  responder. Ahora el bucle no se detiene nunca; el mando se consulta cada
+//  20 ms (que es el ritmo que necesita la libreria PS2X) y el resto del
+//  tiempo se dedica a atender el serie al instante.
+//
+//  ps2xActivo es GLOBAL a proposito: entre lectura y lectura del mando hay
+//  vueltas en las que no se consulta, y si la variable se reiniciase a false
+//  en cada vuelta el robot se pararia a ratos (movimiento a tirones).
+const unsigned long PERIODO_PS2_MS = 20;
+
+unsigned long ultimaLecturaPS2 = 0;
+bool ps2xActivo = false;
+
 void loop() {
   // ── Dispensador: comandos de la RPi/PC por Serial (no bloqueante) ──
   leerSerial();
 
-  // ── Movimiento ────────────────────────────────────────────
-  bool ps2xActivo = false;
+  // ── Mando PS2, a su propio ritmo y sin bloquear ───────────
+  if (ps2Presente && (millis() - ultimaLecturaPS2 >= PERIODO_PS2_MS)) {
+    ultimaLecturaPS2 = millis();
 
-  if (ps2Presente) {
-    // Hay mando PS2 conectado: tiene prioridad sobre los comandos por COM.
-    ps2x.read_gamepad(false, 0);
-    delay(30);
-
-    // Botón X: vibración
-    if (ps2x.Button(PSB_CROSS)) {
-      ps2x.read_gamepad(true, 200);
-      delay(300);
-      ps2x.read_gamepad(false, 0);
-    }
+    // La vibracion del boton X se pide en la MISMA lectura, en vez de con
+    // tres llamadas y un delay(300) que congelaba el robot al pulsarlo.
+    bool vibrar = ps2x.Button(PSB_CROSS);
+    ps2x.read_gamepad(vibrar, vibrar ? 200 : 0);
 
     ps2xActivo = handlePS2Movement();
     handlePS2Servos();     // servos del brazo (solo con mando PS2)
-  } else {
-    delay(30);
   }
 
+  // ── Sin mando (o mando inactivo): movimiento recibido por COM ──
+  //  Se llama en cada vuelta, pero aplicarMov() no habla con el shield si el
+  //  movimiento no ha cambiado, asi que no cuesta nada.
   if (!ps2xActivo) {
-    // Sin mando (o mando inactivo): aplica el movimiento recibido por COM
-    // desde Vision (MOVE/GPIO). El robot se maneja igual sin PS2.
     aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
   }
-
-  delay(2);
 }
