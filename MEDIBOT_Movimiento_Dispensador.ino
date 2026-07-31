@@ -102,12 +102,18 @@
  *  ------------------- CALIBRACION DEL CHASIS -----------------
  *  Los movimientos NO se adivinan: se calculan a partir de dos datos que se
  *  miden una sola vez con MOTORTEST y se anotan arriba del sketch:
- *     POSICION_MOTOR[]   en que esquina del robot esta cada motor
- *     MOTOR_INVERTIDO[]  si ese motor gira al reves de lo que dice FORWARD
+ *     - en que esquina del robot esta cada motor
+ *     - si ese motor gira al reves de lo que dice FORWARD
  *  Con eso, todos los movimientos son correctos por construccion.
+ *  Se guarda en la EEPROM: se calibra UNA vez desde el Monitor Serial, SIN
+ *  editar ni recompilar el sketch, y sobrevive a apagar el robot.
  *
- *   MOTORTEST      Prueba los motores UNO A UNO (adelante y atras) para
- *                  rellenar esas dos tablas. Levanta el robot antes.
+ *   MOTORTEST      Prueba los motores UNO A UNO (adelante y atras) para saber
+ *                  que rueda es cada uno. Levanta el robot antes.
+ *   CAL,<m>,<esq>,<inv>   Anota un motor:  m=1..4, esq=DI|DD|TI|TD, inv=0|1
+ *                  Ejemplo:  CAL,1,TD,1
+ *   CAL            Muestra la calibracion actual
+ *   CALRESET       Vuelve a la de partida
  *   MOVTEST        Hace los 6 movimientos seguidos para comprobar que la
  *                  calibracion es correcta.
  *   VEL[,<n>]      Ajusta la velocidad del chasis (200..255). Sin argumento,
@@ -249,17 +255,26 @@ bool vDerecha   = false;
 //  por construccion. Si el robot se recablea, se vuelve a medir y ya esta: no
 //  hay que tocar ni una linea de logica.
 //
-//  ---------- COMO CALIBRAR (5 minutos, una sola vez) ----------
-//  1. Sube el sketch y abre el Monitor Serial a 9600 con "Nueva linea".
+//  ---------- COMO CALIBRAR (una sola vez, SIN recompilar) ----------
+//  La calibracion se guarda en la EEPROM, asi que se hace desde el Monitor
+//  Serial y sobrevive a apagar el robot. No hay que editar el sketch.
+//
+//  1. Abre el Monitor Serial a 9600 con "Nueva linea".
 //  2. Levanta el robot para que las ruedas giren al aire.
 //  3. Escribe:  MOTORTEST
-//     Va probando motor por motor y esperando. Para cada uno anota:
-//        - QUE rueda se movio (delantera izquierda, delantera derecha,
-//          trasera izquierda o trasera derecha), mirando el robot DESDE ATRAS,
-//          como si condujeras.
-//        - HACIA DONDE giro: adelante o atras.
-//  4. Escribe abajo lo anotado en POSICION_MOTOR y MOTOR_INVERTIDO.
-//  5. Vuelve a subir el sketch. Listo: todos los movimientos quedan bien.
+//     Prueba motor por motor. Para cada uno anota:
+//        - QUE rueda se movio, mirando el robot DESDE ATRAS (como si
+//          condujeras):  DI = delantera izq,  DD = delantera der,
+//                        TI = trasera izq,    TD = trasera der
+//        - Si con "FORWARD" giro hacia ADELANTE (0) o hacia ATRAS (1).
+//  4. Escribe una linea por motor. Por ejemplo, si el motor 1 resulto ser la
+//     rueda trasera derecha y ademas gira al reves:
+//              CAL,1,TD,1
+//     ...y asi con los cuatro. Se guarda solo en la EEPROM.
+//  5. Comprueba con:  MOVTEST   (hace los 6 movimientos seguidos)
+//     Si alguno no hace lo que dice su nombre, corrige esa linea CAL y repite.
+//
+//  Ordenes utiles:  CAL (ver la actual)   CALRESET (volver a la de fabrica)
 // ═════════════════════════════════════════════════════════════
 
 // Las cuatro esquinas del robot.
@@ -268,23 +283,68 @@ bool vDerecha   = false;
 #define RUEDA_TRA_IZQ  2
 #define RUEDA_TRA_DER  3
 
-//  [0]=motor M1, [1]=M2, [2]=M3, [3]=M4.  <-- RELLENAR CON MOTORTEST
-//  Ejemplo: si al probar el motor 1 se movio la rueda trasera derecha,
-//  la primera casilla es RUEDA_TRA_DER.
-const uint8_t POSICION_MOTOR[4] = {
-  RUEDA_DEL_IZQ,   // M1
-  RUEDA_DEL_DER,   // M2
-  RUEDA_TRA_IZQ,   // M3
-  RUEDA_TRA_DER    // M4
-};
+const char* NOMBRE_ESQUINA[4] = { "DI", "DD", "TI", "TD" };
 
-//  true = con run(FORWARD) esa rueda gira hacia ATRAS.  <-- RELLENAR
-const bool MOTOR_INVERTIDO[4] = {
-  false,   // M1
-  false,   // M2
-  false,   // M3
-  false    // M4
-};
+//  Calibracion VIVA (se carga de la EEPROM al arrancar). Estos son solo los
+//  valores de partida si la EEPROM aun no tiene nada guardado.
+uint8_t posicionMotor[4]  = { RUEDA_DEL_IZQ, RUEDA_DEL_DER,
+                              RUEDA_TRA_IZQ, RUEDA_TRA_DER };
+bool    motorInvertido[4] = { false, false, false, false };
+
+// ---- Guardado en EEPROM ----
+//  Se usa una direccion lejos de la del dispensador (que ocupa la 0) y un
+//  byte "magico" al principio: si no esta, es que la EEPROM nunca se calibro
+//  (placa nueva o borrada) y se usan los valores de partida.
+#define EEPROM_CAL_ADDR   10
+#define EEPROM_CAL_MAGIC  0x5A
+
+void guardarCalibracion() {
+  EEPROM.write(EEPROM_CAL_ADDR, EEPROM_CAL_MAGIC);
+  for (uint8_t i = 0; i < 4; i++) {
+    EEPROM.write(EEPROM_CAL_ADDR + 1 + i, posicionMotor[i]);
+    EEPROM.write(EEPROM_CAL_ADDR + 5 + i, motorInvertido[i] ? 1 : 0);
+  }
+}
+
+void cargarCalibracion() {
+  if (EEPROM.read(EEPROM_CAL_ADDR) != EEPROM_CAL_MAGIC) return;   // sin calibrar
+  for (uint8_t i = 0; i < 4; i++) {
+    uint8_t pos = EEPROM.read(EEPROM_CAL_ADDR + 1 + i);
+    if (pos < 4) posicionMotor[i] = pos;
+    motorInvertido[i] = (EEPROM.read(EEPROM_CAL_ADDR + 5 + i) == 1);
+  }
+}
+
+//  Traduce "DI"/"DD"/"TI"/"TD" (o 0..3) al numero de esquina. 255 = no valido.
+uint8_t esquinaDesdeTexto(String t) {
+  t.trim();
+  t.toUpperCase();
+  for (uint8_t i = 0; i < 4; i++) if (t == NOMBRE_ESQUINA[i]) return i;
+  if (t.length() == 1 && t[0] >= '0' && t[0] <= '3') return t[0] - '0';
+  return 255;
+}
+
+//  Muestra la calibracion y AVISA si dos motores reclaman la misma esquina,
+//  que es el error tipico al anotar y deja movimientos imposibles.
+void mostrarCalibracion() {
+  Serial.println("CAL: motor -> esquina, invertido");
+  bool usada[4] = { false, false, false, false };
+  bool repetida = false;
+  for (uint8_t i = 0; i < 4; i++) {
+    Serial.print("  M");
+    Serial.print(i + 1);
+    Serial.print(" -> ");
+    Serial.print(NOMBRE_ESQUINA[posicionMotor[i]]);
+    Serial.print(", ");
+    Serial.println(motorInvertido[i] ? "invertido" : "normal");
+    if (usada[posicionMotor[i]]) repetida = true;
+    usada[posicionMotor[i]] = true;
+  }
+  if (repetida) {
+    Serial.println("  AVISO: hay dos motores en la misma esquina. Revisa el");
+    Serial.println("  MOTORTEST: cada motor debe ocupar una esquina distinta.");
+  }
+}
 
 enum Movimiento : uint8_t {
   MOV_PARADO = 0,
@@ -350,8 +410,8 @@ void aplicarChasis(Movimiento mov, uint8_t velocidad) {
   for (uint8_t i = 0; i < 4; i++) {
     //  De motor -> a que esquina ocupa -> que tiene que hacer esa esquina,
     //  y por ultimo se corrige si ese motor esta cableado del reves.
-    int8_t sentido = PATRON_POR_RUEDA[mov][POSICION_MOTOR[i]];
-    if (MOTOR_INVERTIDO[i]) sentido = -sentido;
+    int8_t sentido = PATRON_POR_RUEDA[mov][posicionMotor[i]];
+    if (motorInvertido[i]) sentido = -sentido;
 
     if (sentido == 0) {
       MOTORES[i]->setSpeed(0);
@@ -963,11 +1023,52 @@ void procesarComando(String linea) {
       aplicarChasis(m, m == MOV_PARADO ? 0 : velocidadChasis);
     }
 
+  } else if (cmd == "CAL") {
+    // CAL                      muestra la calibracion actual
+    // CAL,<motor>,<esq>,<inv>  la cambia y la guarda en la EEPROM
+    if (arg.length() == 0) {
+      mostrarCalibracion();
+    } else {
+      int c1 = arg.indexOf(',');
+      int c2 = (c1 >= 0) ? arg.indexOf(',', c1 + 1) : -1;
+      if (c1 < 0 || c2 < 0) {
+        Serial.println("ERR,CAL: usa  CAL,<motor 1-4>,<DI|DD|TI|TD>,<0|1>");
+      } else {
+        int     motor   = arg.substring(0, c1).toInt();
+        uint8_t esquina = esquinaDesdeTexto(arg.substring(c1 + 1, c2));
+        bool    inv     = (arg.substring(c2 + 1).toInt() != 0);
+
+        if (motor < 1 || motor > 4) {
+          Serial.println("ERR,CAL: el motor va de 1 a 4");
+        } else if (esquina > 3) {
+          Serial.println("ERR,CAL: la esquina es DI, DD, TI o TD");
+        } else {
+          posicionMotor[motor - 1]  = esquina;
+          motorInvertido[motor - 1] = inv;
+          guardarCalibracion();
+          // Reaplicar por si el robot estaba en marcha con la calibracion vieja
+          Movimiento m = movActual;
+          movActual = MOV_TOTAL;
+          aplicarChasis(m, m == MOV_PARADO ? 0 : velocidadChasis);
+          mostrarCalibracion();
+        }
+      }
+    }
+
+  } else if (cmd == "CALRESET") {
+    // Vuelve a la calibracion de partida (M1..M4 en orden, ninguno invertido).
+    for (uint8_t i = 0; i < 4; i++) {
+      posicionMotor[i]  = i;
+      motorInvertido[i] = false;
+    }
+    guardarCalibracion();
+    mostrarCalibracion();
+
   } else if (cmd == "MOTORTEST") {
     // ---- CALIBRACION DEL CHASIS ----
     // Prueba los motores UNO A UNO, primero adelante y luego atras, parando
-    // entre medias. Sirve para rellenar POSICION_MOTOR y MOTOR_INVERTIDO sin
-    // adivinar nada: basta con mirar que rueda se mueve y hacia donde.
+    // entre medias. Sirve para anotar la calibracion con CAL sin adivinar
+    // nada: basta con mirar que rueda se mueve y hacia donde.
     //
     // Se llama a los motores directamente (sin aplicarChasis) a proposito:
     // aqui interesa el motor fisico, no el movimiento ya corregido.
@@ -995,10 +1096,11 @@ void procesarComando(String linea) {
       delay(800);
     }
     Serial.println("\n=== FIN ===");
-    Serial.println("Apunta en el sketch, en POSICION_MOTOR, la esquina de cada");
-    Serial.println("motor (RUEDA_DEL_IZQ / RUEDA_DEL_DER / RUEDA_TRA_IZQ /");
-    Serial.println("RUEDA_TRA_DER), y en MOTOR_INVERTIDO pon true en los que");
-    Serial.println("con FORWARD giraran hacia ATRAS. Vuelve a subir el sketch.");
+    Serial.println("Ahora escribe una linea por motor:");
+    Serial.println("   CAL,<motor 1-4>,<esquina DI|DD|TI|TD>,<invertido 0|1>");
+    Serial.println("Ejemplo: si el motor 1 resulto ser la rueda trasera");
+    Serial.println("derecha y ademas gira al reves ->  CAL,1,TD,1");
+    Serial.println("Se guarda solo en la EEPROM. Comprueba luego con MOVTEST.");
 
   } else if (cmd == "MOVTEST") {
     // Comprueba la calibracion: hace los 6 movimientos, 1,5 s cada uno.
@@ -1015,7 +1117,7 @@ void procesarComando(String linea) {
       delay(600);
     }
     Serial.println("=== FIN. Si alguno no hace lo que dice su nombre,");
-    Serial.println("    revisa POSICION_MOTOR / MOTOR_INVERTIDO. ===");
+    Serial.println("    corrige esa linea CAL y repite MOVTEST. ===");
 
   } else if (cmd == "STEPTEST") {
     // Diagnostico del PASO A PASO, aislado del resto (como MOTORTEST para los DC).
@@ -1136,6 +1238,12 @@ void setup() {
   servoPan.write(90);
   servoTilt.write(90);
 #endif
+
+  // ---- Calibracion del chasis ----
+  //  Se lee de la EEPROM: se hace UNA vez con MOTORTEST + CAL y queda
+  //  guardada, asi que sobrevive a apagar el robot y a volver a subir el
+  //  sketch. Si la EEPROM aun no tiene nada, se usan los valores de partida.
+  cargarCalibracion();
 
   // ---- Encoders de los motores ----
   //  La libreria QGPMaker_Encoder se encarga de configurarlos; aqui solo se
