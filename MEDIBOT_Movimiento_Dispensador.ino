@@ -97,9 +97,21 @@
  *   CUADRADO          truco 3: baile          X         truco 4: celebracion
  *   SELECT            alterna el stick izquierdo entre conducir y mover el brazo
  *
- *  El cableado real de este robot NO coincide con la logica ingenua (M1 y M3
- *  van invertidos, y los lados son M1/M3 contra M2/M4). Se corrige por
- *  software en la tabla PATRON_RUEDAS; no hay que tocar ningun cable.
+ *   START             cambia la velocidad (200 -> 220 -> 240 -> 255 -> 200)
+ *
+ *  ------------------- CALIBRACION DEL CHASIS -----------------
+ *  Los movimientos NO se adivinan: se calculan a partir de dos datos que se
+ *  miden una sola vez con MOTORTEST y se anotan arriba del sketch:
+ *     POSICION_MOTOR[]   en que esquina del robot esta cada motor
+ *     MOTOR_INVERTIDO[]  si ese motor gira al reves de lo que dice FORWARD
+ *  Con eso, todos los movimientos son correctos por construccion.
+ *
+ *   MOTORTEST      Prueba los motores UNO A UNO (adelante y atras) para
+ *                  rellenar esas dos tablas. Levanta el robot antes.
+ *   MOVTEST        Hace los 6 movimientos seguidos para comprobar que la
+ *                  calibracion es correcta.
+ *   VEL[,<n>]      Ajusta la velocidad del chasis (200..255). Sin argumento,
+ *                  responde la actual.
  *
  *  Respuestas del Arduino:
  *   LISTO          al arrancar
@@ -221,64 +233,109 @@ bool vIzquierda = false;
 bool vDerecha   = false;
 
 // ═════════════════════════════════════════════════════════════
-//  CHASIS — movimientos logicos y su patron de ruedas
+//  CHASIS — calibracion y movimientos
 // ═════════════════════════════════════════════════════════════
-//  CORRECCION DEL CABLEADO, POR SOFTWARE (no se toca ni un cable):
+//  POR QUE ESTA ASI Y NO CON PATRONES "A OJO":
+//  Las descripciones de lo que hace el robot ("tambalea", "gira", "se mueve
+//  de lado") son ambiguas y se contradecian entre si, asi que deducir de ahi
+//  el patron de cada movimiento era jugar a adivinar. En vez de eso, aqui se
+//  declaran DOS DATOS OBJETIVOS sobre el hardware, que se miden una sola vez
+//  con la orden MOTORTEST:
 //
-//  El codigo antiguo daba por hecho que M1/M2 eran un lado y M3/M4 el otro, y
-//  que los cuatro motores giraban en el mismo sentido con run(FORWARD). En
-//  este robot NO es asi: M1 y M3 estan cableados al reves, y los lados reales
-//  son M1/M3 contra M2/M4. Por eso "adelante" hacia girar el robot sobre su
-//  eje, y "girar" lo desplazaba de lado.
+//     1. En que esquina del robot esta cada motor.
+//     2. Si ese motor gira al reves de lo que dice run(FORWARD).
 //
-//  En vez de parchear cada funcion, la tabla de abajo guarda directamente el
-//  patron FISICO que hay que enviar para conseguir cada movimiento real. Se
-//  dedujo del comportamiento observado en el robot y explica las cinco
-//  observaciones sin excepcion:
+//  Con esos dos datos, TODOS los movimientos salen calculados y son correctos
+//  por construccion. Si el robot se recablea, se vuelve a medir y ya esta: no
+//  hay que tocar ni una linea de logica.
 //
-//     lo que enviaba el codigo        ->  lo que hacia el robot
-//     forward()   (+,+,+,+)           ->  giraba sobre su eje
-//     turnLeft()  (-,-,+,+)           ->  se desplazaba a la izquierda
-//     turnRight() (+,+,-,-)           ->  se desplazaba a la derecha
-//     moveLeft()  (-,+,-,+)           ->  AVANZABA
-//     moveRight() (+,-,+,-)           ->  RETROCEDIA
-//
-//  Si algun dia se recablea el robot, basta con corregir ESTA tabla: todo lo
-//  demas (mando, web, trucos) sigue funcionando sin tocarse.
+//  ---------- COMO CALIBRAR (5 minutos, una sola vez) ----------
+//  1. Sube el sketch y abre el Monitor Serial a 9600 con "Nueva linea".
+//  2. Levanta el robot para que las ruedas giren al aire.
+//  3. Escribe:  MOTORTEST
+//     Va probando motor por motor y esperando. Para cada uno anota:
+//        - QUE rueda se movio (delantera izquierda, delantera derecha,
+//          trasera izquierda o trasera derecha), mirando el robot DESDE ATRAS,
+//          como si condujeras.
+//        - HACIA DONDE giro: adelante o atras.
+//  4. Escribe abajo lo anotado en POSICION_MOTOR y MOTOR_INVERTIDO.
+//  5. Vuelve a subir el sketch. Listo: todos los movimientos quedan bien.
 // ═════════════════════════════════════════════════════════════
+
+// Las cuatro esquinas del robot.
+#define RUEDA_DEL_IZQ  0
+#define RUEDA_DEL_DER  1
+#define RUEDA_TRA_IZQ  2
+#define RUEDA_TRA_DER  3
+
+//  [0]=motor M1, [1]=M2, [2]=M3, [3]=M4.  <-- RELLENAR CON MOTORTEST
+//  Ejemplo: si al probar el motor 1 se movio la rueda trasera derecha,
+//  la primera casilla es RUEDA_TRA_DER.
+const uint8_t POSICION_MOTOR[4] = {
+  RUEDA_DEL_IZQ,   // M1
+  RUEDA_DEL_DER,   // M2
+  RUEDA_TRA_IZQ,   // M3
+  RUEDA_TRA_DER    // M4
+};
+
+//  true = con run(FORWARD) esa rueda gira hacia ATRAS.  <-- RELLENAR
+const bool MOTOR_INVERTIDO[4] = {
+  false,   // M1
+  false,   // M2
+  false,   // M3
+  false    // M4
+};
 
 enum Movimiento : uint8_t {
   MOV_PARADO = 0,
   MOV_ADELANTE,
   MOV_ATRAS,
-  MOV_IZQUIERDA,     // desplazamiento lateral, sin girar
+  MOV_IZQUIERDA,     // desplazamiento lateral, sin cambiar de orientacion
   MOV_DERECHA,
-  MOV_GIRO_IZQ,      // gira sobre su propio eje
+  MOV_GIRO_IZQ,      // gira sobre su propio eje, sin desplazarse
   MOV_GIRO_DER,
   MOV_TOTAL
 };
 
-//  +1 = rueda hacia adelante, -1 = hacia atras, 0 = suelta.
-//  Orden de las columnas: M1, M2, M3, M4.
-const int8_t PATRON_RUEDAS[MOV_TOTAL][4] = {
-  {  0,  0,  0,  0 },   // MOV_PARADO
-  { +1, +1, +1, +1 },   // MOV_ADELANTE
-  { -1, -1, -1, -1 },   // MOV_ATRAS
-  { +1, -1, -1, +1 },   // MOV_IZQUIERDA
-  { -1, +1, +1, -1 },   // MOV_DERECHA
-  { -1, +1, -1, +1 },   // MOV_GIRO_IZQ
-  { +1, -1, +1, -1 },   // MOV_GIRO_DER
+//  Que debe hacer cada RUEDA (no cada motor) en cada movimiento.
+//  Esto es geometria del robot, no cableado: siempre es igual en cualquier
+//  robot de 4 ruedas. Las columnas van en el orden de las esquinas de arriba.
+//  El desplazamiento lateral necesita ruedas mecanum u omnidireccionales; con
+//  ruedas normales ese patron hace que el robot se arrastre de lado.
+const int8_t PATRON_POR_RUEDA[MOV_TOTAL][4] = {
+  //  DEL_IZQ  DEL_DER  TRA_IZQ  TRA_DER
+  {    0,       0,       0,       0    },   // MOV_PARADO
+  {   +1,      +1,      +1,      +1    },   // MOV_ADELANTE
+  {   -1,      -1,      -1,      -1    },   // MOV_ATRAS
+  {   -1,      +1,      +1,      -1    },   // MOV_IZQUIERDA (lateral)
+  {   +1,      -1,      -1,      +1    },   // MOV_DERECHA
+  {   -1,      +1,      -1,      +1    },   // MOV_GIRO_IZQ (izq atras, der adelante)
+  {   +1,      -1,      +1,      -1    },   // MOV_GIRO_DER
 };
-
-//  Si al probar resulta que L2 y R2 giran al reves de lo esperado, cambia este
-//  valor a true: intercambia los dos patrones de giro y listo.
-const bool INVERTIR_SENTIDO_GIRO = false;
 
 QGPMaker_DCMotor* MOTORES[4] = { DCMotor_1, DCMotor_2, DCMotor_3, DCMotor_4 };
 
+// ---------------- Velocidad del chasis ----------------
+//  Ajustable en marcha entre 200 y 255: por debajo de 200 estos motores con
+//  reductora apenas arrancan con carga, y 255 es el maximo del PWM.
+const uint8_t VEL_CHASIS_MIN = 200;
+const uint8_t VEL_CHASIS_MAX = 255;
+uint8_t velocidadChasis = VEL_CHASIS_MIN;
+
+//  Escalones que recorre el boton START del mando.
+const uint8_t VELOCIDADES[]  = { 200, 220, 240, 255 };
+const uint8_t N_VELOCIDADES  = sizeof(VELOCIDADES) / sizeof(VELOCIDADES[0]);
+uint8_t indiceVelocidad = 0;
+
+void fijarVelocidad(int valor) {
+  velocidadChasis = (uint8_t)constrain(valor, VEL_CHASIS_MIN, VEL_CHASIS_MAX);
+  Serial.print("VEL,");
+  Serial.println(velocidadChasis);
+}
+
 //  Ultimo estado ESCRITO al shield. Cada orden a un motor es una transaccion
-//  I2C; el bucle repetia las mismas cuatro decenas de veces por segundo. Con
-//  esto solo se escribe cuando algo cambia de verdad.
+//  I2C y el bucle repetia las mismas cuatro decenas de veces por segundo; asi
+//  solo se escribe cuando algo cambia de verdad.
 Movimiento movActual = MOV_PARADO;
 uint8_t    velActual = 0;
 
@@ -286,23 +343,22 @@ void aplicarChasis(Movimiento mov, uint8_t velocidad) {
   if (mov >= MOV_TOTAL) mov = MOV_PARADO;
   if (mov == MOV_PARADO) velocidad = 0;
 
-  if (INVERTIR_SENTIDO_GIRO) {
-    if      (mov == MOV_GIRO_IZQ) mov = MOV_GIRO_DER;
-    else if (mov == MOV_GIRO_DER) mov = MOV_GIRO_IZQ;
-  }
-
-  if (mov == movActual && velocidad == velActual) return;   // nada que hacer
+  if (mov == movActual && velocidad == velActual) return;   // nada que cambiar
   movActual = mov;
   velActual = velocidad;
 
-  const int8_t* patron = PATRON_RUEDAS[mov];
   for (uint8_t i = 0; i < 4; i++) {
-    if (patron[i] == 0) {
+    //  De motor -> a que esquina ocupa -> que tiene que hacer esa esquina,
+    //  y por ultimo se corrige si ese motor esta cableado del reves.
+    int8_t sentido = PATRON_POR_RUEDA[mov][POSICION_MOTOR[i]];
+    if (MOTOR_INVERTIDO[i]) sentido = -sentido;
+
+    if (sentido == 0) {
       MOTORES[i]->setSpeed(0);
       MOTORES[i]->run(RELEASE);
     } else {
       MOTORES[i]->setSpeed(velocidad);
-      MOTORES[i]->run(patron[i] > 0 ? FORWARD : BACKWARD);
+      MOTORES[i]->run(sentido > 0 ? FORWARD : BACKWARD);
     }
   }
 }
@@ -435,7 +491,7 @@ void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) 
   else if (derecha)               mov = MOV_DERECHA;
   else                            mov = MOV_PARADO;
 
-  aplicarChasis(mov, VELOCIDAD);
+  aplicarChasis(mov, velocidadChasis);
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -478,14 +534,15 @@ const uint16_t BOTONES_TRUCO[N_TRUCOS] = {
 const uint8_t CENTRO_STICK  = 128;
 const uint8_t ZONA_MUERTA   = 40;    // holgura del stick en reposo
 const uint8_t VEL_MINIMA    = 90;    // por debajo, el motor no llega a mover
-const uint8_t VEL_MAXIMA    = 255;
 
 //  Convierte cuanto se ha empujado el stick (0..127) en velocidad del motor.
 uint8_t velocidadDesdeStick(uint8_t desvio) {
   if (desvio <= ZONA_MUERTA) return 0;
-  long v = (long)(desvio - ZONA_MUERTA) * (VEL_MAXIMA - VEL_MINIMA);
+  // El tope es la velocidad configurada (VEL,<n>), no un 255 fijo:
+  // asi el ajuste de velocidad vale tambien para la conduccion analogica.
+  long v = (long)(desvio - ZONA_MUERTA) * (velocidadChasis - VEL_MINIMA);
   v /= (127 - ZONA_MUERTA);
-  return (uint8_t)constrain(v + VEL_MINIMA, VEL_MINIMA, VEL_MAXIMA);
+  return (uint8_t)constrain(v + VEL_MINIMA, VEL_MINIMA, velocidadChasis);
 }
 
 //  El stick izquierdo puede conducir o manejar el brazo; SELECT alterna.
@@ -535,7 +592,7 @@ bool handlePS2Movement() {
   //  3) Botones digitales, a velocidad fija.
   for (uint8_t i = 0; i < N_MAPA_PS2; i++) {
     if (ps2x.Button(MAPA_PS2[i].boton)) {
-      aplicarChasis(MAPA_PS2[i].mov, VELOCIDAD);
+      aplicarChasis(MAPA_PS2[i].mov, velocidadChasis);
       return true;
     }
   }
@@ -771,7 +828,7 @@ void moverDireccion(String dir) {
   vIzquierda = (mov == MOV_IZQUIERDA);
   vDerecha   = (mov == MOV_DERECHA);
 
-  aplicarChasis(mov, VELOCIDAD);
+  aplicarChasis(mov, velocidadChasis);
   Serial.print("OK,MOVE,");
   Serial.println(dir);
 }
@@ -892,22 +949,73 @@ void procesarComando(String linea) {
     reiniciarEncoders();
     responderEncoders();
 
-  } else if (cmd == "MOTORTEST") {
-    // Diagnostico: prueba cada motor DC por separado, 1 s hacia adelante.
-    // Sirve para aislar si el problema es el Motor Shield, el cableado o la
-    // alimentacion (si NINGUNO gira, casi seguro falta alimentacion externa
-    // al shield: los motores no arrancan solo con el USB del Arduino).
-    Serial.println("MOTORTEST: probando motores 1..4 (1 s c/u)");
-    QGPMaker_DCMotor* motores[4] = { DCMotor_1, DCMotor_2, DCMotor_3, DCMotor_4 };
-    for (int i = 0; i < 4; i++) {
-      Serial.print("  motor "); Serial.println(i + 1);
-      motores[i]->setSpeed(VELOCIDAD);
-      motores[i]->run(FORWARD);
-      delay(1000);
-      motores[i]->run(RELEASE);
-      delay(300);
+  } else if (cmd == "VEL") {
+    // VEL,<n>  ajusta la velocidad del chasis (200..255). VEL sola la consulta.
+    if (arg.length() == 0) {
+      Serial.print("VEL,");
+      Serial.println(velocidadChasis);
+    } else {
+      fijarVelocidad(arg.toInt());
+      // Reaplicar en caliente: si el robot ya se esta moviendo, el cambio de
+      // velocidad se nota al instante en vez de esperar a la siguiente orden.
+      Movimiento m = movActual;
+      movActual = MOV_TOTAL;               // forzar la reescritura
+      aplicarChasis(m, m == MOV_PARADO ? 0 : velocidadChasis);
     }
-    Serial.println("MOTORTEST: fin");
+
+  } else if (cmd == "MOTORTEST") {
+    // ---- CALIBRACION DEL CHASIS ----
+    // Prueba los motores UNO A UNO, primero adelante y luego atras, parando
+    // entre medias. Sirve para rellenar POSICION_MOTOR y MOTOR_INVERTIDO sin
+    // adivinar nada: basta con mirar que rueda se mueve y hacia donde.
+    //
+    // Se llama a los motores directamente (sin aplicarChasis) a proposito:
+    // aqui interesa el motor fisico, no el movimiento ya corregido.
+    Serial.println("=== CALIBRACION: levanta el robot, ruedas al aire ===");
+    Serial.println("Mira el robot DESDE ATRAS, como si condujeras.");
+    Serial.println("Para cada motor anota: que rueda se mueve y hacia donde.");
+    stopMoving();
+    for (uint8_t i = 0; i < 4; i++) {
+      Serial.print("\n--- MOTOR M");
+      Serial.print(i + 1);
+      Serial.println(" ---");
+
+      Serial.println("  run(FORWARD) 2 s ... ¿que rueda y hacia donde?");
+      MOTORES[i]->setSpeed(velocidadChasis);
+      MOTORES[i]->run(FORWARD);
+      delay(2000);
+      MOTORES[i]->run(RELEASE);
+      delay(800);
+
+      Serial.println("  run(BACKWARD) 2 s ... (debe ser justo al reves)");
+      MOTORES[i]->setSpeed(velocidadChasis);
+      MOTORES[i]->run(BACKWARD);
+      delay(2000);
+      MOTORES[i]->run(RELEASE);
+      delay(800);
+    }
+    Serial.println("\n=== FIN ===");
+    Serial.println("Apunta en el sketch, en POSICION_MOTOR, la esquina de cada");
+    Serial.println("motor (RUEDA_DEL_IZQ / RUEDA_DEL_DER / RUEDA_TRA_IZQ /");
+    Serial.println("RUEDA_TRA_DER), y en MOTOR_INVERTIDO pon true en los que");
+    Serial.println("con FORWARD giraran hacia ATRAS. Vuelve a subir el sketch.");
+
+  } else if (cmd == "MOVTEST") {
+    // Comprueba la calibracion: hace los 6 movimientos, 1,5 s cada uno.
+    // Si alguno no se corresponde con su nombre, la calibracion esta mal.
+    const char* nombres[] = { "ADELANTE", "ATRAS", "IZQUIERDA", "DERECHA",
+                              "GIRO_IZQ", "GIRO_DER" };
+    Serial.println("=== COMPROBACION DE MOVIMIENTOS ===");
+    for (uint8_t m = MOV_ADELANTE; m <= MOV_GIRO_DER; m++) {
+      Serial.print("  ");
+      Serial.println(nombres[m - MOV_ADELANTE]);
+      aplicarChasis((Movimiento)m, velocidadChasis);
+      delay(1500);
+      stopMoving();
+      delay(600);
+    }
+    Serial.println("=== FIN. Si alguno no hace lo que dice su nombre,");
+    Serial.println("    revisa POSICION_MOTOR / MOTOR_INVERTIDO. ===");
 
   } else if (cmd == "STEPTEST") {
     // Diagnostico del PASO A PASO, aislado del resto (como MOTORTEST para los DC).
@@ -1081,6 +1189,14 @@ void loop() {
       modoConducir = !modoConducir;
       Serial.print("MODO,");
       Serial.println(modoConducir ? "CONDUCIR" : "BRAZO");
+    }
+
+    //  START recorre los escalones de velocidad, para ajustarla sin soltar el
+    //  mando. Con una tabla explicita en vez de aritmetica: asi no hay forma
+    //  de saltarse un escalon por un redondeo mal puesto.
+    if (ps2x.ButtonPressed(PSB_START)) {
+      indiceVelocidad = (indiceVelocidad + 1) % N_VELOCIDADES;
+      fijarVelocidad(VELOCIDADES[indiceVelocidad]);
     }
 
     if (!trucoManda) ps2xActivo = handlePS2Movement();

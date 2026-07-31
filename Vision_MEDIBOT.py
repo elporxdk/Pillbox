@@ -251,6 +251,27 @@ def detener_movimiento():
     enviar_movimiento(PARADO)
 
 
+# ---- Velocidad del chasis ----
+#  El firmware la limita a 200..255: por debajo de 200 estos motores con
+#  reductora apenas arrancan con carga. Se replica aqui el mismo rango para
+#  poder avisar al usuario antes de mandar un valor que se iba a recortar.
+VEL_MIN, VEL_MAX = 200, 255
+velocidad_chasis = VEL_MIN
+
+
+def fijar_velocidad(valor):
+    """Ajusta la velocidad del chasis (200..255). Devuelve la aplicada, o None
+    si el valor no es un numero."""
+    global velocidad_chasis
+    try:
+        v = int(valor)
+    except (TypeError, ValueError):
+        return None
+    velocidad_chasis = max(VEL_MIN, min(VEL_MAX, v))
+    serial_send(f"VEL,{velocidad_chasis}")
+    return velocidad_chasis
+
+
 def lanzar_truco(numero):
     """Lanza uno de los movimientos especiales (1..4) del Arduino: los mismos
     que los botones Triangulo/Circulo/Cuadrado/X del mando PS2."""
@@ -1553,6 +1574,10 @@ HTML_TEMPLATE = """
         /* Botonera de movimiento (6 movimientos + 4 trucos) */
         .mov-panel { margin-top: 10px; }
         .mov-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .mov-vel { margin-top: 8px; font-size: .78em; color: #00ffff; }
+        .mov-vel label { display: block; margin-bottom: 2px; }
+        .mov-vel input[type=range] { width: 100%; accent-color: #00ffff; }
+        html[data-theme="light"] .mov-vel { color: #0a7c78; }
         .mov-trucos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
         .mov-btn {
             background: #1a1a1a; color: #00ffff; border: 1px solid #00ffff;
@@ -1667,6 +1692,12 @@ HTML_TEMPLATE = """
                          escritos a mano que se puedan desincronizar. -->
                     <div class="mov-panel">
                         <div class="mov-grid" id="mov-grid"></div>
+                        <div class="mov-vel">
+                            <label for="velRange">Velocidad <span id="velVal">200</span></label>
+                            <input type="range" id="velRange" min="200" max="255" value="200"
+                                   oninput="document.getElementById('velVal').textContent=this.value"
+                                   onchange="fijarVelocidad(this.value)">
+                        </div>
                         <div class="mov-trucos">
                             <button class="mov-btn truco" onclick="lanzarTruco(1)" title="Triángulo">Trompo</button>
                             <button class="mov-btn truco" onclick="lanzarTruco(2)" title="Círculo">Zig-zag</button>
@@ -2130,6 +2161,21 @@ HTML_TEMPLATE = """
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ movimiento: mov })
+            }).catch(() => {});
+        }
+
+        function fijarVelocidad(v) {
+            fetch('/velocidad', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ velocidad: parseInt(v, 10) })
+            }).then(r => r.json()).then(d => {
+                // El servidor recorta al rango valido: reflejar lo REALMENTE
+                // aplicado, no lo que pidio el usuario.
+                if (d && d.velocidad) {
+                    document.getElementById('velVal').textContent = d.velocidad;
+                    document.getElementById('velRange').value = d.velocidad;
+                }
             }).catch(() => {});
         }
 
@@ -2792,6 +2838,20 @@ def movimientos_endpoint():
     return jsonify({"movimientos": [{"id": m, "etiqueta": ETIQUETAS_MOVIMIENTO[m]}
                                     for m in MOVIMIENTOS],
                     "actual": movimiento_actual})
+
+
+@app.route("/velocidad", methods=["GET", "POST"])
+def velocidad_endpoint():
+    """Consulta o ajusta la velocidad del chasis (200..255)."""
+    if request.method == "GET":
+        return jsonify({"velocidad": velocidad_chasis, "min": VEL_MIN, "max": VEL_MAX})
+    data = request.get_json(silent=True) or {}
+    aplicada = fijar_velocidad(data.get("velocidad"))
+    if aplicada is None:
+        return jsonify({"ok": False,
+                        "message": f"Velocidad invalida (usa {VEL_MIN}..{VEL_MAX})"}), 400
+    return jsonify({"ok": True, "velocidad": aplicada,
+                    "min": VEL_MIN, "max": VEL_MAX})
 
 
 @app.route("/truco", methods=["POST"])
