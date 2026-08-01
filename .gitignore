@@ -10,3 +10,9 @@ env/
 
 # Datos de runtime del Pillbox (estado local de la Pi)
 pillbox_data.json
+
+# Salida de Medibot en la maquina donde corre (no es codigo)
+videos/
+data/
+trainer.yml
+trainer_labels.json

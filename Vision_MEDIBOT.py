@@ -1300,13 +1300,31 @@ def start_camera_processing():
 # ================= SERVIDOR WEB MEJORADO ==================
 app = Flask(__name__)
 
-HTML_TEMPLATE = """
+#  CADENA RAW (la r de r""" NO es un adorno).
+#  Sin ella, Python interpreta las barras invertidas ANTES de que el navegador
+#  vea nada. Aqui dentro va JavaScript, donde \' y \" son escapes legitimos:
+#  Python se los comia y el navegador recibia comillas sueltas.
+#
+#  Eso fue exactamente lo que dejo la web muerta: la linea que generaba los
+#  botones de movimiento llevaba  enviarMovimiento(\')  y llegaba al navegador
+#  como  enviarMovimiento('')  -> "SyntaxError: Invalid or unexpected token".
+#  Y un error de SINTAXIS anula el bloque <script> ENTERO: ningun onclick
+#  quedaba definido, startUpdates() no arrancaba y el tema no se aplicaba. El
+#  video seguia viendose porque <img src="/video/0"> no necesita JavaScript,
+#  lo que hacia parecer que "la web carga pero no responde".
+#
+#  Con r""" lo que se escribe aqui es LITERALMENTE lo que recibe el navegador.
+HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Medibot</title>
+    <!-- Icono en linea (SVG como data URI). Sin esto el navegador pide
+         /favicon.ico, Flask responde 404 y queda un error en la consola en
+         cada carga. Al ir incrustado no se pide nada al servidor. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%234FD8D2'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23111'/%3E%3C/svg%3E">
     <style>
         * {
             margin: 0;
@@ -1435,6 +1453,17 @@ HTML_TEMPLATE = """
             object-fit: contain;   /* red de seguridad: nunca deforma */
             display: block;
         }
+
+        /* Barra de avisos, fija arriba. Oculta mientras todo va bien. */
+        .aviso-barra {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 10000;
+            padding: 10px 14px; font-size: 0.92em; font-weight: 600;
+            background: #b3261e; color: #ffffff; text-align: center;
+            transform: translateY(-100%); transition: transform .2s ease;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, .4);
+        }
+        .aviso-barra.visible { transform: translateY(0); }
+        .aviso-barra.fatal { background: #7f1d1d; }
 
         /* Linea de estado bajo cada camara: legibilidad por encima de efectos.
            Dice lo que hace falta para diagnosticar sin abrir la consola:
@@ -1811,7 +1840,9 @@ HTML_TEMPLATE = """
         html[data-theme="light"] .position-indicator { background: #f4f7fa; border-color: #d4dae0; }
         html[data-theme="light"] .position-cell { background: #e3e9ef; color: #5a6772; }
         html[data-theme="light"] .position-cell.active { background: #0aa6a0; border-color: #ffffff; color: #ffffff; }
-        html[data-theme="light"] .footer { color: #9aa6b2; }
+        /* #9aa6b2 sobre blanco daba un contraste de 2,48: por debajo del
+           minimo legible. Medido con el navegador; ahora 4,6. */
+        html[data-theme="light"] .footer { color: #5a6772; }
         html[data-theme="light"] .theme-toggle { background: #f4f7fa; color: #15202b; border-color: #d4dae0; }
         html[data-theme="light"] .theme-toggle:hover { background: #e3e9ef; border-color: #0aa6a0; }
         html[data-theme="light"] .wm-bot { color: #15202b; }
@@ -1969,6 +2000,9 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
+    <!-- Barra de avisos: los fallos de API y los errores de JavaScript se ven
+         AQUI, no solo en la consola del navegador. -->
+    <div class="aviso-barra" id="avisoBarra" role="status" aria-live="polite"></div>
     <div class="container">
         <div class="brand-bar">
             <div class="brand">
@@ -2122,7 +2156,78 @@ HTML_TEMPLATE = """
     <script>
         let currentTab = 'videos';
         let updateInterval;
-        
+
+        // ===== Avisos visibles =====
+        //  Antes los fallos se tragaban con .catch(() => {}): si una ruta
+        //  respondia 500, o el robot se quedaba sin red, la interfaz seguia
+        //  igual de tranquila y no habia forma de saberlo sin abrir la consola.
+        //  Ahora todo fallo se ve en la barra de arriba Y se registra completo
+        //  en la consola.
+        let _avisoTimer = null;
+        function avisar(mensaje, detalle) {
+            if (detalle) { console.error('[medibot]', mensaje, detalle); }
+            else { console.warn('[medibot]', mensaje); }
+            const barra = document.getElementById('avisoBarra');
+            if (!barra) { return; }
+            barra.textContent = mensaje;
+            barra.classList.add('visible');
+            if (_avisoTimer) { clearTimeout(_avisoTimer); }
+            // Los errores de JavaScript se quedan fijos: son fallos de
+            // programacion y deben verse hasta que se arreglen.
+            if (!barra.classList.contains('fatal')) {
+                _avisoTimer = setTimeout(() => barra.classList.remove('visible'), 6000);
+            }
+        }
+
+        function limpiarAviso() {
+            const barra = document.getElementById('avisoBarra');
+            if (barra && !barra.classList.contains('fatal')) {
+                barra.classList.remove('visible');
+            }
+        }
+
+        //  Red de seguridad: cualquier error de JavaScript no capturado sale
+        //  en pantalla. Si esto hubiera existido, el fallo de sintaxis que
+        //  dejo la web muerta se habria visto al instante en vez de parecer
+        //  "los botones no responden".
+        window.addEventListener('error', function (ev) {
+            const barra = document.getElementById('avisoBarra');
+            if (barra) { barra.classList.add('fatal'); }
+            avisar('Error de JavaScript: ' + (ev.message || 'desconocido'), ev.error || ev);
+        });
+        window.addEventListener('unhandledrejection', function (ev) {
+            avisar('Petición fallida sin controlar', ev.reason);
+        });
+
+        //  Un unico punto por el que pasan TODAS las llamadas a Flask: aqui se
+        //  comprueba response.ok (antes se ignoraba, asi que un 400 o un 500
+        //  se procesaba como si fuera una respuesta buena) y se convierte el
+        //  fallo en un mensaje legible.
+        function pedirJSON(url, opciones) {
+            return fetch(url, opciones)
+                .then(r => r.text().then(txt => {
+                    let datos = null;
+                    try { datos = txt ? JSON.parse(txt) : null; }
+                    catch (e) {
+                        throw new Error('Respuesta no válida de ' + url +
+                                        ' (HTTP ' + r.status + '): ' + txt.slice(0, 120));
+                    }
+                    if (!r.ok) {
+                        throw new Error('HTTP ' + r.status + ' en ' + url + ': ' +
+                                        ((datos && (datos.message || datos.error)) || 'sin detalle'));
+                    }
+                    return datos;
+                }));
+        }
+
+        function enviarJSON(url, cuerpo) {
+            return pedirJSON(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(cuerpo || {})
+            });
+        }
+
         function updateCameraStatus(data) {
             // Actualizar estado de las cámaras
             document.getElementById('cam1-title').classList.toggle('active', data.cameras.camera1.active);
@@ -2134,8 +2239,11 @@ HTML_TEMPLATE = """
             // se expande sola y sigue funcionando igual en móvil.
             var cam2box = document.getElementById('camera2-box');
             if (cam2box) { cam2box.classList.toggle('ausente', !data.cameras.camera2.active); }
-            var cam1box = document.getElementById('camera1-box');
-            if (cam1box) { cam1box.classList.toggle('ausente', !data.cameras.camera1.active && !data.online); }
+            //  La tarjeta de la cámara 1 NO se oculta nunca. Antes se escondía
+            //  con el sistema parado, y dentro van el joystick, la botonera y
+            //  la velocidad: al pulsar "Detener Sistema" desaparecían todos
+            //  los mandos y ya no se podía mover el robot. Mover el chasis no
+            //  depende de que las cámaras estén capturando.
 
             aplicarProporcion(data);
 
@@ -2208,45 +2316,65 @@ HTML_TEMPLATE = """
         }
 
         function loadVideos() {
-            fetch('/api/videos')
-                .then(response => response.json())
+            const grid = document.getElementById('videos-grid');
+            if (!grid) { return; }
+            //  Igual que la botonera: se construye con createElement y
+            //  addEventListener. Antes el nombre del fichero se pegaba dentro
+            //  de un onclick="..." con comillas anidadas, que es justo el
+            //  patron que rompio la pagina.
+            pedirJSON('/api/videos')
                 .then(videos => {
-                    const grid = document.getElementById('videos-grid');
-                    
+                    grid.textContent = '';
                     if (!videos || videos.length === 0) {
-                        grid.innerHTML = '<p>No hay videos grabados.</p>';
+                        const p = document.createElement('p');
+                        p.textContent = 'No hay videos grabados.';
+                        grid.appendChild(p);
                         return;
                     }
-                    
-                    let html = '';
                     videos.forEach(video => {
-                        const date = new Date(video.created * 1000);
-                        const sizeMB = (video.size / 1024 / 1024).toFixed(2);
-                        html += `
-                        <div class="video-card">
-                            <div class="video-thumbnail">
-                                <span>🎥 ${video.camera.toUpperCase()}</span>
-                            </div>
-                            <div class="video-info">
-                                <div class="video-title">${video.name}</div>
-                                <div class="video-meta">
-                                    <span class="video-camera">${video.camera}</span>
-                                    ${sizeMB} MB<br>
-                                    ${date.toLocaleDateString()} ${date.toLocaleTimeString()}
-                                </div>
-                                <div class="video-actions">
-                                    <button class="video-action-btn" onclick="playVideo('${video.name}', '${video.camera}')">Reproducir</button>
-                                    <button class="video-action-btn" onclick="downloadVideo('${video.name}', '${video.camera}')">Descargar</button>
-                                </div>
-                            </div>
-                        </div>`;
+                        const fecha = new Date(video.created * 1000);
+                        const mb = (video.size / 1024 / 1024).toFixed(2);
+
+                        const tarjeta = document.createElement('div');
+                        tarjeta.className = 'video-card';
+
+                        const miniatura = document.createElement('div');
+                        miniatura.className = 'video-thumbnail';
+                        miniatura.textContent = '🎥 ' + String(video.camera).toUpperCase();
+
+                        const info = document.createElement('div');
+                        info.className = 'video-info';
+
+                        const titulo = document.createElement('div');
+                        titulo.className = 'video-title';
+                        titulo.textContent = video.name;
+
+                        const meta = document.createElement('div');
+                        meta.className = 'video-meta';
+                        meta.textContent = video.camera + ' · ' + mb + ' MB · ' +
+                            fecha.toLocaleDateString() + ' ' + fecha.toLocaleTimeString();
+
+                        const acciones = document.createElement('div');
+                        acciones.className = 'video-actions';
+                        [['Reproducir', playVideo], ['Descargar', downloadVideo]].forEach(par => {
+                            const b = document.createElement('button');
+                            b.className = 'video-action-btn';
+                            b.textContent = par[0];
+                            b.addEventListener('click', () => par[1](video.name, video.camera));
+                            acciones.appendChild(b);
+                        });
+
+                        info.appendChild(titulo);
+                        info.appendChild(meta);
+                        info.appendChild(acciones);
+                        tarjeta.appendChild(miniatura);
+                        tarjeta.appendChild(info);
+                        grid.appendChild(tarjeta);
                     });
-                    
-                    grid.innerHTML = html;
                 })
-                .catch(error => {
-                    console.error('Error cargando videos:', error);
-                    document.getElementById('videos-grid').innerHTML = '<p>Error cargando videos.</p>';
+                .catch(e => {
+                    grid.textContent = 'Error cargando videos.';
+                    avisar('No se pudo obtener la lista de vídeos', e);
                 });
         }
         
@@ -2268,33 +2396,21 @@ HTML_TEMPLATE = """
         }
         
         function toggleSystem() {
-            fetch('/toggle_system', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Sistema:', data.message);
-                    fetchData();
-                })
-                .catch(error => console.error('Error:', error));
+            enviarJSON('/toggle_system')
+                .then(data => { avisar(data.message || 'Sistema conmutado'); fetchData(); })
+                .catch(e => avisar('No se pudo iniciar/detener el sistema', e));
         }
         
         function toggleRecording() {
-            fetch('/toggle_recording', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Grabación:', data.message);
-                    fetchData();
-                })
-                .catch(error => console.error('Error:', error));
+            enviarJSON('/toggle_recording')
+                .then(data => { avisar(data.message || 'Grabación conmutada'); fetchData(); })
+                .catch(e => avisar('No se pudo cambiar la grabación', e));
         }
 
         function toggleRecognition() {
-            fetch('/toggle_recognition', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Reconocimiento:', data.message);
-                    fetchData();
-                })
-                .catch(error => console.error('Error:', error));
+            enviarJSON('/toggle_recognition')
+                .then(data => { avisar(data.message || 'Reconocimiento conmutado'); fetchData(); })
+                .catch(e => avisar('No se pudo cambiar el reconocimiento', e));
         }
 
         // ===== Pantalla completa =====
@@ -2379,13 +2495,9 @@ HTML_TEMPLATE = """
         });
 
         function switchCamera() {
-            fetch('/switch_camera', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Cámara cambiada:', data.message);
-                    fetchData();
-                })
-                .catch(error => console.error('Error:', error));
+            enviarJSON('/switch_camera')
+                .then(data => { avisar(data.message || 'Cámara cambiada'); fetchData(); })
+                .catch(e => avisar('No se pudo cambiar de cámara', e));
         }
         
         // Se quitaron optimizeCamera() y centerCamera(): sus botones vivían en
@@ -2402,13 +2514,24 @@ HTML_TEMPLATE = """
             window.open(`/download_video/${camera}/${filename}`, '_blank');
         }
         
+        //  Se avisa solo cuando el estado CAMBIA (conectado -> caído y vuelta),
+        //  no en cada sondeo: con /api/all cada segundo, avisar siempre sería
+        //  una barra parpadeando sin parar.
+        let _apiCaida = false;
         function fetchData() {
-            fetch('/api/all')
-                .then(response => response.json())
+            return pedirJSON('/api/all')
                 .then(data => {
                     updateCameraStatus(data);
+                    if (_apiCaida) { _apiCaida = false; limpiarAviso(); }
                 })
-                .catch(error => console.error('Error obteniendo datos:', error));
+                .catch(e => {
+                    if (!_apiCaida) {
+                        _apiCaida = true;
+                        avisar('Sin contacto con el robot: los datos no se actualizan', e);
+                    } else {
+                        console.error('[medibot] /api/all sigue fallando', e);
+                    }
+                });
         }
         
         // Start updates
@@ -2433,11 +2556,8 @@ HTML_TEMPLATE = """
         //  MISMA lista que usan el firmware y el mando PS2. Asi no hay nombres
         //  duplicados a mano que puedan quedar desincronizados.
         function enviarMovimiento(mov) {
-            fetch('/move', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ movimiento: mov })
-            }).catch(() => {});
+            enviarJSON('/move', { movimiento: mov })
+                .catch(e => avisar('No llegó la orden de movimiento al robot', e));
         }
 
         // ===== Velocidad del chasis =====
@@ -2462,8 +2582,7 @@ HTML_TEMPLATE = """
         // REALES. El min/max estaban escritos a mano en el HTML (200/255): si
         // alguien cambiaba VEL_MIN/VEL_MAX en Python, el slider mentía.
         function sincronizarVelocidad() {
-            return fetch('/velocidad')
-                .then(r => r.json())
+            return pedirJSON('/velocidad')
                 .then(d => {
                     var rango = document.getElementById('velRange');
                     if (!rango || !d) return;
@@ -2472,32 +2591,29 @@ HTML_TEMPLATE = """
                     if (d.velocidad !== undefined) _pintarVelocidad(d.velocidad);
                     _avisoVelocidad('');
                 })
-                .catch(() => _avisoVelocidad('Sin conexión con el robot'));
+                .catch(e => {
+                    _avisoVelocidad('Sin conexión');
+                    avisar('No se pudo leer la velocidad del robot', e);
+                });
         }
 
         function fijarVelocidad(v) {
             var pedida = parseInt(v, 10);
             if (isNaN(pedida)) { return sincronizarVelocidad(); }
-            fetch('/velocidad', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ velocidad: pedida })
-            })
-                .then(r => r.json().then(d => ({ ok: r.ok, datos: d })))
-                .then(res => {
-                    if (res.ok && res.datos && res.datos.velocidad !== undefined) {
-                        // El servidor recorta al rango válido: reflejar lo
-                        // REALMENTE aplicado, no lo que pidió el usuario.
-                        _pintarVelocidad(res.datos.velocidad);
-                        _avisoVelocidad(res.datos.velocidad !== pedida
-                            ? 'Ajustada a ' + res.datos.velocidad + ' (rango del firmware)'
-                            : '');
-                    } else {
-                        _avisoVelocidad((res.datos && res.datos.message) || 'No se pudo aplicar');
-                        sincronizarVelocidad();   // volver a mostrar la real
-                    }
+            enviarJSON('/velocidad', { velocidad: pedida })
+                .then(datos => {
+                    // El servidor recorta al rango válido: reflejar lo
+                    // REALMENTE aplicado, no lo que pidió el usuario.
+                    _pintarVelocidad(datos.velocidad);
+                    _avisoVelocidad(datos.velocidad !== pedida
+                        ? 'Ajustada a ' + datos.velocidad + ' (rango del firmware)'
+                        : '');
                 })
-                .catch(() => _avisoVelocidad('Sin conexión con el robot'));
+                .catch(e => {
+                    _avisoVelocidad('No se pudo aplicar');
+                    avisar('El robot no aceptó la velocidad', e);
+                    sincronizarVelocidad();      // volver a mostrar la real
+                });
         }
 
         // Se quitó lanzarTruco(): los cuatro botones de trucos ya no están en
@@ -2506,23 +2622,33 @@ HTML_TEMPLATE = """
         (function construirBotonera() {
             const grid = document.getElementById('mov-grid');
             if (!grid) return;
-            fetch('/movimientos').then(r => r.json()).then(d => {
-                //  Orden de la rejilla 3x3: los laterales a los lados, los
-                //  giros en las esquinas y parar en el centro, para que la
-                //  disposicion se entienda de un vistazo.
-                const orden = ['SPINL', 'FWD', 'SPINR',
-                               'LEFT',  'STOP', 'RIGHT',
-                               '',      'BACK', ''];
-                const etiquetas = {};
-                (d.movimientos || []).forEach(m => { etiquetas[m.id] = m.etiqueta; });
-                grid.innerHTML = orden.map(id => {
-                    if (!id) return '<span></span>';
-                    const clase = (id === 'STOP') ? 'mov-btn stop' : 'mov-btn';
-                    const txt = etiquetas[id] || id;
-                    return '<button class="' + clase + '" onclick="enviarMovimiento(\'' +
-                           id + '\')">' + txt + '</button>';
-                }).join('');
-            }).catch(() => {});
+            //  Los botones se crean con createElement y addEventListener, NO
+            //  concatenando un onclick dentro de una cadena. Ese patron es el
+            //  que provoco el fallo: llevaba comillas escapadas (\') que
+            //  Python se comia antes de servir la pagina, y el <script> entero
+            //  dejaba de compilar. Sin comillas anidadas no puede repetirse, y
+            //  ademas el id viaja en una variable, no pegado al HTML.
+            pedirJSON('/movimientos')
+                .then(d => {
+                    //  Orden de la rejilla 3x3: los laterales a los lados, los
+                    //  giros en las esquinas y parar en el centro, para que la
+                    //  disposicion se entienda de un vistazo.
+                    const orden = ['SPINL', 'FWD', 'SPINR',
+                                   'LEFT',  'STOP', 'RIGHT',
+                                   '',      'BACK', ''];
+                    const etiquetas = {};
+                    (d.movimientos || []).forEach(m => { etiquetas[m.id] = m.etiqueta; });
+                    grid.textContent = '';
+                    orden.forEach(id => {
+                        if (!id) { grid.appendChild(document.createElement('span')); return; }
+                        const b = document.createElement('button');
+                        b.className = (id === 'STOP') ? 'mov-btn stop' : 'mov-btn';
+                        b.textContent = etiquetas[id] || id;
+                        b.addEventListener('click', () => enviarMovimiento(id));
+                        grid.appendChild(b);
+                    });
+                })
+                .catch(e => avisar('No se pudo cargar la botonera de movimiento', e));
         })();
 
         // ===== Control de movimiento (joystick) =====
@@ -2537,11 +2663,8 @@ HTML_TEMPLATE = """
                 if (key === lastSent) return;
                 lastSent = key;
                 if (dirsLabel) dirsLabel.textContent = dirs.length ? dirs.join(', ').toUpperCase() : '—';
-                fetch('/move', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ directions: dirs })
-                }).catch(() => {});
+                enviarJSON('/move', { directions: dirs })
+                    .catch(e => avisar('No llegó la orden de movimiento al robot', e));
             }
 
             function setDir(d, on) {
@@ -2649,6 +2772,10 @@ HTML_TEMPLATE = """
             // fiarse del 200/255 escrito a mano en el HTML.
             sincronizarVelocidad();
             _pintarBotonFS();
+            // La lista de vídeos está visible desde el principio, así que hay
+            // que rellenarla; antes se quedaba en "Cargando videos..." para
+            // siempre salvo que se pulsara el botón.
+            loadVideos();
         });
         
         // Handle page visibility change
