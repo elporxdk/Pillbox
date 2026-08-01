@@ -3,24 +3,6 @@
 """
 medibot_red: averigua la IP REAL con la que otros dispositivos pueden entrar.
 =============================================================================
-POR QUE EXISTE: los servidores de MEDIBOT (Pillbox :5001 y Vision :5000)
-escuchan en 0.0.0.0, o sea en TODAS las interfaces, asi que la red no es el
-problema. El problema era la IP que se le ENSENABA al usuario:
-
-  - El truco clasico (abrir un UDP a 8.8.8.8 y mirar la IP de salida) devuelve
-    la IP de la ruta a INTERNET. Si la Pi no tiene salida a internet, ese
-    connect() falla y el codigo caia a "127.0.0.1", una direccion que SOLO
-    funciona en la propia maquina. El usuario veia "una IP" y ningun otro
-    dispositivo podia entrar.
-  - Si la Pi tiene DOS redes (cable + WiFi), ese truco devuelve la del cable,
-    pero el telefono suele estar en la WiFi: la IP mostrada es correcta y aun
-    asi inalcanzable desde el telefono.
-  - socket.gethostbyname_ex(hostname) tampoco sirve: en Raspberry Pi OS /
-    Debian el hostname resuelve a 127.0.1.1 (comprobado).
-
-QUE HACE: enumera de verdad las interfaces de red y devuelve TODAS las IPs
-LAN utilizables, no una sola adivinada. Asi la interfaz puede ofrecer todas
-las URLs y el usuario prueba la de su red.
 
 FUNCIONES:
   listar_ips_lan()            [(interfaz, ip), ...] ordenadas por preferencia.
