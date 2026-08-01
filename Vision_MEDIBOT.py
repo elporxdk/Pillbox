@@ -27,6 +27,7 @@ SERIAL_BAUD = 9600      # informativo; el baud real lo fija el hub serial
 _serial_last = {}       # último valor enviado por pin (evita repetir mensajes)
 
 import medibot_serial   # cliente del hub serial compartido (serial_hub.py)
+import medibot_protocolo as protocolo   # LA definicion del protocolo serie
 import medibot_red      # IPs reales de la LAN (para entrar desde otro equipo)
 import medibot_vision   # motor de video: buzon de frames y detectores rapidos
 
@@ -57,12 +58,34 @@ def serial_connect():
           "Las órdenes se mostrarán por consola.")
     return False
 
+#  Ultimo fallo de protocolo visto, para poder mostrarlo en la interfaz en
+#  vez de dejarlo solo en la consola.
+ultimo_error_serial = None
+
+
 def serial_send(msg):
-    """Envía una orden al Arduino a través del hub serial (fire-and-forget)."""
-    if medibot_serial.hub_running():
-        medibot_serial.send_command(msg, wait=0.05, until=None)
-    else:
+    """Envia una orden al Arduino a traves del hub serial y COMPRUEBA lo que
+    contesta.
+
+    ANTES ERA CIEGO: se mandaba y se tiraba la respuesta. Por eso nadie se
+    entero durante meses de que el firmware contestaba  ERR,VEL,231  (no tenia
+    ese comando) ni de que  MOVE,SPINL  paraba el robot devolviendo un OK
+    falso. Ahora una respuesta ERR se registra y queda visible."""
+    global ultimo_error_serial
+    if not medibot_serial.hub_running():
         print(f"[SERIAL] {msg}")
+        return False
+
+    nombre = protocolo.nombre_de(msg)
+    lineas = medibot_serial.send_command(
+        msg, wait=protocolo.espera_de(nombre), until=protocolo.hasta_de(nombre))
+    respuesta = protocolo.analizar(nombre, lineas)
+    if not respuesta.ok and not respuesta.sin_respuesta:
+        ultimo_error_serial = respuesta.error
+        print(f"[SERIAL] {respuesta.error}")
+        return False
+    ultimo_error_serial = None
+    return True
 
 def _serial_pin(kind, pin, value):
     """Envía el estado de un pin solo cuando cambia (evita inundar el puerto)."""
@@ -223,22 +246,21 @@ for _mpin in MOVE_PINS.values():
 #  La diferencia entre estos dos pares es real en este robot:
 #    IZQUIERDA / DERECHA  -> se desplaza de lado SIN cambiar de orientacion
 #    GIRO_IZQ / GIRO_DER  -> gira sobre su propio eje SIN desplazarse
-ADELANTE  = "FWD"
-ATRAS     = "BACK"
-IZQUIERDA = "LEFT"
-DERECHA   = "RIGHT"
-GIRO_IZQ  = "SPINL"
-GIRO_DER  = "SPINR"
-PARADO    = "STOP"
+#  Los nombres vienen del PROTOCOLO, no escritos otra vez aqui. Tenerlos
+#  duplicados fue lo que permitio que Vision enviara SPINL/SPINR durante meses
+#  mientras el firmware no los conocia: dos listas separadas que nadie
+#  comparaba. Ahora hay una sola, y las pruebas verifican que el firmware
+#  implementa exactamente esa.
+ADELANTE  = protocolo.ADELANTE
+ATRAS     = protocolo.ATRAS
+IZQUIERDA = protocolo.IZQUIERDA
+DERECHA   = protocolo.DERECHA
+GIRO_IZQ  = protocolo.GIRO_IZQ
+GIRO_DER  = protocolo.GIRO_DER
+PARADO    = protocolo.PARADO
 
-MOVIMIENTOS = (ADELANTE, ATRAS, IZQUIERDA, DERECHA, GIRO_IZQ, GIRO_DER, PARADO)
-
-ETIQUETAS_MOVIMIENTO = {
-    ADELANTE: "Adelante", ATRAS: "Atras",
-    IZQUIERDA: "Izquierda", DERECHA: "Derecha",
-    GIRO_IZQ: "Giro izq.", GIRO_DER: "Giro der.",
-    PARADO: "Parar",
-}
+MOVIMIENTOS = protocolo.MOVIMIENTOS
+ETIQUETAS_MOVIMIENTO = protocolo.ETIQUETAS_MOVIMIENTO
 
 #  Teclas del joystick -> movimiento. W/A/S/D como siempre; Q y E se anaden
 #  para los giros sobre el eje, que antes no se podian pedir.
@@ -285,7 +307,10 @@ def enviar_movimiento(mov):
     if mov not in MOVIMIENTOS or mov == movimiento_actual:
         return mov in MOVIMIENTOS
     movimiento_actual = mov
-    serial_send(f"MOVE,{mov}")
+    #  Se construye con el protocolo: si alguien anade un movimiento a la
+    #  lista de Vision sin implementarlo en el firmware, salta aqui en vez de
+    #  producir un robot que se para sin decir nada.
+    serial_send(protocolo.cmd_mover(mov))
     return True
 
 
@@ -313,7 +338,7 @@ def detener_movimiento():
 #  El firmware la limita a 200..255: por debajo de 200 estos motores con
 #  reductora apenas arrancan con carga. Se replica aqui el mismo rango para
 #  poder avisar al usuario antes de mandar un valor que se iba a recortar.
-VEL_MIN, VEL_MAX = 200, 255
+VEL_MIN, VEL_MAX = protocolo.VEL_MIN, protocolo.VEL_MAX
 velocidad_chasis = VEL_MIN
 
 
@@ -326,7 +351,7 @@ def fijar_velocidad(valor):
     except (TypeError, ValueError):
         return None
     velocidad_chasis = max(VEL_MIN, min(VEL_MAX, v))
-    serial_send(f"VEL,{velocidad_chasis}")
+    serial_send(protocolo.cmd_velocidad(velocidad_chasis))
     return velocidad_chasis
 
 
@@ -337,9 +362,9 @@ def lanzar_truco(numero):
         n = int(numero)
     except (TypeError, ValueError):
         return False
-    if not 1 <= n <= 4:
+    if not protocolo.TRUCO_MIN <= n <= protocolo.TRUCO_MAX:
         return False
-    serial_send(f"TRUCO,{n}")
+    serial_send(protocolo.cmd_truco(n))
     return True
 
 

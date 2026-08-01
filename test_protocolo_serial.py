@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Pruebas del protocolo serie Medibot <-> Arduino.  SIN LA PLACA.
+===============================================================
+POR QUE EXISTE ESTE FICHERO
+---------------------------
+El protocolo estaba escrito TRES veces (Vision, Pillbox y firmware) y las tres
+se habian separado sin que nadie se enterara, porque el lado Python DESCARTABA
+las respuestas del Arduino:
+
+  * MOVE,SPINL / MOVE,SPINR : el firmware no conocia esos nombres, caia en su
+    rama "cualquier otra cosa = parar" y CONTESTABA OK,MOVE,SPINL. El robot se
+    paraba y Vision recibia un ACK conforme.
+  * VEL,<200..255>          : no existia en el firmware -> ERR,VEL,231. El
+    deslizador de velocidad de la web no hacia absolutamente nada.
+  * TRUCO,<1..4>            : tampoco existia -> ERR,TRUCO,1.
+
+Estas pruebas cierran ese agujero por dos caminos independientes:
+
+  1. PARIDAD CON EL FIRMWARE: se lee el propio MEDIBOT.MOVE. y se comprueba
+     que implementa cada comando y cada movimiento de la tabla del protocolo.
+     Esto se ejecuta sin placa y sin compilador.
+  2. IDA Y VUELTA REAL: se levanta un Arduino simulado detras de un par de
+     pseudoterminales, o sea un puerto serie de verdad, y se comprueba que un
+     comando llega, se interpreta, se ejecuta y su respuesta vuelve.
+
+    python3 test_protocolo_serial.py
+    python3 test_protocolo_serial.py -v
+
+Solo necesita la libreria estandar; las pruebas de ida y vuelta requieren
+pyserial y openpty (Unix) y se saltan solas si no estan.
+"""
+
+import os
+import sys
+import threading
+import time
+import unittest
+
+import medibot_protocolo as protocolo
+from arduino_falso import (ArduinoFalso, PuertoSimulado, comandos_del_firmware,
+                           direcciones_del_firmware, version_del_firmware)
+
+try:
+    import serial            # noqa: F401
+    HAY_PYSERIAL = True
+except ImportError:
+    HAY_PYSERIAL = False
+
+HAY_PTY = hasattr(os, "openpty")
+PUEDE_IDA_Y_VUELTA = HAY_PYSERIAL and HAY_PTY
+
+
+# =============================================================================
+class PruebasParidadFirmware(unittest.TestCase):
+    """LA prueba que faltaba: que ambos lados hablen el mismo idioma.
+
+    Compara la tabla del protocolo contra el codigo del sketch. No necesita
+    ni la placa ni el compilador de Arduino."""
+
+    def test_el_firmware_implementa_todos_los_comandos(self):
+        implementados = comandos_del_firmware()
+        faltan = sorted(set(protocolo.COMANDOS) - implementados)
+        self.assertFalse(
+            faltan,
+            "El firmware NO implementa estos comandos que Python envía: "
+            f"{faltan}. Cada uno responderá ERR y su función no hará nada.")
+
+    def test_el_firmware_acepta_todos_los_movimientos(self):
+        """Incluye SPINL y SPINR, que era justo lo que faltaba."""
+        acepta = direcciones_del_firmware()
+        faltan = [m for m in protocolo.MOVIMIENTOS
+                  if m != protocolo.PARADO and m not in acepta]
+        self.assertFalse(
+            faltan,
+            f"El firmware no reconoce estos movimientos: {faltan}. "
+            "Los interpretaría como 'parar' en vez de ejecutarlos.")
+
+    def test_los_giros_sobre_el_eje_estan_soportados(self):
+        acepta = direcciones_del_firmware()
+        self.assertIn(protocolo.GIRO_IZQ, acepta)
+        self.assertIn(protocolo.GIRO_DER, acepta)
+
+    def test_la_version_de_protocolo_coincide(self):
+        version = version_del_firmware()
+        self.assertIsNotNone(version, "El firmware no define VERSION_PROTOCOLO")
+        self.assertEqual(
+            version, protocolo.VERSION_PROTOCOLO,
+            "La versión del protocolo del firmware no coincide con la de "
+            "Python: uno de los dos se quedó atrás.")
+
+    def test_los_baudios_coinciden(self):
+        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+            codigo = f.read()
+        self.assertIn(f"Serial.begin({protocolo.BAUDIOS})", codigo,
+                      f"El firmware no arranca a {protocolo.BAUDIOS} baud")
+
+    def test_el_firmware_termina_las_lineas_en_LF(self):
+        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+            codigo = f.read()
+        self.assertIn(r"if (c == '\n')", codigo,
+                      "El firmware debe cortar los comandos por LF")
+
+    def test_el_firmware_acota_la_longitud_de_linea(self):
+        """Sin tope, un flujo sin '\\n' agota los 2 KB de RAM del Arduino."""
+        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+            codigo = f.read()
+        self.assertIn("LINEA_MAX", codigo)
+
+
+# =============================================================================
+class PruebasConstruccion(unittest.TestCase):
+    """Validar ANTES de escribir en el puerto, no despues de un ERR."""
+
+    def test_comando_simple(self):
+        self.assertEqual(protocolo.construir("PING"), "PING")
+        self.assertEqual(protocolo.construir("MOVE", "FWD"), "MOVE,FWD")
+        self.assertEqual(protocolo.construir("VEL", 231), "VEL,231")
+
+    def test_rechaza_comandos_inexistentes(self):
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.construir("BAILAR")
+
+    def test_rechaza_numero_de_argumentos_incorrecto(self):
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.construir("MOVE")
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.construir("MOVE", "FWD", "extra")
+
+    def test_rechaza_movimientos_desconocidos(self):
+        """Si alguien añade un movimiento a la web sin implementarlo abajo."""
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.cmd_mover("DIAGONAL")
+
+    def test_acepta_los_seis_movimientos_reales(self):
+        for mov in protocolo.MOVIMIENTOS:
+            with self.subTest(mov=mov):
+                self.assertEqual(protocolo.cmd_mover(mov), f"MOVE,{mov}")
+
+    def test_velocidad_fuera_de_rango(self):
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.cmd_velocidad(150)
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.cmd_velocidad(300)
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.cmd_velocidad("rapido")
+        self.assertEqual(protocolo.cmd_velocidad(231), "VEL,231")
+
+    def test_truco_fuera_de_rango(self):
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.cmd_truco(0)
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.cmd_truco(5)
+        self.assertEqual(protocolo.cmd_truco(3), "TRUCO,3")
+
+    def test_un_argumento_con_coma_no_puede_partir_la_trama(self):
+        """Una coma dentro de un argumento convertiría un comando en dos."""
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.construir("SERVO", "45,90")
+
+    def test_un_argumento_con_salto_de_linea_tampoco(self):
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.construir("SERVO", "45\nDISPENSE")
+
+    def test_rechaza_lo_que_no_sea_ascii(self):
+        """El firmware compara con String de Arduino: un carácter de 2 bytes
+        rompe la comparación en silencio."""
+        with self.assertRaises(protocolo.ErrorProtocolo):
+            protocolo.construir("SERVO", "45º")
+
+    def test_los_bytes_terminan_en_un_solo_LF(self):
+        crudo = protocolo.codificar("MOVE", "FWD")
+        self.assertEqual(crudo, b"MOVE,FWD\n")
+        self.assertFalse(crudo.endswith(b"\r\n"))
+
+    def test_el_nombre_se_normaliza_a_mayusculas(self):
+        self.assertEqual(protocolo.construir("move", "FWD"), "MOVE,FWD")
+
+
+# =============================================================================
+class PruebasAnalisisRespuesta(unittest.TestCase):
+    """Lo que el lado Python NO hacia: mirar lo que contesta el Arduino."""
+
+    def test_ok_se_reconoce(self):
+        r = protocolo.analizar("MOVE", ["OK,MOVE,FWD"])
+        self.assertTrue(r.ok)
+        self.assertIsNone(r.error)
+
+    def test_err_se_detecta(self):
+        """El caso real: el firmware antiguo no conocía VEL."""
+        r = protocolo.analizar("VEL", ["ERR,VEL,231"])
+        self.assertFalse(r.ok)
+        self.assertIn("ERR,VEL,231", r.error)
+
+    def test_sin_respuesta_se_distingue_de_un_error(self):
+        r = protocolo.analizar("PING", [])
+        self.assertFalse(r.ok)
+        self.assertTrue(r.sin_respuesta)
+
+    def test_una_respuesta_que_no_es_la_esperada_no_cuela(self):
+        """Si llega el ACK de OTRO comando, no debe darse por bueno."""
+        r = protocolo.analizar("VEL", ["POS,3"])
+        self.assertFalse(r.ok)
+        self.assertIn("OK,VEL", r.error)
+
+    def test_los_datos_se_extraen(self):
+        r = protocolo.analizar("GETPOS", ["POS,5"])
+        self.assertTrue(r.ok)
+        self.assertEqual(r.datos, ("POS", ["5"]))
+
+    def test_los_enteros_de_los_encoders(self):
+        self.assertEqual(protocolo.enteros("ENC,100,-200,0,300"),
+                         [100, -200, 0, 300])
+        self.assertIsNone(protocolo.enteros("ENC,a,b,c,d"))
+
+    def test_se_toleran_CR_y_espacios(self):
+        r = protocolo.analizar("MOVE", ["  OK,MOVE,FWD\r\n"])
+        self.assertTrue(r.ok)
+
+
+# =============================================================================
+class PruebasSeguridad(unittest.TestCase):
+    """STOP no se puede perder: si se pierde, el robot sigue andando."""
+
+    def test_stop_es_critico(self):
+        self.assertTrue(protocolo.es_critico("MOVE,STOP"))
+
+    def test_la_velocidad_es_critica(self):
+        self.assertTrue(protocolo.es_critico("VEL,255"))
+
+    def test_avanzar_no_es_critico(self):
+        """Un FWD perdido se corrige solo con el siguiente; un STOP no."""
+        self.assertFalse(protocolo.es_critico("MOVE,FWD"))
+        self.assertFalse(protocolo.es_critico("PWM,18,7.5"))
+
+
+# =============================================================================
+class PruebasArduinoFalso(unittest.TestCase):
+    """El simulador debe comportarse como el firmware (y como el antiguo)."""
+
+    def setUp(self):
+        self.ard = ArduinoFalso()
+
+    def test_los_giros_mueven_de_verdad(self):
+        self.assertEqual(self.ard.procesar("MOVE,SPINL"), ["OK,MOVE,SPINL"])
+        self.assertEqual(self.ard.movimiento, protocolo.GIRO_IZQ)
+
+    def test_la_velocidad_se_aplica_y_se_recorta(self):
+        self.assertEqual(self.ard.procesar("VEL,231"), ["OK,VEL,231"])
+        self.assertEqual(self.ard.velocidad, 231)
+        self.ard.procesar("VEL,999")
+        self.assertEqual(self.ard.velocidad, protocolo.VEL_MAX)
+
+    def test_un_comando_desconocido_da_ERR(self):
+        self.assertEqual(self.ard.procesar("BAILAR,3"), ["ERR,BAILAR,3"])
+
+    def test_el_firmware_ANTIGUO_reproduce_el_fallo(self):
+        """Demuestra el problema original: el robot se PARA y contesta OK."""
+        viejo = ArduinoFalso(antiguo=True)
+        self.assertEqual(viejo.procesar("MOVE,SPINL"), ["OK,MOVE,SPINL"])
+        self.assertEqual(viejo.movimiento, protocolo.PARADO,
+                         "El firmware antiguo debía pararse ante SPINL")
+        self.assertTrue(viejo.procesar("VEL,231")[0].startswith("ERR"))
+        self.assertTrue(viejo.procesar("TRUCO,1")[0].startswith("ERR"))
+
+    def test_con_el_firmware_antiguo_el_analisis_LO_DETECTA(self):
+        """Y con la corrección, ese caso ya no pasa desapercibido."""
+        viejo = ArduinoFalso(antiguo=True)
+        r = protocolo.analizar("VEL", viejo.procesar("VEL,231"))
+        self.assertFalse(r.ok)
+        self.assertIn("rechazo", r.error)
+
+    def test_dispensar_responde_en_orden(self):
+        lineas = self.ard.procesar("DISPENSE,3")
+        self.assertEqual(lineas[0], "OK,DISPENSE,3")
+        self.assertIn("DISPENSADO,3", lineas)
+
+    def test_una_linea_demasiado_larga_se_rechaza(self):
+        largo = "SERVO," + "9" * (protocolo.LINEA_MAX + 10)
+        self.assertEqual(self.ard.procesar(largo), ["ERR,LINEA_DEMASIADO_LARGA"])
+
+
+# =============================================================================
+@unittest.skipUnless(PUEDE_IDA_Y_VUELTA, "necesita pyserial y openpty (Unix)")
+class PruebasIdaYVuelta(unittest.TestCase):
+    """Ida y vuelta por un puerto serie DE VERDAD (pseudoterminal).
+
+    Es la prueba que responde a "¿de verdad llega y de verdad vuelve?": se
+    escribe con pyserial en un dispositivo real y se lee la respuesta."""
+
+    def setUp(self):
+        self.ard = ArduinoFalso(retardo_truco=0.02, retardo_dispense=0.02)
+        self.puerto = PuertoSimulado(self.ard)
+        dispositivo = self.puerto.arrancar()
+        import serial as pyserial
+        self.con = pyserial.Serial(dispositivo, protocolo.BAUDIOS, timeout=1.0)
+        time.sleep(0.15)
+        self.con.reset_input_buffer()
+
+    def tearDown(self):
+        try:
+            self.con.close()
+        finally:
+            self.puerto.parar()
+
+    def _intercambiar(self, linea, hasta=None, espera=1.5):
+        """Escribe un comando y recoge respuesta, como hace el hub."""
+        self.con.write((linea + protocolo.TERMINADOR).encode(protocolo.CODIFICACION))
+        self.con.flush()
+        hasta = hasta or protocolo.hasta_de(protocolo.nombre_de(linea))
+        lineas, t0 = [], time.time()
+        while time.time() - t0 < espera:
+            cruda = self.con.readline().decode(protocolo.CODIFICACION,
+                                               errors="replace").strip()
+            if not cruda:
+                continue
+            lineas.append(cruda)
+            if any(cruda.startswith(u) for u in hasta):
+                break
+        return lineas
+
+    def test_mover_va_y_vuelve(self):
+        r = protocolo.analizar("MOVE", self._intercambiar(protocolo.cmd_mover("FWD")))
+        self.assertTrue(r.ok, r.error)
+        self.assertEqual(self.ard.movimiento, protocolo.ADELANTE)
+
+    def test_los_seis_movimientos_van_y_vuelven(self):
+        """Incluidos SPINL y SPINR: el caso que estaba roto."""
+        esperado = {
+            protocolo.ADELANTE: protocolo.ADELANTE, protocolo.ATRAS: protocolo.ATRAS,
+            protocolo.IZQUIERDA: protocolo.IZQUIERDA, protocolo.DERECHA: protocolo.DERECHA,
+            protocolo.GIRO_IZQ: protocolo.GIRO_IZQ, protocolo.GIRO_DER: protocolo.GIRO_DER,
+            protocolo.PARADO: protocolo.PARADO,
+        }
+        for mov, efecto in esperado.items():
+            with self.subTest(movimiento=mov):
+                r = protocolo.analizar("MOVE",
+                                       self._intercambiar(protocolo.cmd_mover(mov)))
+                self.assertTrue(r.ok, f"{mov}: {r.error}")
+                self.assertEqual(self.ard.movimiento, efecto,
+                                 f"{mov} no produjo el movimiento esperado")
+
+    def test_la_velocidad_llega_al_arduino(self):
+        r = protocolo.analizar("VEL", self._intercambiar(protocolo.cmd_velocidad(231)))
+        self.assertTrue(r.ok, r.error)
+        self.assertEqual(self.ard.velocidad, 231)
+
+    def test_el_truco_confirma_el_final(self):
+        r = protocolo.analizar("TRUCO", self._intercambiar(protocolo.cmd_truco(2)))
+        self.assertTrue(r.ok, r.error)
+        self.assertIn(2, self.ard.trucos)
+
+    def test_ping_pong(self):
+        r = protocolo.analizar("PING", self._intercambiar("PING"))
+        self.assertTrue(r.ok, r.error)
+
+    def test_la_version_de_protocolo_va_y_vuelve(self):
+        r = protocolo.analizar("PROTO", self._intercambiar("PROTO"))
+        self.assertTrue(r.ok, r.error)
+        self.assertEqual(int(r.datos[1][0]), protocolo.VERSION_PROTOCOLO)
+
+    def test_muchos_comandos_seguidos_no_se_mezclan(self):
+        """Ráfaga de comandos: cada respuesta debe corresponder al suyo.
+
+        Es el caso que rompía la sincronización: sin correlación, el ACK de un
+        comando se atribuía al siguiente."""
+        for i, mov in enumerate(protocolo.MOVIMIENTOS * 3):
+            with self.subTest(n=i, mov=mov):
+                lineas = self._intercambiar(protocolo.cmd_mover(mov), espera=1.0)
+                self.assertTrue(lineas, f"sin respuesta en el envío {i}")
+                self.assertTrue(lineas[-1].endswith(mov),
+                                f"la respuesta {lineas[-1]!r} no corresponde a {mov}")
+
+    def test_los_encoders_devuelven_cuatro_numeros(self):
+        r = protocolo.analizar("ENC", self._intercambiar("ENC"))
+        self.assertTrue(r.ok, r.error)
+        self.assertEqual(len(protocolo.enteros(r.lineas[-1], 4)), 4)
+
+    def test_dispensar_completo(self):
+        lineas = self._intercambiar("DISPENSE,3", espera=3.0)
+        r = protocolo.analizar("DISPENSE", lineas)
+        self.assertTrue(r.ok, r.error)
+        self.assertTrue(any(x.startswith("DISPENSADO") for x in lineas))
+
+    def test_un_comando_desconocido_devuelve_ERR_y_se_detecta(self):
+        lineas = self._intercambiar("BAILAR,3", hasta=["ERR"])
+        self.assertTrue(lineas[0].startswith("ERR"))
+
+    def test_el_saludo_de_arranque_llega(self):
+        """READY permite saber que el Arduino se reinició (bajón de tensión).
+
+        Se emite DESPUÉS de abrir el puerto, que es lo que pasa de verdad: el
+        Arduino se reinicia al abrirse el puerto y saluda entonces."""
+        self.puerto.emitir_saludo()
+        t0 = time.time()
+        linea = ""
+        while time.time() - t0 < 2.0:
+            linea = self.con.readline().decode(protocolo.CODIFICACION,
+                                               errors="replace").strip()
+            if linea:
+                break
+        self.assertTrue(linea.startswith("READY,MEDIBOT"), repr(linea))
+        self.assertEqual(int(linea.split(",")[2]), protocolo.VERSION_PROTOCOLO)
+
+
+# =============================================================================
+@unittest.skipUnless(PUEDE_IDA_Y_VUELTA, "necesita pyserial y openpty (Unix)")
+class PruebasHubCompleto(unittest.TestCase):
+    """Cadena completa: cliente -> hub (TCP) -> puerto serie -> Arduino.
+
+    Prueba el serial_hub REAL, no una imitación."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ard = ArduinoFalso(retardo_truco=0.02, retardo_dispense=0.02)
+        cls.puerto = PuertoSimulado(cls.ard)
+        dispositivo = cls.puerto.arrancar()
+
+        os.environ["MEDIBOT_SERIAL_PORT"] = dispositivo
+        import importlib
+        import serial_hub
+        importlib.reload(serial_hub)          # releer el puerto del entorno
+        cls.hub = serial_hub
+        cls.hub.PORT = 5099                   # no chocar con un hub real
+        serial_hub.serial_connect()
+        cls.hilo = threading.Thread(target=serial_hub.main, daemon=True)
+        cls.hilo.start()
+        time.sleep(1.0)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.puerto.parar()
+        os.environ.pop("MEDIBOT_SERIAL_PORT", None)
+
+    def _pedir(self, payload, timeout=8.0):
+        import json
+        import socket as sk
+        with sk.create_connection(("127.0.0.1", 5099), timeout=3.0) as s:
+            s.sendall((json.dumps(payload) + "\n").encode())
+            s.settimeout(timeout)
+            buf = b""
+            while b"\n" not in buf:
+                trozo = s.recv(4096)
+                if not trozo:
+                    break
+                buf += trozo
+        return json.loads(buf.split(b"\n", 1)[0].decode())
+
+    def test_el_hub_entrega_un_movimiento(self):
+        r = self._pedir({"cmd": "MOVE,SPINR", "wait": 1.0, "until": ["OK,MOVE", "ERR"]})
+        self.assertTrue(r["ok"])
+        self.assertEqual(self.ard.movimiento, protocolo.GIRO_DER)
+
+    def test_el_hub_entrega_la_velocidad(self):
+        r = self._pedir({"cmd": "VEL,244", "wait": 1.0, "until": ["OK,VEL", "ERR"]})
+        self.assertTrue(r["ok"])
+        self.assertEqual(self.ard.velocidad, 244)
+
+    def test_el_hub_informa_de_la_version_de_protocolo(self):
+        r = self._pedir({"op": "status"})
+        self.assertEqual(r["protocolo"], protocolo.VERSION_PROTOCOLO)
+
+
+if __name__ == "__main__":
+    print(f"Protocolo v{protocolo.VERSION_PROTOCOLO} | "
+          f"pyserial={'si' if HAY_PYSERIAL else 'NO'} | "
+          f"pty={'si' if HAY_PTY else 'NO'} | Python {sys.version.split()[0]}")
+    print("Sin Arduino fisico: todo con un puerto serie simulado.\n")
+    unittest.main(verbosity=2)

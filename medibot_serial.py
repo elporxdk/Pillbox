@@ -31,8 +31,15 @@ import subprocess
 import sys
 import time
 
+import medibot_protocolo as protocolo   # LA definicion del protocolo serie
+
 HUB_HOST = "127.0.0.1"
 HUB_PORT = 5055
+
+# Se reexportan para que quien use este modulo no tenga que importar dos.
+MOVIMIENTOS = protocolo.MOVIMIENTOS
+VEL_MIN, VEL_MAX = protocolo.VEL_MIN, protocolo.VEL_MAX
+ErrorProtocolo = protocolo.ErrorProtocolo
 
 
 def hub_running():
@@ -127,12 +134,8 @@ def _pedir_encoders(cmd, prefijo, timeout):
     datos' de 'motores parados', que es un valor legitimo."""
     lineas = send_command(cmd, wait=timeout, until=[prefijo, "ERR"])
     for linea in lineas or []:
-        texto = str(linea)
-        if texto.startswith(prefijo + ","):
-            try:
-                return [int(x) for x in texto.split(",")[1:5]]
-            except ValueError:
-                return None
+        if protocolo.limpiar_linea(linea).upper().startswith(prefijo + ","):
+            return protocolo.enteros(linea, cuantos=4)
     return None
 
 
@@ -153,6 +156,87 @@ def reiniciar_encoders(timeout=1.5):
     """Pone las cuentas a cero (calibrar, o medir un recorrido desde aqui).
     Devuelve las cuentas tras el reinicio, o None si el Arduino no responde."""
     return _pedir_encoders("ENCRESET", "ENC", timeout)
+
+
+def enviar(nombre, *args, esperar=None):
+    """Envia un comando VALIDADO y devuelve una protocolo.Respuesta.
+
+    Esta es la funcion que faltaba. Antes todo el mundo usaba send_command()
+    y TIRABA las lineas de respuesta, asi que un  ERR,VEL,231  (comando que el
+    firmware no implementaba) era indistinguible de un exito: la web movia el
+    deslizador, el robot no cambiaba de velocidad y nadie se enteraba.
+
+    Ahora:
+      * el comando se valida ANTES de tocar el puerto (nombre y numero de
+        argumentos, contra la tabla del protocolo);
+      * el tiempo de espera y el fin de respuesta salen de esa misma tabla,
+        no de numeros repetidos por ahi;
+      * la respuesta se COMPRUEBA y se devuelve interpretada.
+    """
+    linea = protocolo.construir(nombre, *args)      # puede lanzar ErrorProtocolo
+    espera = protocolo.espera_de(nombre) if esperar is None else esperar
+    lineas = send_command(linea, wait=espera, until=protocolo.hasta_de(nombre))
+    return protocolo.analizar(nombre, lineas)
+
+
+def mover(movimiento):
+    """Mueve el chasis. movimiento: uno de protocolo.MOVIMIENTOS."""
+    return enviar("MOVE", protocolo.limpiar_linea(movimiento).upper())
+
+
+def fijar_velocidad(valor):
+    """Velocidad del chasis (200..255). Lanza ErrorProtocolo si esta fuera."""
+    return enviar("VEL", int(valor))
+
+
+def lanzar_truco(numero):
+    """Movimiento especial 1..4."""
+    return enviar("TRUCO", int(numero))
+
+
+def ping(timeout=1.0):
+    """True si el Arduino contesta PONG. Comprueba el enlace sin mover nada."""
+    return bool(enviar("PING", esperar=timeout))
+
+
+def version_protocolo_firmware(timeout=1.5):
+    """Version de protocolo que dice implementar el firmware, o None.
+
+    Sirve para detectar al arrancar que el Arduino lleva un sketch viejo, en
+    vez de descubrirlo porque un comando concreto no hace nada."""
+    resp = enviar("PROTO", esperar=timeout)
+    if not resp or not resp.datos:
+        return None
+    _, valores = resp.datos
+    try:
+        return int(valores[0])
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def comprobar_compatibilidad(avisar=print):
+    """Compara el protocolo de Python con el del firmware.
+
+    Devuelve (compatible, mensaje). Si el Arduino no responde devuelve
+    (None, ...): no se puede saber, que es distinto de ser incompatible."""
+    if not arduino_conectado():
+        return None, "No hay Arduino conectado: no se puede comprobar el protocolo."
+    version = version_protocolo_firmware()
+    if version is None:
+        msg = ("El Arduino no responde a PROTO: lleva un firmware anterior a "
+               f"la version {protocolo.VERSION_PROTOCOLO} del protocolo. "
+               "Comandos como VEL, TRUCO y MOVE,SPINL no funcionaran. "
+               "Vuelve a cargar MEDIBOT.MOVE. en la placa.")
+        if avisar:
+            avisar("AVISO: " + msg)
+        return False, msg
+    if version != protocolo.VERSION_PROTOCOLO:
+        msg = (f"Protocolo distinto: Python habla v{protocolo.VERSION_PROTOCOLO} "
+               f"y el firmware v{version}. Recarga MEDIBOT.MOVE. en el Arduino.")
+        if avisar:
+            avisar("AVISO: " + msg)
+        return False, msg
+    return True, f"Protocolo v{version}: Python y firmware coinciden."
 
 
 def send_command(cmd, wait=0.3, until=None):

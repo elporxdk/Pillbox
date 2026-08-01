@@ -277,6 +277,105 @@ sketch) porque este robot no lleva ese soporte; por eso D3 y D5 quedan para
 encoders. Si algun dia montas el pan/tilt, pon ese `#define` a 1: recuperas los
 servos y pierdes los encoders 3 y 4.
 
+## Protocolo serie Medibot <-> Arduino (v2)
+
+`medibot_protocolo.py` es **la** definicion del protocolo. Antes estaba escrito
+tres veces (Vision, Pillbox y firmware) y las tres se habian separado sin que
+nadie lo notara, porque el lado Python **descartaba las respuestas**:
+
+| Comando que enviaba Python | Que hacia el firmware | Sintoma |
+|---|---|---|
+| `MOVE,SPINL` / `MOVE,SPINR` | no los conocia -> **paraba** el robot, y contestaba `OK,MOVE,SPINL` | los botones de giro paraban el robot, con ACK conforme |
+| `VEL,<200..255>` | no existia -> `ERR,VEL,231` | el deslizador de velocidad no hacia **nada** |
+| `TRUCO,<1..4>` | no existia -> `ERR,TRUCO,1` | los trucos no hacian nada |
+
+### Formato de linea
+
+```
+NOMBRE[,arg1[,arg2]]<LF>
+```
+
+- **9600 baud**, 8N1. Sale de `protocolo.BAUDIOS`, que debe coincidir con
+  `Serial.begin()` del sketch (hay una prueba que lo comprueba).
+- **ASCII de 7 bits.** Nada de acentos: el firmware compara con `String` de
+  Arduino y un caracter multibyte rompe la comparacion en silencio.
+- **Terminador: un solo `\n` (LF).** El firmware ignora los `\r`, asi que CRLF
+  tambien vale, pero se manda solo LF.
+- Separador coma, nombre en MAYUSCULAS, maximo 96 bytes por linea (el Arduino
+  UNO tiene 2 KB de RAM: sin tope, un flujo sin `\n` lo reinicia).
+- **Toda orden responde algo.** Esa es la regla que permite detectar un
+  desajuste en vez de sufrirlo.
+
+### Comandos
+
+| Comando | Args | Respuesta | Que hace |
+|---|---|---|---|
+| `MOVE,<dir>` | `FWD` `BACK` `LEFT` `RIGHT` `SPINL` `SPINR` `STOP` | `OK,MOVE,<dir>` | mueve el chasis |
+| `VEL,<n>` | 200..255 | `OK,VEL,<n>` | velocidad (se recorta al rango) |
+| `TRUCO,<n>` | 1..4 | `OK,TRUCO,<n>` y luego `FIN,TRUCO,<n>` | movimiento especial |
+| `DISPENSE[,<n>]` | 1..8 | `OK,DISPENSE,<n>`, `DISPENSADO,<n>`, `POS,<n>` | dispensa |
+| `GOTO,<n>` / `SELECT,<n>` | 1..8 | `OK,GOTO,<n>`, `POS,<n>` | gira la ruleta |
+| `HOME` | — | `OK,HOME`, `POS,<n>` | ruleta al origen |
+| `GETPOS` | — | `POS,<n>` | compartimiento actual |
+| `SERVO,<n>` | 0..90 | `SERVO,<n>` | servo dispensador |
+| `ENC` / `ENCRPM` / `ENCRESET` | — | `ENC,a,b,0,d` | encoders |
+| `PING` | — | `PONG` | comprobar el enlace |
+| `PROTO` | — | `PROTO,2,MEDIBOT` | version del firmware |
+| `GPIO,<pin>,<v>` / `PWM,<pin>,<duty>` | — | `OK,GPIO,...` | protocolo antiguo (se mantiene) |
+
+Cualquier comando desconocido o argumento invalido devuelve `ERR,<linea>`.
+Al arrancar, el Arduino emite `READY,MEDIBOT,2`, lo que permite detectar que
+se reinicio (por ejemplo, por un bajon de tension al arrancar los motores).
+
+```bash
+python3 medibot_protocolo.py     # imprime la tabla completa
+```
+
+### Comprobar que ambos lados hablan lo mismo
+
+```python
+import medibot_serial as ms
+ms.ping()                       # True si el Arduino contesta PONG
+ms.comprobar_compatibilidad()   # compara la version de protocolo
+ms.mover("SPINL")               # devuelve una Respuesta VALIDADA
+ms.fijar_velocidad(231)
+```
+
+Al arrancar, si el Arduino lleva un sketch anterior a esta version, se avisa
+en consola en vez de descubrirlo porque un comando concreto no hace nada.
+
+### Probar sin la placa
+
+`arduino_falso.py` simula el Arduino detras de un **puerto serie real**
+(pseudoterminal), asi que se ejercita el codigo de pyserial autentico:
+
+```bash
+python3 arduino_falso.py                     # imprime el /dev/pts/N a usar
+python3 arduino_falso.py --viejo             # simula el firmware ANTIGUO
+
+# en otra terminal, con el puerto que imprimio:
+MEDIBOT_SERIAL_PORT=/dev/pts/5 python3 serial_hub.py
+```
+
+Con `--viejo` se reproduce el fallo original (el robot se para ante `SPINL`
+mientras responde `OK`), util para comprobar que ahora **si** se detecta.
+
+### Pruebas del protocolo
+
+```bash
+python3 test_protocolo_serial.py       # 50 pruebas, sin placa
+```
+
+Cubren dos caminos independientes:
+
+1. **Paridad con el firmware**: lee el propio `MEDIBOT.MOVE.` y comprueba que
+   implementa cada comando y cada movimiento de la tabla, que los baudios
+   coinciden y que la version de protocolo es la misma. Sin placa y sin
+   compilador de Arduino.
+2. **Ida y vuelta real**: por un pseudoterminal, con el `serial_hub` autentico,
+   incluyendo rafagas de comandos consecutivos para verificar que las
+   respuestas no se mezclan.
+
 ### Si la autodeteccion no encuentra el Arduino
 
 Fija el puerto a mano con una variable de entorno antes de arrancar:

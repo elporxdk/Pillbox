@@ -141,7 +141,14 @@ QGPMaker_DCMotor *DCMotor_4 = AFMS.getMotor(4);
 //  NOTA: el movimiento del chasis llega SIEMPRE por COM (comandos MOVE/GPIO de
 //  Vision). No hay pines de entrada fisicos desde la Raspberry Pi: no se cablea
 //  nada hacia el Arduino para mover, asi que A0..A3 quedan libres.
-#define VELOCIDAD 200
+//  VELOCIDAD DEL CHASIS — AHORA ES UNA VARIABLE, NO UNA CONSTANTE.
+//  Era  #define VELOCIDAD 200, o sea fijada al compilar. Vision enviaba
+//  VEL,<200..255> al mover el deslizador de la web y el firmware no tenia ese
+//  comando: respondia ERR,VEL,231 y la velocidad no cambiaba nunca. El
+//  deslizador estaba conectado a la nada.
+const uint8_t VELOCIDAD_MIN = 200;   // por debajo, estos motores con reductora
+const uint8_t VELOCIDAD_MAX = 255;   // apenas arrancan con carga
+uint8_t velocidadActual = VELOCIDAD_MIN;
 
 // ════════════════════════════════════════════════════════════
 //  DISPENSADOR — Servo + motor paso a paso (ruleta) + EEPROM
@@ -206,15 +213,31 @@ int compActual = 1;   // compartimiento que esta ARRIBA (zona de carga/espera, 1
 // se colgaba esperando el PS2 y el Arduino no respondia nada.
 bool ps2Presente = false;
 
+// VERSION DEL PROTOCOLO SERIE. Tiene que coincidir con VERSION_PROTOCOLO de
+// medibot_protocolo.py. Se responde a PROTO y se anuncia al arrancar, para
+// que un desajuste se vea de inmediato en vez de manifestarse como "un
+// comando que no hace nada".
+#define VERSION_PROTOCOLO 2
+
 // Buffer para lectura no bloqueante de comandos por Serial
 String bufferSerial = "";
 
 // Estado de movimiento recibido por COM (comandos MOVE / GPIO desde Vision).
 //  Se aplica en el loop cuando el mando PS2 no tiene el control.
+//  POR QUE HAY UN CODIGO Y NO SOLO CUATRO BOOLEANOS: el giro sobre el propio
+//  eje NO se puede representar con adelante/atras/izquierda/derecha. Antes el
+//  estado eran solo esos cuatro, asi que cuando Vision mandaba MOVE,SPINL el
+//  firmware no tenia donde guardarlo: los ponia todos a false (= PARAR) y
+//  encima contestaba OK,MOVE,SPINL. El robot se paraba y Vision creia que
+//  estaba girando.
+//  Los cuatro booleanos se conservan porque el protocolo antiguo
+//  GPIO,<pin>,<val> manda un pin cada vez y necesita acumular el estado.
 bool vAdelante  = false;
 bool vAtras     = false;
 bool vIzquierda = false;
 bool vDerecha   = false;
+
+uint8_t movComandado = 0;   // 0 = MOVC_STOP. Lo aplica el loop.
 
 // ═════════════════════════════════════════════════════════════
 //  FUNCIONES DE MOVIMIENTO (chasis)
@@ -247,7 +270,7 @@ void ponerMotor(QGPMaker_DCMotor* m, int8_t sentido) {
     m->setSpeed(0);
     m->run(RELEASE);
   } else {
-    m->setSpeed(VELOCIDAD);
+    m->setSpeed(velocidadActual);
     m->run(sentido > 0 ? FORWARD : BACKWARD);
   }
 }
@@ -323,20 +346,26 @@ void stopMoving() { aplicarMov(MOVC_STOP); }
 // ═════════════════════════════════════════════════════════════
 //  DECISION DE MOVIMIENTO (compartida: COM virtual y RPi fisico)
 // ═════════════════════════════════════════════════════════════
-void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) {
+//  Traduce los cuatro booleanos del protocolo antiguo (GPIO) a un codigo.
+uint8_t codigoDesdeBooleanos(bool adelante, bool atras, bool izquierda, bool derecha) {
   int activos = (int)adelante + (int)atras + (int)izquierda + (int)derecha;
 
   if (activos >= 3 || (adelante && atras) || (izquierda && derecha)) {
-    aplicarMov(MOVC_STOP);            // Combinaciones inválidas → stop
-  } else if (adelante && izquierda) { aplicarMov(MOVC_TURNL); }
-  else if   (adelante && derecha)   { aplicarMov(MOVC_TURNR); }
-  else if   (atras    && izquierda) { aplicarMov(MOVC_TURNL); }
-  else if   (atras    && derecha)   { aplicarMov(MOVC_TURNR); }
-  else if   (adelante)              { aplicarMov(MOVC_FWD);   }
-  else if   (atras)                 { aplicarMov(MOVC_BACK);  }
-  else if   (izquierda)             { aplicarMov(MOVC_MOVEL); }
-  else if   (derecha)               { aplicarMov(MOVC_MOVER); }
-  else                              { aplicarMov(MOVC_STOP);  } // Nada activo
+    return MOVC_STOP;                 // Combinaciones invalidas -> parar
+  } else if (adelante && izquierda) { return MOVC_TURNL; }
+  else if   (adelante && derecha)   { return MOVC_TURNR; }
+  else if   (atras    && izquierda) { return MOVC_TURNL; }
+  else if   (atras    && derecha)   { return MOVC_TURNR; }
+  else if   (adelante)              { return MOVC_FWD;   }
+  else if   (atras)                 { return MOVC_BACK;  }
+  else if   (izquierda)             { return MOVC_MOVEL; }
+  else if   (derecha)               { return MOVC_MOVER; }
+  return MOVC_STOP;                                          // Nada activo
+}
+
+void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) {
+  movComandado = codigoDesdeBooleanos(adelante, atras, izquierda, derecha);
+  aplicarMov(movComandado);
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -540,17 +569,33 @@ void dispensar(int n) {
 
 // Aplica una direccion de movimiento a partir de un texto. Acepta ingles y
 // espanol. Sirve tanto para "MOVE,<dir>" como para escribir la direccion sola.
-void moverDireccion(String dir) {
+//  Devuelve TRUE si la direccion se reconocio.
+//
+//  CAMBIO IMPORTANTE: antes cualquier palabra desconocida caia en "las cuatro
+//  a false" (o sea PARAR) y AUN ASI se contestaba OK,MOVE,<lo que fuera>. Ese
+//  ACK falso es lo que impedia detectar el desajuste: Vision mandaba SPINL,
+//  el robot se paraba, y Vision recibia un OK. Ahora una direccion
+//  desconocida devuelve false y quien llama responde ERR.
+bool moverDireccion(String dir) {
   dir.toUpperCase();
   vAdelante = vAtras = vIzquierda = vDerecha = false;
-  if      (dir == "FWD"  || dir == "FORWARD"  || dir == "ADELANTE") vAdelante  = true;
-  else if (dir == "BACK" || dir == "BACKWARD" || dir == "ATRAS")    vAtras     = true;
-  else if (dir == "LEFT" || dir == "IZQUIERDA"|| dir == "IZQ")      vIzquierda = true;
-  else if (dir == "RIGHT"|| dir == "DERECHA"  || dir == "DER")      vDerecha   = true;
-  // "STOP" (u otro valor) -> las cuatro quedan en false: detener
-  aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
-  Serial.print(F("OK,MOVE,"));
-  Serial.println(dir);
+  bool conocida = true;
+  uint8_t codigo = MOVC_STOP;
+
+  if      (dir == "FWD"  || dir == "FORWARD"  || dir == "ADELANTE") { vAdelante  = true; codigo = MOVC_FWD;   }
+  else if (dir == "BACK" || dir == "BACKWARD" || dir == "ATRAS")    { vAtras     = true; codigo = MOVC_BACK;  }
+  else if (dir == "LEFT" || dir == "IZQUIERDA"|| dir == "IZQ")      { vIzquierda = true; codigo = MOVC_MOVEL; }
+  else if (dir == "RIGHT"|| dir == "DERECHA"  || dir == "DER")      { vDerecha   = true; codigo = MOVC_MOVER; }
+  // Giro sobre el propio eje. Las primitivas turnLeft()/turnRight() ya
+  // existian; lo que faltaba era poder PEDIRLAS por nombre.
+  else if (dir == "SPINL" || dir == "GIROIZQ" || dir == "SPINLEFT")  codigo = MOVC_TURNL;
+  else if (dir == "SPINR" || dir == "GIRODER" || dir == "SPINRIGHT") codigo = MOVC_TURNR;
+  else if (dir == "STOP"  || dir == "PARAR")                         codigo = MOVC_STOP;
+  else conocida = false;               // desconocida: se para, pero se avisa
+
+  movComandado = codigo;
+  aplicarMov(codigo);
+  return conocida;
 }
 
 // True si 'cmd' es una direccion de movimiento suelta (sin el prefijo MOVE).
@@ -559,7 +604,48 @@ bool esDireccion(const String &cmd) {
          cmd == "BACK" || cmd == "BACKWARD" || cmd == "ATRAS" ||
          cmd == "LEFT" || cmd == "IZQUIERDA" || cmd == "IZQ" ||
          cmd == "RIGHT" || cmd == "DERECHA" || cmd == "DER" ||
-         cmd == "STOP";
+         cmd == "SPINL" || cmd == "GIROIZQ" || cmd == "SPINLEFT" ||
+         cmd == "SPINR" || cmd == "GIRODER" || cmd == "SPINRIGHT" ||
+         cmd == "STOP" || cmd == "PARAR";
+}
+
+// ═════════════════════════════════════════════════════════════
+//  MOVIMIENTOS ESPECIALES ("trucos" 1..4)
+// ═════════════════════════════════════════════════════════════
+//  Vision los enviaba como TRUCO,<1..4> y el firmware NO tenia ese comando:
+//  contestaba ERR,TRUCO,1 y no pasaba nada. Se implementan con las primitivas
+//  que ya existian (aplicarMov), sin tocar el cableado.
+//
+//  Duran unos segundos y BLOQUEAN el bucle. Es aceptable porque son una
+//  accion pedida a proposito, igual que dispensar; al terminar se para el
+//  chasis y se devuelve el control. La respuesta FIN,TRUCO,<n> le dice a
+//  Python que ya acabo.
+void ejecutarTruco(int n) {
+  switch (n) {
+    case 1:   // Trompo: una vuelta sobre el eje
+      aplicarMov(MOVC_TURNR); delay(1500);
+      break;
+    case 2:   // Zig-zag
+      for (int i = 0; i < 2; i++) {
+        aplicarMov(MOVC_MOVEL); delay(400);
+        aplicarMov(MOVC_MOVER); delay(400);
+      }
+      break;
+    case 3:   // Baile: adelante/atras alternando
+      for (int i = 0; i < 2; i++) {
+        aplicarMov(MOVC_FWD);  delay(350);
+        aplicarMov(MOVC_BACK); delay(350);
+      }
+      break;
+    case 4:   // Celebrar: giro a un lado y al otro
+      aplicarMov(MOVC_TURNL); delay(700);
+      aplicarMov(MOVC_TURNR); delay(700);
+      break;
+    default:
+      break;
+  }
+  // Volver SIEMPRE al estado que estaba pedido por COM (normalmente parado).
+  aplicarMov(movComandado);
 }
 
 void procesarComando(String linea) {
@@ -600,12 +686,58 @@ void procesarComando(String linea) {
     Serial.println(compActual);
 
   } else if (cmd == "MOVE") {
-    // MOVE,<dir>   dir = FWD | BACK | LEFT | RIGHT | STOP
-    moverDireccion(arg);
+    // MOVE,<dir>  dir = FWD | BACK | LEFT | RIGHT | SPINL | SPINR | STOP
+    if (moverDireccion(arg)) {
+      Serial.print(F("OK,MOVE,")); Serial.println(arg);
+    } else {
+      // Direccion desconocida: el robot queda parado Y se dice la verdad.
+      Serial.print(F("ERR,")); Serial.println(linea);
+    }
 
   } else if (esDireccion(cmd)) {
-    // Direccion escrita SOLA (sin el prefijo MOVE): FWD, BACK, LEFT, RIGHT, STOP
+    // Direccion escrita SOLA (sin el prefijo MOVE)
     moverDireccion(cmd);
+    Serial.print(F("OK,MOVE,")); Serial.println(cmd);
+
+  } else if (cmd == "VEL") {
+    // VEL,<200..255>  velocidad del chasis. Se recorta al rango util: por
+    // debajo de 200 estos motores con reductora apenas arrancan con carga.
+    int v = arg.toInt();
+    if (arg.length() == 0 || v == 0) {
+      Serial.print(F("ERR,")); Serial.println(linea);
+    } else {
+      velocidadActual = (uint8_t)constrain(v, VELOCIDAD_MIN, VELOCIDAD_MAX);
+      // Forzar que el proximo aplicarMov REENVIE las ordenes al shield: si no,
+      // al no cambiar el codigo de movimiento se saltaria el I2C y la
+      // velocidad nueva no llegaria hasta el siguiente cambio de direccion.
+      movAplicado = 255;
+      aplicarMov(movComandado);
+      Serial.print(F("OK,VEL,")); Serial.println(velocidadActual);
+    }
+
+  } else if (cmd == "TRUCO") {
+    // TRUCO,<1..4>  movimiento especial. ACK inmediato + FIN al terminar,
+    // igual que DISPENSE: asi Python distingue "no llego" de "llego y esta
+    // en marcha" de "ya termino".
+    int n = arg.toInt();
+    if (n < 1 || n > 4) {
+      Serial.print(F("ERR,")); Serial.println(linea);
+    } else {
+      Serial.print(F("OK,TRUCO,")); Serial.println(n);
+      ejecutarTruco(n);
+      Serial.print(F("FIN,TRUCO,")); Serial.println(n);
+    }
+
+  } else if (cmd == "PING") {
+    // Comprobar que el enlace serie esta vivo, sin mover nada.
+    Serial.println(F("PONG"));
+
+  } else if (cmd == "PROTO") {
+    // Version del protocolo que implementa ESTE firmware. Python la compara
+    // con la suya al arrancar y avisa si no coinciden, en vez de descubrirlo
+    // cuando un comando no hace nada.
+    Serial.print(F("PROTO,")); Serial.print(VERSION_PROTOCOLO);
+    Serial.println(F(",MEDIBOT"));
 
   } else if (cmd == "GPIO") {
     // GPIO,<pin>,<val>  (protocolo de Vision). pin 17=adel, 27=atras, 22=izq, 23=der
@@ -625,6 +757,9 @@ void procesarComando(String linea) {
       else if (pin == 23) vDerecha   = val;
       aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
     }
+    // ACK: en el protocolo TODA orden contesta algo. Sin esto, Python no
+    // podia distinguir "lo recibio" de "se perdio por el cable".
+    Serial.print(F("OK,GPIO,")); Serial.println(arg);
 
   } else if (cmd == "PWM") {
 #if USAR_SERVOS_CAMARA
@@ -641,8 +776,10 @@ void procesarComando(String linea) {
     }
 #endif
     // Sin soporte pan/tilt montado (USAR_SERVOS_CAMARA 0) el comando se acepta
-    // y se ignora en silencio: Vision lo envia igualmente al seguir una cara y
-    // no debe recibir un ERR por algo que no es un fallo.
+    // y se ignora: Vision lo envia igualmente al seguir una cara y no debe
+    // recibir un ERR por algo que no es un fallo. Pero SI se confirma, para
+    // que Python sepa que llego.
+    Serial.print(F("OK,PWM,")); Serial.println(arg);
 
   } else if (cmd == "ENC") {
     // Posicion acumulada de los encoders (cuentas).
@@ -666,7 +803,7 @@ void procesarComando(String linea) {
     QGPMaker_DCMotor* motores[4] = { DCMotor_1, DCMotor_2, DCMotor_3, DCMotor_4 };
     for (int i = 0; i < 4; i++) {
       Serial.print(F("  motor ")); Serial.println(i + 1);
-      motores[i]->setSpeed(VELOCIDAD);
+      motores[i]->setSpeed(velocidadActual);
       motores[i]->run(FORWARD);
       delay(1000);
       motores[i]->run(RELEASE);
@@ -725,6 +862,12 @@ void procesarComando(String linea) {
 // ---------- Lectura NO bloqueante de comandos por Serial ----------
 //  Se evita Serial.readStringUntil() para no congelar el control
 //  del mando/chasis hasta 1 s cuando llega una linea incompleta.
+//  LONGITUD MAXIMA DE LINEA. El Arduino UNO tiene 2 KB de RAM: si por ruido
+//  en el cable llegara un flujo sin ningun '\n', el String creceria hasta
+//  agotar la memoria y la placa se reiniciaria sola. Con un tope, una linea
+//  demasiado larga se descarta y se avisa, que es un fallo recuperable.
+#define LINEA_MAX 96
+
 void leerSerial() {
   while (Serial.available() > 0) {
     char c = Serial.read();
@@ -732,7 +875,14 @@ void leerSerial() {
       procesarComando(bufferSerial);
       bufferSerial = "";
     } else if (c != '\r') {
-      bufferSerial += c;
+      if (bufferSerial.length() < LINEA_MAX) {
+        bufferSerial += c;
+      } else {
+        // Linea desbordada: tirarla entera y avisar. Procesar un trozo seria
+        // peor: un "MOVE,FW" cortado se interpretaria como direccion invalida.
+        bufferSerial = "";
+        Serial.println(F("ERR,LINEA_DEMASIADO_LARGA"));
+      }
     }
   }
 }
@@ -742,6 +892,9 @@ void leerSerial() {
 // ═════════════════════════════════════════════════════════════
 void setup() {
   Serial.begin(9600);
+  // Anunciarse en cuanto arranca: Python detecta asi que el Arduino se
+  // reinicio (p.ej. por un bajon de tension) y con que protocolo habla.
+  Serial.print(F("READY,MEDIBOT,")); Serial.println(VERSION_PROTOCOLO);
 
   // ---- Motor Shield / Movimiento ----
   //  1600 Hz: frecuencia PWM adecuada para MOTORES DC (a 50 Hz casi no
@@ -853,6 +1006,8 @@ void loop() {
   //  Se llama en cada vuelta, pero aplicarMov() no habla con el shield si el
   //  movimiento no ha cambiado, asi que no cuesta nada.
   if (!ps2xActivo) {
-    aplicarMovimiento(vAdelante, vAtras, vIzquierda, vDerecha);
+    // Se aplica el CODIGO pedido por COM, no los cuatro booleanos: estos no
+    // pueden representar el giro sobre el eje y lo convertirian en parada.
+    aplicarMov(movComandado);
   }
 }
