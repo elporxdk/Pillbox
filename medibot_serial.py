@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-medibot_serial: el "cartero" entre Vision/Pillbox y el Arduino.
+medibot_serial: conector entre Vision/Pillbox y el Arduino.
 ================================================================
-QUE HACE (en simple): Vision y Pillbox NO abren el puerto COM directamente
-(dos programas no pueden abrir el mismo puerto a la vez). En su lugar, ambos
-usan este modulo, que entrega cada orden al HUB serial (serial_hub.py) por
-TCP local; el hub es el unico que habla con el Arduino por USB/COM.
 
     Vision  --- medibot_serial ---+
                                   +--TCP--> serial_hub --USB--> Arduino
