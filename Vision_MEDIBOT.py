@@ -1414,9 +1414,16 @@ HTML_TEMPLATE = """
             aspect-ratio: var(--ar, 4 / 3);
             /* Tope de altura para que en un monitor ancho con UNA sola cámara
                el vídeo no ocupe media pantalla de alto y empuje los controles
-               fuera de la vista. Si se llega al tope, object-fit: contain sigue
-               garantizando que la imagen NO se deforme. */
-            max-height: 70vh;
+               fuera de la vista.
+               Se limita el ANCHO (no el alto): con max-height, el contenedor
+               conservaba los 100 % de ancho y se quedaba en 2,06:1 con franjas
+               negras a los lados (medido: 1296x630 en 1440p). Limitando el
+               ancho a "alto máximo x proporción", la caja mantiene exactamente
+               la proporción de la cámara y se centra. --arnum lo fija el
+               JavaScript con la proporción real; 1.3333 (4:3) es el respaldo. */
+            max-width: calc(70vh * var(--arnum, 1.3333));
+            margin-left: auto;
+            margin-right: auto;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1546,6 +1553,9 @@ HTML_TEMPLATE = """
         
         .tab-buttons {
             display: flex;
+            /* Sin flex-wrap, las tres pestañas medían 391 px y forzaban scroll
+               horizontal en un móvil de 360 px (medido con el navegador). */
+            flex-wrap: wrap;
             gap: 10px;
             margin-bottom: 20px;
         }
@@ -1877,11 +1887,88 @@ HTML_TEMPLATE = """
             font-size: 0.8em; color: #fff; background: rgba(0, 0, 0, 0.45);
             padding: 2px 10px; border-radius: 10px; font-weight: bold;
         }
-        #cam1-view:fullscreen, #cam1-view:-webkit-full-screen {
-            background: #000; display: flex; align-items: center; justify-content: center;
+        /* ============ PANTALLA COMPLETA ============
+           Va a pantalla completa el ESCENARIO (vídeo + controles), no solo el
+           vídeo: así en pantalla completa sigues teniendo la botonera y el
+           slider de velocidad, que es para lo que se usa.
+
+           .pseudo-fs es el respaldo para navegadores donde la API de pantalla
+           completa no existe o la rechaza (iOS Safari NO la soporta sobre un
+           <div>: solo sobre <video>). Ocupa la ventana con position:fixed, así
+           el botón SIEMPRE hace algo en vez de quedarse muerto. */
+        .camera-stage:fullscreen,
+        .camera-stage:-webkit-full-screen,
+        .camera-stage.pseudo-fs {
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            padding: 10px;
+            gap: 10px;
         }
-        #cam1-view:fullscreen img { width: auto; height: 100%; max-width: 100%; }
-        #cam1-view:fullscreen .cam-joystick { transform: scale(1.7); right: 60px; bottom: 60px; opacity: 0.75; }
+        .camera-stage.pseudo-fs {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            overflow: auto;
+            /* Móviles con notch: no meter los controles bajo la barra */
+            padding: max(10px, env(safe-area-inset-top))
+                     max(10px, env(safe-area-inset-right))
+                     max(10px, env(safe-area-inset-bottom))
+                     max(10px, env(safe-area-inset-left));
+        }
+
+        /* IMPORTANTE: hay que anular aspect-ratio y el tope de ancho, o el
+           vídeo se quedaría en 4:3 y al 70 % del alto en vez de llenar la
+           pantalla. La imagen sigue sin deformarse: object-fit: contain. */
+        .camera-stage:fullscreen .video-container,
+        .camera-stage:-webkit-full-screen .video-container,
+        .camera-stage.pseudo-fs .video-container {
+            aspect-ratio: auto;
+            max-width: none;
+            max-height: none;
+            width: 100%;
+            flex: 1 1 auto;
+            min-height: 0;
+            margin-top: 0;
+        }
+        .camera-stage:fullscreen .video-container img,
+        .camera-stage:-webkit-full-screen .video-container img,
+        .camera-stage.pseudo-fs .video-container img {
+            width: 100%; height: 100%; object-fit: contain;
+        }
+        /* Los controles no se estiran: conservan su altura al pie */
+        .camera-stage:fullscreen .mov-panel,
+        .camera-stage:-webkit-full-screen .mov-panel,
+        .camera-stage.pseudo-fs .mov-panel {
+            flex: 0 0 auto; margin-top: 0; max-width: 720px;
+            width: 100%; margin-left: auto; margin-right: auto;
+        }
+        .camera-stage:fullscreen .cam-joystick,
+        .camera-stage:-webkit-full-screen .cam-joystick,
+        .camera-stage.pseudo-fs .cam-joystick {
+            transform: scale(1.4); right: 48px; bottom: 48px; opacity: 0.75;
+        }
+
+        /* ============ CONTROLES EN MÓVIL ============ */
+        .vel-aviso { min-height: 1em; font-size: .9em; color: #ff6b6b; }
+        .mov-vel input[type=range] {
+            /* Alto de dedo, no de ratón: 24 px de zona activa. Antes el
+               control nativo tenía ~4 px de alto y era difícil de agarrar. */
+            height: 24px;
+            touch-action: pan-x;   /* deslizar el slider NO hace scroll */
+        }
+        @media (max-width: 768px) {
+            /* Objetivos táctiles: mínimo recomendado ~44 px */
+            .mov-btn { padding: 12px 4px; font-size: .85em; }
+            .fs-btn { padding: 10px 12px; font-size: 0.9em; }
+            .mov-vel { font-size: .9em; }
+            /* El joystick flotante se encoge para dejar ver el vídeo */
+            .cam-joystick { right: 8px; bottom: 8px; opacity: 0.75; }
+            .cam-joystick .joystick-base { width: 88px; height: 88px; }
+            .cam-joystick .joystick-stick { width: 32px; height: 32px; margin: -16px 0 0 -16px; }
+        }
     </style>
 </head>
 <body>
@@ -1914,19 +2001,32 @@ HTML_TEMPLATE = """
                     <span class="status-dot"></span>
                     CÁMARA 1 (Principal)
                 </div>
-                <div class="video-container" id="cam1-view">
-                    <img src="/video/0" alt="Cámara 1 en vivo" id="video-stream-1">
-                    <button class="fs-btn" onclick="toggleCameraFullscreen()" title="Pantalla completa">&#9974; Pantalla completa</button>
-                    <div class="cam-joystick">
-                        <div class="joystick-base" id="joyBase">
-                            <div class="joystick-stick" id="joyStick"></div>
+                <!-- "Escenario": vídeo + controles. Es ESTE bloque el que pasa a
+                     pantalla completa, no solo el vídeo, para que en pantalla
+                     completa sigas teniendo la botonera y la velocidad. -->
+                <div class="camera-stage" id="cam1-stage">
+                    <div class="video-container" id="cam1-view">
+                        <img src="/video/0" alt="Cámara 1 en vivo" id="video-stream-1">
+                        <button class="fs-btn" id="fsBtn" onclick="toggleCameraFullscreen()"
+                                title="Pantalla completa">&#9974; <span id="fsBtnTxt">Pantalla completa</span></button>
+                        <div class="cam-joystick">
+                            <div class="joystick-base" id="joyBase">
+                                <div class="joystick-stick" id="joyStick"></div>
+                            </div>
+                            <div class="cam-joy-dirs">Dir: <span id="move-dirs">—</span></div>
                         </div>
-                        <div class="cam-joy-dirs">Dir: <span id="move-dirs">—</span></div>
                     </div>
                     <!-- Botonera de movimiento: los SEIS movimientos del robot,
                          con los mismos nombres que el firmware y el mando PS2.
                          Se genera desde /movimientos para que no haya nombres
-                         escritos a mano que se puedan desincronizar. -->
+                         escritos a mano que se puedan desincronizar.
+
+                         ESTABA DENTRO de .video-container, que es display:flex.
+                         Al no llevar posicionamiento, era un flex item que se
+                         repartia el espacio con el <img>: en movil quedaba
+                         aplastado, recortado por overflow:hidden y encima del
+                         boton de pantalla completa. Ahora va DEBAJO del video,
+                         como bloque normal, y no se solapa con nada. -->
                     <div class="mov-panel">
                         <div class="mov-grid" id="mov-grid"></div>
                         <div class="mov-vel">
@@ -1934,6 +2034,7 @@ HTML_TEMPLATE = """
                             <input type="range" id="velRange" min="200" max="255" value="200"
                                    oninput="document.getElementById('velVal').textContent=this.value"
                                    onchange="fijarVelocidad(this.value)">
+                            <div class="vel-aviso" id="velAviso"></div>
                         </div>
                         <div class="mov-trucos">
                             <button class="mov-btn truco" onclick="lanzarTruco(1)" title="Triángulo">Trompo</button>
@@ -2232,7 +2333,11 @@ HTML_TEMPLATE = """
                           (info.fourcc ? ' ' + info.fourcc : '') +
                           (info.fps ? ' @' + info.fps : ''));
                     if (vista && info.proporcion) {
+                        // --ar  : proporción para aspect-ratio (ancho / alto)
+                        // --arnum: la misma en número, para el calc() que
+                        //          limita el ancho al alto máximo permitido.
                         vista.style.setProperty('--ar', info.ancho + ' / ' + info.alto);
+                        vista.style.setProperty('--arnum', (info.ancho / info.alto).toFixed(4));
                     }
                     // Ancho emitido: el perfil web manda; si no se fijó, se
                     // emite a la resolución nativa de la cámara.
@@ -2377,18 +2482,76 @@ HTML_TEMPLATE = """
                 .catch(error => console.error('Error:', error));
         }
 
-        function toggleCameraFullscreen() {
-            var el = document.getElementById('cam1-view');
-            if (!el) return;
-            var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-            if (!fsEl) {
-                var req = el.requestFullscreen || el.webkitRequestFullscreen;
-                if (req) req.call(el);
-            } else {
-                var exit = document.exitFullscreen || document.webkitExitFullscreen;
-                if (exit) exit.call(document);
-            }
+        // ===== Pantalla completa =====
+        // Tres cosas que antes fallaban:
+        //   1. Se ponía en pantalla completa solo el vídeo, así que se perdían
+        //      la botonera y el slider de velocidad.
+        //   2. requestFullscreen devuelve una promesa que puede RECHAZAR (sin
+        //      gesto de usuario, permiso denegado...) y no existe en iOS Safari
+        //      para un <div>. Sin catch ni respaldo, el botón no hacía nada en
+        //      el iPhone y no se enteraba nadie.
+        //   3. No había forma de saber cómo salir en un móvil (no hay Esc).
+        function _stage() { return document.getElementById('cam1-stage'); }
+        function _fsNativa() {
+            return document.fullscreenElement || document.webkitFullscreenElement;
         }
+        function _enPantallaCompleta() {
+            var el = _stage();
+            return !!(_fsNativa() || (el && el.classList.contains('pseudo-fs')));
+        }
+
+        function _entrarPseudoFS(el) {
+            el.classList.add('pseudo-fs');
+            document.body.style.overflow = 'hidden';   // sin scroll detrás
+            _pintarBotonFS();
+        }
+        function _salirPseudoFS(el) {
+            el.classList.remove('pseudo-fs');
+            document.body.style.overflow = '';
+            _pintarBotonFS();
+        }
+
+        function _pintarBotonFS() {
+            var txt = document.getElementById('fsBtnTxt');
+            if (txt) { txt.textContent = _enPantallaCompleta() ? 'Salir' : 'Pantalla completa'; }
+        }
+
+        function toggleCameraFullscreen() {
+            var el = _stage();
+            if (!el) return;
+
+            if (_enPantallaCompleta()) {
+                if (_fsNativa()) {
+                    var exit = document.exitFullscreen || document.webkitExitFullscreen;
+                    if (exit) { exit.call(document); }
+                }
+                _salirPseudoFS(el);
+                return;
+            }
+
+            var req = el.requestFullscreen || el.webkitRequestFullscreen;
+            if (!req) { _entrarPseudoFS(el); return; }   // iOS y similares
+            var p;
+            try { p = req.call(el); }
+            catch (e) { _entrarPseudoFS(el); return; }
+            // Si la promesa se rechaza, no dejar al usuario sin nada.
+            if (p && typeof p.catch === 'function') {
+                p.catch(function () { _entrarPseudoFS(el); });
+            }
+            _pintarBotonFS();
+        }
+
+        // El usuario también puede salir con Esc o con el gesto del sistema:
+        // hay que enterarse para actualizar el botón.
+        ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (ev) {
+            document.addEventListener(ev, _pintarBotonFS);
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                var el = _stage();
+                if (el && el.classList.contains('pseudo-fs')) { _salirPseudoFS(el); }
+            }
+        });
 
         function switchCamera() {
             fetch('/switch_camera', { method: 'POST' })
@@ -2475,19 +2638,64 @@ HTML_TEMPLATE = """
             }).catch(() => {});
         }
 
+        // ===== Velocidad del chasis =====
+        // Antes: si el servidor respondía 400 (o no respondía), el then no
+        // hacía nada y el catch se tragaba el error. El slider se quedaba
+        // donde lo había dejado el usuario mientras el robot iba a otra
+        // velocidad, sin ninguna señal. Ahora se refleja SIEMPRE lo realmente
+        // aplicado y se avisa si no se pudo aplicar.
+        function _avisoVelocidad(texto) {
+            var el = document.getElementById('velAviso');
+            if (el) { el.textContent = texto || ''; }
+        }
+
+        function _pintarVelocidad(valor) {
+            var rango = document.getElementById('velRange');
+            var etiqueta = document.getElementById('velVal');
+            if (etiqueta) { etiqueta.textContent = valor; }
+            if (rango) { rango.value = valor; }
+        }
+
+        // Al cargar la página, preguntar al servidor el rango y la velocidad
+        // REALES. El min/max estaban escritos a mano en el HTML (200/255): si
+        // alguien cambiaba VEL_MIN/VEL_MAX en Python, el slider mentía.
+        function sincronizarVelocidad() {
+            return fetch('/velocidad')
+                .then(r => r.json())
+                .then(d => {
+                    var rango = document.getElementById('velRange');
+                    if (!rango || !d) return;
+                    if (d.min !== undefined) rango.min = d.min;
+                    if (d.max !== undefined) rango.max = d.max;
+                    if (d.velocidad !== undefined) _pintarVelocidad(d.velocidad);
+                    _avisoVelocidad('');
+                })
+                .catch(() => _avisoVelocidad('Sin conexión con el robot'));
+        }
+
         function fijarVelocidad(v) {
+            var pedida = parseInt(v, 10);
+            if (isNaN(pedida)) { return sincronizarVelocidad(); }
             fetch('/velocidad', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ velocidad: parseInt(v, 10) })
-            }).then(r => r.json()).then(d => {
-                // El servidor recorta al rango valido: reflejar lo REALMENTE
-                // aplicado, no lo que pidio el usuario.
-                if (d && d.velocidad) {
-                    document.getElementById('velVal').textContent = d.velocidad;
-                    document.getElementById('velRange').value = d.velocidad;
-                }
-            }).catch(() => {});
+                body: JSON.stringify({ velocidad: pedida })
+            })
+                .then(r => r.json().then(d => ({ ok: r.ok, datos: d })))
+                .then(res => {
+                    if (res.ok && res.datos && res.datos.velocidad !== undefined) {
+                        // El servidor recorta al rango válido: reflejar lo
+                        // REALMENTE aplicado, no lo que pidió el usuario.
+                        _pintarVelocidad(res.datos.velocidad);
+                        _avisoVelocidad(res.datos.velocidad !== pedida
+                            ? 'Ajustada a ' + res.datos.velocidad + ' (rango del firmware)'
+                            : '');
+                    } else {
+                        _avisoVelocidad((res.datos && res.datos.message) || 'No se pudo aplicar');
+                        sincronizarVelocidad();   // volver a mostrar la real
+                    }
+                })
+                .catch(() => _avisoVelocidad('Sin conexión con el robot'));
         }
 
         function lanzarTruco(n) {
@@ -2630,6 +2838,10 @@ HTML_TEMPLATE = """
         // Start updates when page loads
         document.addEventListener('DOMContentLoaded', function() {
             startUpdates();
+            // Leer del servidor el rango y la velocidad REALES en vez de
+            // fiarse del 200/255 escrito a mano en el HTML.
+            sincronizarVelocidad();
+            _pintarBotonFS();
         });
         
         // Handle page visibility change
