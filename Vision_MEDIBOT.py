@@ -1818,14 +1818,13 @@ HTML_TEMPLATE = """
         html[data-theme="light"] .brand-tag { color: #5a6772; }
 
         /* ===== Joystick / Movimiento ===== */
-        /* Botonera de movimiento (6 movimientos + 4 trucos) */
+        /* Botonera de movimiento (los 6 movimientos del robot) */
         .mov-panel { margin-top: 10px; }
         .mov-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
         .mov-vel { margin-top: 8px; font-size: .78em; color: #00ffff; }
         .mov-vel label { display: block; margin-bottom: 2px; }
         .mov-vel input[type=range] { width: 100%; accent-color: #00ffff; }
         html[data-theme="light"] .mov-vel { color: #0a7c78; }
-        .mov-trucos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
         .mov-btn {
             background: #1a1a1a; color: #00ffff; border: 1px solid #00ffff;
             border-radius: 6px; padding: 8px 4px; font-size: .78em; cursor: pointer;
@@ -1834,8 +1833,6 @@ HTML_TEMPLATE = """
         .mov-btn:hover, .mov-btn:active { background: #00ffff; color: #000; }
         .mov-btn.stop { border-color: #ff5555; color: #ff5555; }
         .mov-btn.stop:hover { background: #ff5555; color: #000; }
-        .mov-btn.truco { border-color: #ffb300; color: #ffb300; }
-        .mov-btn.truco:hover { background: #ffb300; color: #000; }
         html[data-theme="light"] .mov-btn { background: #eef4f8; color: #0a7c78; border-color: #0aa6a0; }
 
         .joystick-wrap { display: flex; justify-content: center; margin: 20px 0; }
@@ -1992,9 +1989,9 @@ HTML_TEMPLATE = """
             </div>
             <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">Modo Oscuro</button>
         </div>
-        <h1>MEDIBOT</h1>
-        <p class="subtitle">Detección facial, seguimiento de objetos y grabación simultánea con dos cámaras</p>
-        
+        <!-- Sin <h1>MEDIBOT</h1>: la barra de marca de arriba ya lleva el
+             logo y el nombre, así que salía dos veces seguidas. -->
+
         <div class="cameras-container">
             <div class="camera-box" id="camera1-box">
                 <div class="camera-title" id="cam1-title">
@@ -2036,19 +2033,9 @@ HTML_TEMPLATE = """
                                    onchange="fijarVelocidad(this.value)">
                             <div class="vel-aviso" id="velAviso"></div>
                         </div>
-                        <div class="mov-trucos">
-                            <button class="mov-btn truco" onclick="lanzarTruco(1)" title="Triángulo">Trompo</button>
-                            <button class="mov-btn truco" onclick="lanzarTruco(2)" title="Círculo">Zig-zag</button>
-                            <button class="mov-btn truco" onclick="lanzarTruco(3)" title="Cuadrado">Baile</button>
-                            <button class="mov-btn truco" onclick="lanzarTruco(4)" title="X">Celebrar</button>
-                        </div>
                     </div>
                 </div>
                 <div class="camera-info">
-                    <div class="info-item">
-                        <div class="info-label">FPS</div>
-                        <div class="info-value" id="fps-1">0</div>
-                    </div>
                     <div class="info-item">
                         <div class="info-label">Estado</div>
                         <div class="info-value" id="status-1">Inactiva</div>
@@ -2057,22 +2044,6 @@ HTML_TEMPLATE = """
                         <div class="info-label">Grabando</div>
                         <div class="info-value" id="recording-1">No</div>
                     </div>
-                    <div class="info-item">
-                        <div class="info-label">Resolución</div>
-                        <!-- Ya no está escrito a mano: lo rellena /api/all con
-                             lo que el driver aceptó DE VERDAD. Antes ponía
-                             siempre 640x480 aunque se estuviera capturando a
-                             320x240, que es justo el dato que hacía falta para
-                             darse cuenta del problema. -->
-                        <div class="info-value" id="res-1">—</div>
-                    </div>
-                </div>
-                <div class="stream-stats" id="stats-1">
-                    <span>captura <b id="cap-fps-1">0</b> fps</span>
-                    <span>web <b id="web-fps-1">0</b> fps</span>
-                    <span>emitido <b id="web-res-1">—</b></span>
-                    <span>calidad <b id="web-q-1">—</b></span>
-                    <span id="cuello-1"></span>
                 </div>
             </div>
 
@@ -2086,10 +2057,6 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="camera-info">
                     <div class="info-item">
-                        <div class="info-label">FPS</div>
-                        <div class="info-value" id="fps-2">0</div>
-                    </div>
-                    <div class="info-item">
                         <div class="info-label">Estado</div>
                         <div class="info-value" id="status-2">Inactiva</div>
                     </div>
@@ -2097,55 +2064,22 @@ HTML_TEMPLATE = """
                         <div class="info-label">Grabando</div>
                         <div class="info-value" id="recording-2">No</div>
                     </div>
-                    <div class="info-item">
-                        <div class="info-label">Resolución</div>
-                        <div class="info-value" id="res-2">—</div>
-                    </div>
-                </div>
-                <div class="stream-stats" id="stats-2">
-                    <span>captura <b id="cap-fps-2">0</b> fps</span>
-                    <span>web <b id="web-fps-2">0</b> fps</span>
-                    <span>emitido <b id="web-res-2">—</b></span>
-                    <span>calidad <b id="web-q-2">—</b></span>
-                    <span id="cuello-2"></span>
                 </div>
             </div>
         </div>
         
+        <!-- Solo lo esencial: el estado del sistema. Se quitaron las tarjetas
+             de Detecciones / Cámara activa / Objetos rojos y la rejilla de
+             posición del rostro: eran telemetría de diagnóstico, no algo que
+             haga falta para manejar el robot. Los datos siguen en /api/all. -->
         <div class="status-container">
             <div class="status-box">
                 <div class="status-title">Estado Sistema</div>
                 <div class="status-value" id="system-status">Inactivo</div>
             </div>
-            <div class="status-box">
-                <div class="status-title">Detecciones Totales</div>
-                <div class="status-value" id="total-detections">0</div>
-            </div>
-            <div class="status-box">
-                <div class="status-title">Cámara Activa</div>
-                <div class="status-value" id="active-camera">1</div>
-            </div>
-            <div class="status-box">
-                <div class="status-title">Objetos Rojos</div>
-                <div class="status-value" id="red-objects">0</div>
-            </div>
         </div>
-        
-        <div class="position-indicator">
-            <div class="status-title">Posición del Rostro (Cámara 1)</div>
-            <div class="position-grid">
-                <div class="position-cell" id="pos-tl">↖</div>
-                <div class="position-cell" id="pos-tc">↑</div>
-                <div class="position-cell" id="pos-tr">↗</div>
-                <div class="position-cell" id="pos-cl">←</div>
-                <div class="position-cell center" id="pos-cc">●</div>
-                <div class="position-cell" id="pos-cr">→</div>
-                <div class="position-cell" id="pos-bl">↙</div>
-                <div class="position-cell" id="pos-bc">↓</div>
-                <div class="position-cell" id="pos-br">↘</div>
-            </div>
-        </div>
-        
+
+
         <div class="control-panel">
             <button class="control-button" onclick="toggleSystem()" id="systemBtn">
                 Iniciar Sistema
@@ -2164,73 +2098,29 @@ HTML_TEMPLATE = """
             </button>
         </div>
         
+        <!-- Queda una sola pestaña: los vídeos grabados.
+             Se quitó "Información del Sistema", que era el listado de
+             instrucciones y características, y "Configuración", cuyo botón de
+             centrar servomotores no hace nada en este robot (la cámara va
+             fija: USAR_SERVOS_CAMARA = False). -->
         <div class="tab-container">
-            <div class="tab-buttons">
-                <button class="tab-button active" onclick="showTab('info')">Información</button>
-                <button class="tab-button" onclick="showTab('videos')">Videos Grabados</button>
-                <button class="tab-button" onclick="showTab('settings')">Configuración</button>
-            </div>
-            
-            <div class="tab-content active" id="info-tab">
-                <div class="panel-box">
-                    <h3>Información del Sistema</h3>
-                    <p>Medibot.</p>
-                    <p><strong>Características:</strong></p>
-                    <ul style="margin-left: 20px; margin-top: 10px;">
-                        <li>Dos cámaras funcionando en paralelo</li>
-                        <li>Grabación simultánea en ambas cámaras</li>
-                        <li>Detección facial y seguimiento de objetos</li>
-                        <li>Control de servomotores para seguimiento</li>
-                        <li>Interfaz web en tiempo real</li>
-                        <li>API REST para integración</li>
-                    </ul>
-                    <p><strong>Estado actual:</strong> <span id="current-status">Inactivo</span></p>
-                </div>
-            </div>
-
-
-            <div class="tab-content" id="videos-tab">
+            <div class="tab-content active" id="videos-tab">
                 <h3>Videos Grabados (Ordenados por fecha)</h3>
                 <div class="videos-grid" id="videos-grid">
                     Cargando videos...
                 </div>
             </div>
-            
-            <div class="tab-content" id="settings-tab">
-                <div class="panel-box">
-                    <h3>Configuración del Sistema</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
-                        <div>
-                            <h4>Cámara 1</h4>
-                            <button class="control-button" onclick="optimizeCamera(0)" style="width: 100%; margin-top: 10px;">
-                                Optimizar Cámara 1
-                            </button>
-                        </div>
-                        <div>
-                            <h4>Cámara 2</h4>
-                            <button class="control-button" onclick="optimizeCamera(1)" style="width: 100%; margin-top: 10px;">
-                                Optimizar Cámara 2
-                            </button>
-                        </div>
-                    </div>
-                    <button class="control-button" onclick="centerCamera()" style="width: 100%; margin-top: 20px;">
-                        Centrar Servomotores
-                    </button>
-                </div>
-            </div>
         </div>
         
+        <!-- Pie sin la linea tecnica de IP/Puerto/API: era informacion de
+             diagnostico, no algo que haga falta para manejar el robot. -->
         <div class="footer">
             <p>Medibot</p>
-            <!-- La IP se rellena con la direccion desde la que el navegador
-                 entro (location.hostname): asi el pie muestra la direccion que
-                 de verdad funciona en ESE dispositivo, no una fija. -->
-            <p>IP: <span id="current-ip">-</span> | Puerto: <span id="current-port">-</span> | API: /api/all</p>
         </div>
     </div>
 
     <script>
-        let currentTab = 'info';
+        let currentTab = 'videos';
         let updateInterval;
         
         function updateCameraStatus(data) {
@@ -2247,7 +2137,7 @@ HTML_TEMPLATE = """
             var cam1box = document.getElementById('camera1-box');
             if (cam1box) { cam1box.classList.toggle('ausente', !data.cameras.camera1.active && !data.online); }
 
-            actualizarTelemetria(data);
+            aplicarProporcion(data);
 
             // Reflejar el estado del reconocimiento en el botón
             var recBtn = document.getElementById('recognitionBtn');
@@ -2256,9 +2146,6 @@ HTML_TEMPLATE = """
                 recBtn.classList.toggle('active', !!data.recognition_enabled);
             }
 
-            document.getElementById('fps-1').textContent = data.cameras.camera1.fps;
-            document.getElementById('fps-2').textContent = data.cameras.camera2.fps;
-            
             document.getElementById('status-1').textContent = data.cameras.camera1.status;
             document.getElementById('status-2').textContent = data.cameras.camera2.status;
             
@@ -2279,14 +2166,7 @@ HTML_TEMPLATE = """
             
             // Actualizar estado general
             document.getElementById('system-status').textContent = data.system_status;
-            document.getElementById('total-detections').textContent = data.detection_count;
-            document.getElementById('active-camera').textContent = data.active_camera;
-            document.getElementById('red-objects').textContent = data.red_objects ? data.red_objects.length : 0;
-            document.getElementById('current-status').textContent = data.system_status;
-            
-            // Actualizar posición del rostro
-            updatePosition(data.face_position);
-            
+
             // Actualizar botones
             const systemBtn = document.getElementById('systemBtn');
             if (data.online) {
@@ -2307,82 +2187,26 @@ HTML_TEMPLATE = """
             }
         }
         
-        // ---- Telemetría por cámara -------------------------------------
-        // Muestra lo que hace falta para diagnosticar SIN abrir la consola:
-        // resolución real negociada, FPS capturados, FPS realmente enviados al
-        // navegador y qué etapa manda. Además fija la proporción real del
-        // contenedor (--ar) para que un 4:3 no se vea estirado.
-        function texto(id, valor) {
-            var el = document.getElementById(id);
-            if (el && el.textContent !== String(valor)) { el.textContent = valor; }
-        }
-
-        function actualizarTelemetria(data) {
+        // ---- Proporción real de cada cámara ----------------------------
+        // Lo único que la web sigue necesitando de la telemetría: la relación
+        // de aspecto que reporta el driver, para que el contenedor la respete
+        // y un 4:3 no se vea estirado. Los contadores de FPS y de calidad se
+        // quitaron de la interfaz por petición; siguen en /api/all y en el
+        // informe que el bucle de vídeo imprime por consola.
+        function aplicarProporcion(data) {
             var reales = data.camaras_reales || {};
-            var perf = data.perf || {};
-            var web = data.perfil_web || {};
-            var fpsCap = perf.fps_captura || {};
-            var fpsWeb = perf.fps_web || {};
-
             [1, 2].forEach(function (n) {
                 var info = reales['cam' + n];
                 var vista = document.getElementById('cam' + n + '-view');
-
-                if (info && info.ancho && info.alto) {
-                    texto('res-' + n, info.ancho + 'x' + info.alto +
-                          (info.fourcc ? ' ' + info.fourcc : '') +
-                          (info.fps ? ' @' + info.fps : ''));
-                    if (vista && info.proporcion) {
-                        // --ar  : proporción para aspect-ratio (ancho / alto)
-                        // --arnum: la misma en número, para el calc() que
-                        //          limita el ancho al alto máximo permitido.
-                        vista.style.setProperty('--ar', info.ancho + ' / ' + info.alto);
-                        vista.style.setProperty('--arnum', (info.ancho / info.alto).toFixed(4));
-                    }
-                    // Ancho emitido: el perfil web manda; si no se fijó, se
-                    // emite a la resolución nativa de la cámara.
-                    var wAncho = web.ancho || info.ancho;
-                    var wAlto = web.alto || Math.round(wAncho * info.alto / info.ancho);
-                    texto('web-res-' + n, wAncho + 'x' + wAlto);
-                } else {
-                    texto('res-' + n, 'sin cámara');
-                    texto('web-res-' + n, '—');
-                }
-                texto('cap-fps-' + n, fpsCap['cam' + n] || 0);
-                texto('web-fps-' + n, fpsWeb['cam' + n] || 0);
-                texto('web-q-' + n, web.calidad ? (web.calidad + ' / máx ' + web.fps_max + ' fps') : '—');
-
-                // Quién manda: si es "camara", optimizar Python no servirá de
-                // nada; hay que tocar resolución, formato o exposición.
-                var cuello = perf['cuello_cam' + n];
-                var el = document.getElementById('cuello-' + n);
-                if (el) {
-                    el.textContent = cuello ? ('manda: ' + cuello) : '';
-                    el.className = (cuello === 'camara') ? 'warn' : '';
-                }
+                if (!vista || !info || !info.ancho || !info.alto) { return; }
+                // --ar  : proporción para aspect-ratio (ancho / alto)
+                // --arnum: la misma en número, para el calc() que limita el
+                //          ancho al alto máximo permitido.
+                vista.style.setProperty('--ar', info.ancho + ' / ' + info.alto);
+                vista.style.setProperty('--arnum', (info.ancho / info.alto).toFixed(4));
             });
         }
 
-        function updatePosition(data) {
-            // Reset all cells
-            document.querySelectorAll('.position-cell').forEach(cell => {
-                cell.classList.remove('active');
-            });
-            
-            // Activate corresponding cell
-            let cellId = 'pos-';
-            if (data.y === 'up') cellId += 't';
-            else if (data.y === 'center') cellId += 'c';
-            else if (data.y === 'down') cellId += 'b';
-            
-            if (data.x === 'left') cellId += 'l';
-            else if (data.x === 'center') cellId += 'c';
-            else if (data.x === 'right') cellId += 'r';
-            
-            const cell = document.getElementById(cellId);
-            if (cell) cell.classList.add('active');
-        }
-        
         function loadVideos() {
             fetch('/api/videos')
                 .then(response => response.json())
@@ -2426,29 +2250,20 @@ HTML_TEMPLATE = """
                 });
         }
         
+        // Solo queda la pestaña de vídeos, pero se conserva la función porque
+        // el botón "Ver Videos Grabados" la llama: lleva a la lista y la
+        // recarga, que es lo que se espera al pulsarlo.
         function showTab(tabName) {
-            // Update tab buttons
-            document.querySelectorAll('.tab-button').forEach(btn => {
-                btn.classList.remove('active');
+            var panel = document.getElementById(tabName + '-tab');
+            if (!panel) { return; }
+            document.querySelectorAll('.tab-content').forEach(function (c) {
+                c.classList.remove('active');
             });
-            
-            document.querySelectorAll('.tab-button').forEach(btn => {
-                if (btn.textContent.includes(tabName.charAt(0).toUpperCase() + tabName.slice(1))) {
-                    btn.classList.add('active');
-                }
-            });
-            
-            // Update tab content
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            document.getElementById(tabName + '-tab').classList.add('active');
+            panel.classList.add('active');
             currentTab = tabName;
-            
-            // Load videos if showing videos tab
             if (tabName === 'videos') {
                 loadVideos();
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
         
@@ -2538,6 +2353,16 @@ HTML_TEMPLATE = """
             if (p && typeof p.catch === 'function') {
                 p.catch(function () { _entrarPseudoFS(el); });
             }
+            //  RED DE SEGURIDAD: hay navegadores (y navegadores embebidos en
+            //  apps) donde requestFullscreen ni lanza, ni rechaza la promesa,
+            //  ni entra: simplemente no hace nada, y el botón parece roto. Se
+            //  comprueba poco después si de verdad enganchó; si no, se usa el
+            //  respaldo, que es CSS puro y funciona en todas partes.
+            setTimeout(function () {
+                if (!_fsNativa() && !el.classList.contains('pseudo-fs')) {
+                    _entrarPseudoFS(el);
+                }
+            }, 350);
             _pintarBotonFS();
         }
 
@@ -2563,30 +2388,12 @@ HTML_TEMPLATE = """
                 .catch(error => console.error('Error:', error));
         }
         
-        function optimizeCamera(cameraIndex) {
-            fetch('/optimize_camera', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ camera_index: cameraIndex })
-            })
-            .then(response => response.json())
-            .then(data => {
-                alert('Cámara ' + (cameraIndex + 1) + ' optimizada: ' + data.message);
-            })
-            .catch(error => console.error('Error:', error));
-        }
-        
-        function centerCamera() {
-            fetch('/center_camera', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    alert('Servomotores centrados');
-                })
-                .catch(error => console.error('Error:', error));
-        }
-        
+        // Se quitaron optimizeCamera() y centerCamera(): sus botones vivían en
+        // la pestaña "Configuración", que ya no existe. Centrar servomotores
+        // además no hacía nada en este robot (la cámara va fija). Las rutas
+        // /optimize_camera y /center_camera siguen en la API por si algo
+        // externo las usa.
+
         function playVideo(filename, camera) {
             window.open(`/play_video/${camera}/${filename}`, '_blank');
         }
@@ -2603,11 +2410,6 @@ HTML_TEMPLATE = """
                 })
                 .catch(error => console.error('Error obteniendo datos:', error));
         }
-        
-        // Direccion y puerto REALES con los que se entro a esta pagina
-        document.getElementById('current-ip').textContent = window.location.hostname;
-        document.getElementById('current-port').textContent =
-            window.location.port || '80';
         
         // Start updates
         function startUpdates() {
@@ -2626,7 +2428,7 @@ HTML_TEMPLATE = """
             }
         }
         
-        // ===== Botonera de movimiento y trucos =====
+        // ===== Botonera de movimiento =====
         //  Los botones se construyen a partir de /movimientos, que devuelve la
         //  MISMA lista que usan el firmware y el mando PS2. Asi no hay nombres
         //  duplicados a mano que puedan quedar desincronizados.
@@ -2698,13 +2500,8 @@ HTML_TEMPLATE = """
                 .catch(() => _avisoVelocidad('Sin conexión con el robot'));
         }
 
-        function lanzarTruco(n) {
-            fetch('/truco', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ truco: n })
-            }).catch(() => {});
-        }
+        // Se quitó lanzarTruco(): los cuatro botones de trucos ya no están en
+        // la web. La ruta /truco sigue existiendo y el mando PS2 los conserva.
 
         (function construirBotonera() {
             const grid = document.getElementById('mov-grid');
@@ -2789,13 +2586,23 @@ HTML_TEMPLATE = """
                 let dragging = false;
                 function handle(clientX, clientY) {
                     const r = base.getBoundingClientRect();
+                    const rs = stick.getBoundingClientRect();
                     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
                     let dx = clientX - cx, dy = clientY - cy;
-                    const max = r.width / 2 - 30;
+                    //  EL RECORRIDO Y EL UMBRAL SE CALCULAN DEL TAMAÑO REAL.
+                    //  Antes eran dos números fijos en píxeles: recorrido
+                    //  "ancho/2 - 30" y umbral 14. Con la base reducida a 88 px
+                    //  en móvil, el recorrido salía 44-30 = 14 exactos, o sea
+                    //  IGUAL que el umbral: la condición dy < -14 nunca se
+                    //  cumplía y el joystick no registraba NINGUNA dirección.
+                    //  Ahora el recorrido es el hueco real entre la bola y el
+                    //  borde, y el umbral una cuarta parte de ese recorrido,
+                    //  así que funciona igual a cualquier tamaño.
+                    const max = Math.max(8, (r.width - rs.width) / 2);
+                    const th = max * 0.25;
                     const dist = Math.hypot(dx, dy) || 1;
                     if (dist > max) { dx = dx / dist * max; dy = dy / dist * max; }
                     stick.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-                    const th = 14;
                     activeDirs.clear();
                     if (dx > th) activeDirs.add('d'); else if (dx < -th) activeDirs.add('a');
                     if (dy < -th) activeDirs.add('w'); else if (dy > th) activeDirs.add('s');
@@ -3515,10 +3322,10 @@ def start_capture(person_name):
     current_capture_name = person_name
     captured_images = 0
     
-    messagebox.showinfo("Captura Iniciada", 
-                       f"Se capturarán {IMAGES_PER_PERSON} imágenes de {person_name}.\n"
-                       f"Posicione su rostro frente a la cámara 1.\n"
-                       f"Mueva su cabeza ligeramente para diferentes ángulos.")
+    #  Se mantiene el aviso (si no, la captura arrancaría sin ninguna señal),
+    #  pero sin el paso a paso de "posicione su rostro / mueva la cabeza".
+    messagebox.showinfo("Captura Iniciada",
+                       f"Capturando {IMAGES_PER_PERSON} imágenes de {person_name}.")
 
 def delete_person():
     """Eliminar una persona del sistema"""
@@ -3654,12 +3461,11 @@ def train_system():
             cargar_etiquetas_lbph()
 
             progress_window.destroy()
+            #  El instructivo de calibración se movió al README (sección
+            #  "Umbral del reconocimiento facial"); aquí solo el resultado.
             messagebox.showinfo("Entrenamiento Completo",
-                               f"El sistema ha sido entrenado exitosamente con {len(persons)} personas.\n\n"
-                               f"Umbral de reconocimiento actual: {CONF_LIMIT:.0f}\n"
-                               "Actívalo y mira la consola: cada cara imprime su\n"
-                               "distancia real ([lbph] distancia=...), que es lo que\n"
-                               "necesitas para ajustar MEDIBOT_LBPH_UMBRAL.")
+                               f"Entrenado con {len(persons)} personas.\n"
+                               f"Umbral de reconocimiento: {CONF_LIMIT:.0f}")
 
         except Exception as e:
             progress_window.destroy()
@@ -3844,12 +3650,8 @@ def abrir_pastillero_dividido():
     root.geometry(f"{half}x{sh}+0+0")
     # Pastillero en la mitad derecha
     _abrir_navegador_pastillero(half, 0, sw - half, sh)
-    messagebox.showinfo("Pillbox",
-        "Pillbox iniciado en pantalla dividida.\n\n"
-        "Izquierda: Medibot\n"
-        f"Derecha: Pillbox (http://127.0.0.1:{PASTILLERO_PORT})\n\n"
-        "Nota COM: Medibot y Pillbox comparten el mismo Arduino a través del "
-        "hub serial (serial_hub.py), así que ambos usan el puerto COM sin conflicto.")
+    #  Sin el texto explicativo de "izquierda/derecha" ni la nota sobre el hub
+    #  serial: se ve en pantalla al momento y el hub es un detalle interno.
 
 # ================= CONTROL PRINCIPAL ===================
 def toggle_system():
@@ -3880,10 +3682,9 @@ def toggle_system():
 
         # Iniciar procesamiento de ambas cámaras
         if start_camera_processing():
+            #  Solo el estado, sin el instructivo de "accede desde el movil":
+            #  las direcciones ya están permanentemente en la pestaña Gestión.
             messagebox.showinfo("Sistema Activo",
-                f"Medibot iniciado correctamente.\n\n"
-                f"Accede desde el móvil u otro PC de la misma red:\n"
-                + medibot_red.texto_urls(VISION_WEB_PORT) + "\n\n"
                 f"Cámara 1: {'ACTIVA' if camera1 is not None else 'INACTIVA'}\n"
                 f"Cámara 2: {'ACTIVA' if camera2 is not None else 'INACTIVA'}\n"
                 f"Reconocimiento facial: {'ACTIVADO' if recognizer else 'DESACTIVADO'}")
@@ -4453,19 +4254,17 @@ api_frame.pack(fill=tk.X, padx=20, pady=10)
 # redes (cable y WiFi) se listan TODAS: el movil solo alcanza la de su red.
 _ips_lan = medibot_red.listar_ips_lan()
 ip_address = get_ip()
+#  Solo las direcciones, sin instrucciones ni listado de APIs: las direcciones
+#  son un DATO que hace falta (no se pueden adivinar y cambian de red en red),
+#  mientras que el resto era texto explicativo que no aporta al manejo diario.
 if _ips_lan:
-    api_text = "Entra desde el movil u otro PC de la misma red:\n"
+    api_text = ""
     for _iface, _ip in _ips_lan:
-        api_text += f"• http://{_ip}:{VISION_WEB_PORT}   ({_iface})\n"
-    api_text += f"\nPillbox:  http://{_ips_lan[0][1]}:{PASTILLERO_PORT}\n"
+        api_text += f"Medibot:  http://{_ip}:{VISION_WEB_PORT}   ({_iface})\n"
+    api_text += f"Pillbox:  http://{_ips_lan[0][1]}:{PASTILLERO_PORT}"
 else:
     api_text = ("SIN RED: este equipo no esta conectado a ninguna WiFi ni cable,\n"
-                "asi que NINGUN otro dispositivo puede entrar todavia.\n"
-                "Conecta la Raspberry a la red y reinicia.\n\n")
-api_text += (f"\nAPIs (sobre la misma direccion):\n"
-             f"• /api/all (todos los datos)\n"
-             f"• /api/esp32 (datos compactos ESP32)\n"
-             f"• /api/videos (lista videos ordenados)")
+                "asi que ningun otro dispositivo puede entrar todavia.")
 
 tk.Label(api_frame,
          text=api_text,
@@ -4726,7 +4525,7 @@ def make_joystick(parent, size=160):
 joy_frame = tk.Frame(monitoring_main_frame, bg=bg_color, pady=6)
 joy_frame.pack(before=control_frame, fill=tk.X)
 
-tk.Label(joy_frame, text="CONTROL DE MOVIMIENTO (teclas W / A / S / D o ratón)",
+tk.Label(joy_frame, text="MOVIMIENTO",
          font=("Arial", 10, "bold"), bg=bg_color, fg=accent_color).pack(pady=(4, 2))
 
 joy_canvas, move_status_label, _joy_kp, _joy_kr = make_joystick(joy_frame, size=160)
