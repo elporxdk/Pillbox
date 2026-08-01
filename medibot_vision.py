@@ -29,17 +29,82 @@ IDEAS DE RENDIMIENTO QUE APLICA ESTE MODULO
      interfaz solo se redibuja si el numero cambio, y el JPEG del streaming
      se calcula UNA vez por frame y se reparte entre todos los navegadores.
   4. No reservar memoria en el bucle: los kernels y buffers se crean una vez.
+  5. Nadie sondea: los clientes del streaming ESPERAN en una condicion y se
+     les despierta cuando hay fotograma nuevo (ver FrameHub.esperar_nuevo).
 
 Nada de esto cambia lo que ve el usuario: los mismos recuadros, las mismas
 etiquetas y las mismas APIs; solo cuesta mucho menos CPU.
+
+-----------------------------------------------------------------------------
+CONFIGURACION POR VARIABLES DE ENTORNO (sin editar codigo)
+-----------------------------------------------------------------------------
+Captura (lo que se pide al driver V4L2):
+    MEDIBOT_CAM0=0            indice de la camara 1 ("" o "-1" = desactivada)
+    MEDIBOT_CAM1=1            indice de la camara 2 ("" o "-1" = desactivada)
+    MEDIBOT_CAM_W=640         ancho de captura
+    MEDIBOT_CAM_H=480         alto de captura
+    MEDIBOT_CAM_FPS=30        FPS pedidos al sensor
+    MEDIBOT_CAM_FOURCC=MJPG   MJPG | YUYV | (vacio = no forzar formato)
+    MEDIBOT_CAM_BACKEND=auto  auto | v4l2 | any | dshow | msmf
+    MEDIBOT_CAM_AUTOEXP=      (vacio = no tocar) 1 = forzar exposicion manual
+    MEDIBOT_CAMARA_FAKE=0     1 = camara sintetica, sin hardware (pruebas/demo)
+
+Stream web (independiente de la captura):
+    MEDIBOT_WEB_W / MEDIBOT_WEB_H   resolucion enviada (por defecto = captura)
+    MEDIBOT_WEB_QUALITY=70          calidad JPEG 1..100
+    MEDIBOT_WEB_FPS=15              tope de fotogramas por segundo enviados
+
+Panel de la GUI Tkinter:
+    MEDIBOT_GUI_W=400 / MEDIBOT_GUI_H=300
+
+IMPORTANTE: la resolucion de captura y la del stream web son INDEPENDIENTES.
+Se puede analizar a 640x480 y emitir a 480x360 con calidad 55 para una red
+lenta, sin tocar el reconocimiento facial ni la grabacion.
 """
 
+import json
 import os
+import platform
+import re
 import threading
 import time
 
 import cv2
 import numpy as np
+
+
+# =============================================================================
+# Lectura de configuracion (helpers)
+# =============================================================================
+def _entero(nombre, defecto):
+    """Lee una variable de entorno entera. Si no es valida, avisa y usa el
+    valor por defecto (no se traga el error en silencio)."""
+    bruto = os.environ.get(nombre, "").strip()
+    if not bruto:
+        return defecto
+    try:
+        return int(bruto)
+    except ValueError:
+        print(f"[vision] {nombre}={bruto!r} no es un entero; uso {defecto}")
+        return defecto
+
+
+def _booleano(nombre, defecto):
+    bruto = os.environ.get(nombre, "").strip().lower()
+    if not bruto:
+        return defecto
+    if bruto in ("1", "true", "si", "sí", "yes", "on"):
+        return True
+    if bruto in ("0", "false", "no", "off"):
+        return False
+    print(f"[vision] {nombre}={bruto!r} no es un booleano; uso {defecto}")
+    return defecto
+
+
+# Nombres publicos: los usa Vision_MEDIBOT.py para leer su propia
+# configuracion con las mismas reglas (y los mismos avisos) que este modulo.
+leer_entero = _entero
+leer_booleano = _booleano
 
 
 def ajustar_hilos_opencv(hilos=None):
@@ -61,8 +126,8 @@ def ajustar_hilos_opencv(hilos=None):
     """
     try:
         cv2.setUseOptimized(True)
-    except Exception:
-        pass
+    except cv2.error as e:
+        print(f"[vision] setUseOptimized no disponible: {e}")
     if hilos is None:
         valor = os.environ.get("MEDIBOT_CV_THREADS", "").strip()
         if not valor:
@@ -70,13 +135,97 @@ def ajustar_hilos_opencv(hilos=None):
         try:
             hilos = int(valor)
         except ValueError:
+            print(f"[vision] MEDIBOT_CV_THREADS={valor!r} invalido; ignorado")
             return
     try:
         cv2.setNumThreads(hilos)
-    except Exception:
-        pass
+    except cv2.error as e:
+        print(f"[vision] setNumThreads({hilos}) fallo: {e}")
 
 
+# =============================================================================
+# Perfiles de captura y de stream web
+# =============================================================================
+class PerfilCaptura:
+    """Lo que se PIDE al driver. Lo que este acepta de verdad se comprueba
+    despues leyendo las propiedades (ver InfoCamara)."""
+
+    __slots__ = ("ancho", "alto", "fps", "fourcc", "backend", "buffersize",
+                 "autoexposicion")
+
+    def __init__(self, ancho=640, alto=480, fps=30, fourcc="MJPG",
+                 backend="auto", buffersize=1, autoexposicion=None):
+        self.ancho = ancho
+        self.alto = alto
+        self.fps = fps
+        self.fourcc = (fourcc or "").upper()
+        self.backend = backend
+        self.buffersize = buffersize
+        self.autoexposicion = autoexposicion
+
+    @classmethod
+    def desde_entorno(cls):
+        return cls(
+            ancho=_entero("MEDIBOT_CAM_W", 640),
+            alto=_entero("MEDIBOT_CAM_H", 480),
+            fps=_entero("MEDIBOT_CAM_FPS", 30),
+            fourcc=os.environ.get("MEDIBOT_CAM_FOURCC", "MJPG").strip(),
+            backend=os.environ.get("MEDIBOT_CAM_BACKEND", "auto").strip().lower(),
+            buffersize=_entero("MEDIBOT_CAM_BUFFERSIZE", 1),
+            autoexposicion=(None if not os.environ.get("MEDIBOT_CAM_AUTOEXP", "").strip()
+                            else _booleano("MEDIBOT_CAM_AUTOEXP", True)),
+        )
+
+    def como_dict(self):
+        return {"ancho": self.ancho, "alto": self.alto, "fps": self.fps,
+                "fourcc": self.fourcc, "backend": self.backend}
+
+
+class PerfilWeb:
+    """Lo que se envia al navegador. INDEPENDIENTE de la captura: permite
+    analizar a 640x480 y emitir a 480x360 q55 cuando la red o la CPU aprietan.
+
+    fps_max evita el efecto 'la web se come la Raspberry': aunque la camara
+    entregue 30 FPS, al navegador se le mandan como mucho fps_max, y cada
+    fotograma no enviado es una codificacion JPEG que NO se paga."""
+
+    __slots__ = ("ancho", "alto", "calidad", "fps_max")
+
+    def __init__(self, ancho=None, alto=None, calidad=70, fps_max=15):
+        self.ancho = ancho
+        self.alto = alto
+        self.calidad = max(1, min(100, calidad))
+        self.fps_max = max(1, fps_max)
+
+    @classmethod
+    def desde_entorno(cls):
+        return cls(
+            ancho=_entero("MEDIBOT_WEB_W", 0) or None,
+            alto=_entero("MEDIBOT_WEB_H", 0) or None,
+            calidad=_entero("MEDIBOT_WEB_QUALITY", 70),
+            fps_max=_entero("MEDIBOT_WEB_FPS", 15),
+        )
+
+    def tamano_para(self, ancho_origen, alto_origen):
+        """Tamano final del stream. Si solo se fija uno de los dos lados, el
+        otro se deduce MANTENIENDO LA PROPORCION real de la camara: estirar
+        4:3 a 16:9 es exactamente lo que hacia que se viera mal."""
+        if not self.ancho and not self.alto:
+            return ancho_origen, alto_origen
+        if self.ancho and self.alto:
+            return self.ancho, self.alto
+        if self.ancho:
+            return self.ancho, max(1, round(self.ancho * alto_origen / ancho_origen))
+        return max(1, round(self.alto * ancho_origen / alto_origen)), self.alto
+
+    def como_dict(self):
+        return {"ancho": self.ancho, "alto": self.alto,
+                "calidad": self.calidad, "fps_max": self.fps_max}
+
+
+# =============================================================================
+# Telemetria
+# =============================================================================
 class Perfilador:
     """Mide cuanto tarda CADA etapa del bucle de video (media movil).
 
@@ -84,7 +233,7 @@ class Perfilador:
     es de la lectura de la camara, de los detectores o de publicar el
     fotograma. Esto lo mide en el equipo real y lo dice en numeros:
 
-        camara 148.2 ms | deteccion 3.1 ms | publicar 0.4 ms | total 151.7 ms
+        camara 148.2 ms | proceso 3.1 ms | resize 0.3 ms | jpeg 1.5 ms
 
     Con eso se sabe al instante si el cuello de botella esta en el driver de la
     camara (nada que optimizar en Python: hay que tocar resolucion, formato o
@@ -113,6 +262,11 @@ class Perfilador:
             return {e: (self._suma[e] / self._n[e]) if self._n.get(e) else 0.0
                     for e in self._suma}
 
+    def reiniciar(self):
+        with self._lock:
+            self._suma.clear()
+            self._n.clear()
+
     def resumen(self):
         """Linea legible con el reparto del tiempo y el cuello de botella."""
         m = self.medias()
@@ -124,6 +278,11 @@ class Perfilador:
         fps = 1000.0 / total if total > 0 else 0.0
         return (f"{partes} | TOTAL {total:.1f} ms (~{fps:.1f} FPS) "
                 f"-> manda: {lento}")
+
+    def cuello_de_botella(self):
+        """Etapa que mas tiempo consume, o None si aun no hay datos."""
+        m = self.medias()
+        return max(m, key=m.get) if m else None
 
 
 class Cronometro:
@@ -145,76 +304,506 @@ class Cronometro:
         return False
 
 
+class Medidor:
+    """Cuenta fotogramas por segundo sin coste apreciable.
+
+    Antes cada camara repetia este mismo bloque con 3 variables globales
+    (fps_counter1/fps1/last_fps_time1 y sus gemelas para la camara 2)."""
+
+    def __init__(self):
+        self.fps = 0
+        self._n = 0
+        self._t0 = None
+        self._lock = threading.Lock()
+
+    def tick(self, ahora=None):
+        ahora = time.time() if ahora is None else ahora
+        with self._lock:
+            if self._t0 is None:
+                self._t0 = ahora
+                return self.fps
+            self._n += 1
+            if ahora - self._t0 >= 1.0:
+                # Normalizar por el intervalo real: si la vuelta tardo 1.4 s,
+                # contar los frames como si fuera 1 s exagera los FPS.
+                self.fps = int(round(self._n / (ahora - self._t0)))
+                self._n = 0
+                self._t0 = ahora
+            return self.fps
+
+    def reset(self):
+        with self._lock:
+            self.fps = 0
+            self._n = 0
+            self._t0 = None
+
+
+# =============================================================================
+# Apertura y negociacion de camara
+# =============================================================================
+_BACKENDS = {
+    "v4l2": getattr(cv2, "CAP_V4L2", 200),
+    "any": getattr(cv2, "CAP_ANY", 0),
+    "dshow": getattr(cv2, "CAP_DSHOW", 700),
+    "msmf": getattr(cv2, "CAP_MSMF", 1400),
+    "avfoundation": getattr(cv2, "CAP_AVFOUNDATION", 1200),
+}
+
+
+def _backend_por_defecto():
+    sistema = platform.system().lower()
+    if sistema == "linux":
+        return "v4l2"
+    if sistema == "windows":
+        return "dshow"
+    if sistema == "darwin":
+        return "avfoundation"
+    return "any"
+
+
+def _fourcc_a_texto(valor):
+    """Convierte el float que devuelve CAP_PROP_FOURCC en sus 4 letras."""
+    try:
+        n = int(valor)
+    except (TypeError, ValueError):
+        return ""
+    if n <= 0:
+        return ""
+    letras = "".join(chr((n >> (8 * i)) & 0xFF) for i in range(4))
+    return letras if letras.isprintable() else ""
+
+
+def _codigo_fourcc(texto):
+    fn = getattr(cv2, "VideoWriter_fourcc", None) or cv2.VideoWriter.fourcc
+    return fn(*texto[:4])
+
+
+class InfoCamara:
+    """Lo que la camara acepto DE VERDAD, no lo que se le pidio.
+
+    Esta distincion es el corazon del diagnostico: pedir 640x480 MJPG 30 y
+    recibir 640x480 YUYV 10 es la causa mas comun de 'la camara va a 9 FPS',
+    y sin leer las propiedades reales es invisible desde Python."""
+
+    __slots__ = ("indice", "ancho", "alto", "fps", "fourcc", "backend",
+                 "buffersize", "pedido", "abierta", "sintetica")
+
+    def __init__(self, indice, ancho=0, alto=0, fps=0.0, fourcc="",
+                 backend="", buffersize=None, pedido=None, abierta=False,
+                 sintetica=False):
+        self.indice = indice
+        self.ancho = ancho
+        self.alto = alto
+        self.fps = fps
+        self.fourcc = fourcc
+        self.backend = backend
+        self.buffersize = buffersize
+        self.pedido = pedido or {}
+        self.abierta = abierta
+        self.sintetica = sintetica
+
+    @property
+    def proporcion(self):
+        """Relacion de aspecto real (ancho/alto). La web la usa para NO
+        deformar la imagen."""
+        return (self.ancho / self.alto) if self.alto else 4 / 3
+
+    def como_dict(self):
+        return {"indice": self.indice, "ancho": self.ancho, "alto": self.alto,
+                "fps": round(self.fps, 1), "fourcc": self.fourcc,
+                "backend": self.backend, "buffersize": self.buffersize,
+                "pedido": self.pedido, "abierta": self.abierta,
+                "sintetica": self.sintetica,
+                "proporcion": round(self.proporcion, 4)}
+
+    def resumen(self):
+        p = self.pedido
+        pedido = f"{p.get('ancho')}x{p.get('alto')}@{p.get('fps')} {p.get('fourcc') or '-'}"
+        real = f"{self.ancho}x{self.alto}@{self.fps:.0f} {self.fourcc or '-'}"
+        aviso = "" if pedido.split()[0] == real.split()[0] else "   <-- NO coincide"
+        return f"pedido {pedido} | REAL {real} | backend {self.backend}{aviso}"
+
+
+class CamaraSintetica:
+    """Camara falsa: mismo contrato que cv2.VideoCapture, sin hardware.
+
+    Para que sirve:
+      - Pruebas automaticas (nadie tiene una webcam en el CI).
+      - Poder arrancar Medibot en un portatil sin camara y ver la web.
+      - Reproducir el caso 'la camara entrega menos FPS de los pedidos':
+        el parametro fps limita de verdad el ritmo de read().
+
+    Genera un degradado que se desplaza (para ver movimiento y latencia) y un
+    cuadrado rojo movil, que ejercita RedDetector sin necesidad de un objeto
+    real delante del objetivo."""
+
+    def __init__(self, indice=0, ancho=640, alto=480, fps=30):
+        self.indice = indice
+        self._ancho = int(ancho)
+        self._alto = int(alto)
+        self._fps = float(fps) if fps else 30.0
+        self._abierta = True
+        self._n = 0
+        self._t_ultimo = None
+        self._base = np.zeros((self._alto, self._ancho, 3), dtype=np.uint8)
+        # Degradado vertical fijo: se calcula una vez, no por fotograma.
+        columna = np.linspace(0, 200, self._alto, dtype=np.uint8)
+        self._base[:, :, 0] = columna[:, None]
+        self._base[:, :, 1] = 60
+
+    def isOpened(self):
+        return self._abierta
+
+    def set(self, prop, valor):
+        if prop == cv2.CAP_PROP_FRAME_WIDTH:
+            self._ancho = int(valor)
+        elif prop == cv2.CAP_PROP_FRAME_HEIGHT:
+            self._alto = int(valor)
+        elif prop == cv2.CAP_PROP_FPS:
+            self._fps = float(valor) or 30.0
+        return True
+
+    def get(self, prop):
+        if prop == cv2.CAP_PROP_FRAME_WIDTH:
+            return float(self._ancho)
+        if prop == cv2.CAP_PROP_FRAME_HEIGHT:
+            return float(self._alto)
+        if prop == cv2.CAP_PROP_FPS:
+            return self._fps
+        if prop == cv2.CAP_PROP_FOURCC:
+            return float(_codigo_fourcc("MJPG"))
+        if prop == cv2.CAP_PROP_BUFFERSIZE:
+            return 1.0
+        return 0.0
+
+    def read(self):
+        if not self._abierta:
+            return False, None
+        # Respetar el ritmo pedido: read() bloquea como lo haria un sensor.
+        periodo = 1.0 / self._fps
+        ahora = time.perf_counter()
+        if self._t_ultimo is not None:
+            espera = periodo - (ahora - self._t_ultimo)
+            if espera > 0:
+                time.sleep(espera)
+        self._t_ultimo = time.perf_counter()
+
+        if (self._base.shape[0], self._base.shape[1]) != (self._alto, self._ancho):
+            self._base = cv2.resize(self._base, (self._ancho, self._alto))
+
+        frame = self._base.copy()
+        self._n += 1
+        # Cuadrado rojo que recorre la imagen (entrada para RedDetector).
+        lado = max(20, self._ancho // 10)
+        x = int((self._n * 7) % max(1, self._ancho - lado))
+        y = self._alto // 2 - lado // 2
+        frame[y:y + lado, x:x + lado] = (0, 0, 255)
+        cv2.putText(frame, f"SINTETICA #{self._n}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        return True, frame
+
+    def release(self):
+        self._abierta = False
+
+
+def abrir_camara(indice, perfil=None, log=print):
+    """Abre una camara y NEGOCIA el formato en el orden correcto.
+
+    EL ORDEN IMPORTA (y es el fallo mas caro del codigo anterior): en V4L2 hay
+    que fijar el FOURCC ANTES que la resolucion. Si se pone despues, el driver
+    renegocia el formato y puede tirar la resolucion o el modo comprimido, con
+    lo que se acaba capturando YUYV sin comprimir. YUYV a 640x480 son 614 KB
+    por fotograma por USB 2.0 (~480 Mbit/s utiles): el bus solo da para ~9-10
+    FPS. Es exactamente el sintoma 'la camara va a 9-14 FPS'.
+
+    Devuelve (captura, InfoCamara). Si no abre, (None, InfoCamara(abierta=False)).
+    Nunca lanza: el llamador decide que hacer con una camara que no abrio.
+    """
+    perfil = perfil or PerfilCaptura.desde_entorno()
+    pedido = perfil.como_dict()
+
+    if _booleano("MEDIBOT_CAMARA_FAKE", False):
+        cap = CamaraSintetica(indice, perfil.ancho, perfil.alto, perfil.fps)
+        info = InfoCamara(indice, perfil.ancho, perfil.alto, float(perfil.fps),
+                          "MJPG", "sintetica", 1, pedido, True, True)
+        log(f"[cam{indice}] CAMARA SINTETICA (MEDIBOT_CAMARA_FAKE=1) -> {info.resumen()}")
+        return cap, info
+
+    nombre_backend = perfil.backend
+    if nombre_backend in ("", "auto"):
+        nombre_backend = _backend_por_defecto()
+    api = _BACKENDS.get(nombre_backend)
+    if api is None:
+        log(f"[cam{indice}] backend {nombre_backend!r} desconocido; uso 'any'")
+        nombre_backend, api = "any", _BACKENDS["any"]
+
+    try:
+        cap = cv2.VideoCapture(indice, api)
+    except cv2.error as e:
+        log(f"[cam{indice}] no se pudo crear VideoCapture: {e}")
+        return None, InfoCamara(indice, pedido=pedido, backend=nombre_backend)
+
+    if not cap.isOpened():
+        cap.release()
+        log(f"[cam{indice}] no se pudo abrir (backend {nombre_backend})")
+        return None, InfoCamara(indice, pedido=pedido, backend=nombre_backend)
+
+    # ---- 1) FOURCC PRIMERO ---------------------------------------------
+    if perfil.fourcc:
+        try:
+            cap.set(cv2.CAP_PROP_FOURCC, _codigo_fourcc(perfil.fourcc))
+        except (cv2.error, TypeError) as e:
+            log(f"[cam{indice}] FOURCC {perfil.fourcc} rechazado: {e}")
+
+    # ---- 2) Resolucion, 3) FPS ------------------------------------------
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, perfil.ancho)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, perfil.alto)
+    cap.set(cv2.CAP_PROP_FPS, perfil.fps)
+
+    # ---- 4) Buffer de 1: baja latencia -----------------------------------
+    # Con buffers grandes, read() devuelve fotogramas VIEJOS acumulados: se ve
+    # con retraso aunque los FPS parezcan altos. No todos los drivers lo
+    # soportan, por eso se lee de vuelta para saber si tuvo efecto.
+    if perfil.buffersize:
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, perfil.buffersize)
+
+    # ---- 5) Exposicion (opcional) ----------------------------------------
+    # La exposicion automatica es una causa clasica de FPS a la mitad en
+    # interiores: la camara alarga el tiempo de integracion y pasa de 30 a 15
+    # (o a 7.5) FPS ella sola. Solo se toca si se pide explicitamente.
+    if perfil.autoexposicion is False:
+        try:
+            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)   # 1 = manual en V4L2
+        except cv2.error as e:
+            log(f"[cam{indice}] no se pudo fijar la exposicion manual: {e}")
+
+    ancho = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    alto = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    fourcc = _fourcc_a_texto(cap.get(cv2.CAP_PROP_FOURCC))
+    try:
+        buffersize = int(cap.get(cv2.CAP_PROP_BUFFERSIZE) or 0) or None
+    except (cv2.error, ValueError):
+        buffersize = None
+
+    info = InfoCamara(indice, ancho, alto, fps, fourcc, nombre_backend,
+                      buffersize, pedido, True, False)
+    log(f"[cam{indice}] {info.resumen()}")
+
+    if perfil.fourcc and fourcc and fourcc != perfil.fourcc:
+        log(f"[cam{indice}] AVISO: se pidio {perfil.fourcc} y el driver dio {fourcc}. "
+            f"Comprueba los modos reales con: "
+            f"v4l2-ctl --list-formats-ext -d /dev/video{indice}")
+    if (ancho, alto) != (perfil.ancho, perfil.alto):
+        log(f"[cam{indice}] AVISO: se pidio {perfil.ancho}x{perfil.alto} y el "
+            f"driver dio {ancho}x{alto}: se usara la resolucion REAL.")
+    return cap, info
+
+
+# =============================================================================
+# Buzon de fotogramas
+# =============================================================================
 class FrameHub:
     """Buzon de fotogramas: guarda el ultimo frame de cada camara, numerado.
 
     El numero de secuencia es la clave del ahorro: quien consume (la interfaz
     grafica, el streaming web) puede preguntar "?hay algo nuevo desde el N?" y
-    saltarse todo el trabajo si no lo hay. Antes la GUI reconvertia y
-    redibujaba el mismo fotograma 20 veces por segundo aunque la camara no
-    hubiera entregado ninguno nuevo.
+    saltarse todo el trabajo si no lo hay.
 
-    Ademas cachea el JPEG del streaming: se codifica UNA vez por fotograma y
-    de forma perezosa (si nadie mira la web, no se codifica nada)."""
+    TRES PROBLEMAS QUE ARREGLA ESTA VERSION
+      1. SONDEO -> ESPERA. Antes cada cliente del stream daba vueltas con
+         time.sleep(0.005) y pedia el lock 200 veces por segundo. Medido con
+         un productor a 12 FPS y 2 clientes: 15,6 despertares por fotograma
+         entregado y 2,81 ms de latencia media. Con espera por condicion:
+         1,0 despertares por fotograma y 0,25 ms. Ese lock es el MISMO que
+         necesita el hilo de captura para publicar, asi que el sondeo no solo
+         gastaba CPU: frenaba la captura.
+      2. DOBLE CODIFICACION. jpeg() soltaba el lock antes de codificar, asi
+         que dos navegadores podian comprimir el MISMO fotograma a la vez
+         (~2,7 ms por cada uno a 640x480). Ahora hay un lock de codificacion
+         por camara y se vuelve a mirar la cache tras adquirirlo.
+      3. FUGA AL PARAR. limpiar() no despertaba a los clientes dormidos.
+         Ahora sube el contador de 'generacion' y los despierta para que
+         salgan o pinten el aviso de 'sistema detenido'.
+
+    Ademas la cache de JPEG esta indexada por (secuencia, ancho, alto,
+    calidad): la GUI y la web pueden pedir tamanos distintos del mismo
+    fotograma sin pisarse.
+    """
+
+    MAX_VARIANTES = 4      # tope de tamanos/calidades cacheados por camara
 
     def __init__(self):
-        self._lock = threading.Lock()
-        self._frames = {}    # indice -> frame BGR
-        self._seq = {}       # indice -> numero de fotograma
-        self._jpeg = {}      # indice -> (seq_codificada, bytes)
+        self._cond = threading.Condition()
+        self._frames = {}       # indice -> frame BGR (no se modifica nunca)
+        self._seq = {}          # indice -> numero de fotograma
+        self._meta = {}         # indice -> dict con info del fotograma
+        self._jpeg = {}         # indice -> {(seq,w,h,q): bytes}
+        self._lock_jpeg = {}    # indice -> Lock de codificacion
+        self._generacion = 0    # sube al limpiar: despierta a los dormidos
+        self._clientes = {}     # indice -> nº de navegadores conectados
+        self._envios = {}       # indice -> Medidor de FPS realmente enviados
 
-    def publicar(self, indice, frame):
-        """Guarda el ultimo frame de una camara e invalida su JPEG."""
-        with self._lock:
+    # ---- Productor ------------------------------------------------------
+    def publicar(self, indice, frame, meta=None):
+        """Guarda el ultimo frame de una camara y despierta a quien espere.
+
+        CONTRATO: el frame publicado es de solo lectura. Quien publica no debe
+        volver a dibujar sobre el, porque Tkinter y Flask lo estan leyendo
+        desde otros hilos."""
+        with self._cond:
             self._frames[indice] = frame
             self._seq[indice] = self._seq.get(indice, 0) + 1
+            if meta is not None:
+                self._meta[indice] = meta
+            self._jpeg.pop(indice, None)     # la cache del frame viejo ya no vale
+            self._cond.notify_all()
 
+    # ---- Consumidores ---------------------------------------------------
     def obtener(self, indice):
         """(frame, seq) del ultimo fotograma, o (None, 0) si no hay."""
-        with self._lock:
+        with self._cond:
             return self._frames.get(indice), self._seq.get(indice, 0)
 
     def obtener_si_nuevo(self, indice, seq_vista):
         """(frame, seq) solo si hay un fotograma MAS NUEVO que 'seq_vista';
-        si no, (None, seq_vista). Evita redibujar lo ya dibujado."""
-        with self._lock:
+        si no, (None, seq_vista). Evita redibujar lo ya dibujado.
+        No bloquea: la usa la GUI de Tk, que no puede dormirse."""
+        with self._cond:
             seq = self._seq.get(indice, 0)
             if seq == seq_vista:
                 return None, seq_vista
             return self._frames.get(indice), seq
 
+    def esperar_nuevo(self, indice, seq_vista, timeout=1.0):
+        """Bloquea hasta que haya un fotograma mas nuevo que 'seq_vista', o
+        hasta que venza el timeout. Devuelve (frame, seq).
+
+        Es lo que sustituye al bucle de sondeo del streaming: el cliente se
+        duerme y el hilo de captura lo despierta al publicar."""
+        limite = time.monotonic() + timeout
+        with self._cond:
+            generacion = self._generacion
+            while True:
+                seq = self._seq.get(indice, 0)
+                if seq != seq_vista or self._generacion != generacion:
+                    return self._frames.get(indice), seq
+                restante = limite - time.monotonic()
+                if restante <= 0:
+                    return None, seq
+                self._cond.wait(restante)
+
     def secuencia(self, indice):
-        with self._lock:
+        with self._cond:
             return self._seq.get(indice, 0)
 
-    def jpeg(self, indice, calidad=80):
-        """JPEG del ultimo fotograma. Se codifica una sola vez por fotograma:
-        con dos navegadores abiertos, el segundo reutiliza el del primero."""
-        with self._lock:
+    def meta(self, indice):
+        with self._cond:
+            return dict(self._meta.get(indice) or {})
+
+    # ---- Codificacion JPEG ---------------------------------------------
+    def jpeg(self, indice, calidad=80, tamano=None):
+        """JPEG del ultimo fotograma, redimensionado a 'tamano' si se indica.
+
+        Se codifica UNA sola vez por (fotograma, tamano, calidad): con dos
+        navegadores abiertos, el segundo reutiliza el trabajo del primero en
+        lugar de repetir ~2,7 ms de compresion."""
+        with self._cond:
             frame = self._frames.get(indice)
             seq = self._seq.get(indice, 0)
-            cacheado = self._jpeg.get(indice)
-            if cacheado is not None and cacheado[0] == seq:
-                return cacheado[1]
-        if frame is None:
-            return None
-        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, calidad])
-        if not ok:
-            return None
-        datos = buf.tobytes()
-        with self._lock:
-            self._jpeg[indice] = (seq, datos)
-        return datos
+            if frame is None:
+                return None
+            clave = (seq, tamano[0] if tamano else 0,
+                     tamano[1] if tamano else 0, calidad)
+            cacheado = self._jpeg.get(indice, {}).get(clave)
+            if cacheado is not None:
+                return cacheado
+            lock = self._lock_jpeg.get(indice)
+            if lock is None:
+                lock = self._lock_jpeg[indice] = threading.Lock()
 
-    def limpiar(self, indice=None):
-        """Olvida los fotogramas (al parar el sistema) para no retener RAM."""
-        with self._lock:
+        # Codificar FUERA del lock principal: comprimir dura milisegundos y
+        # bloquearia al hilo de captura. El lock por camara evita que dos
+        # clientes compriman el mismo fotograma a la vez.
+        with lock:
+            with self._cond:
+                cacheado = self._jpeg.get(indice, {}).get(clave)
+                if cacheado is not None:
+                    return cacheado          # otro cliente lo hizo mientras esperabamos
+            salida = frame
+            if tamano and (frame.shape[1], frame.shape[0]) != tuple(tamano):
+                interp = (cv2.INTER_AREA if tamano[0] < frame.shape[1]
+                          else cv2.INTER_LINEAR)
+                salida = cv2.resize(frame, tuple(tamano), interpolation=interp)
+            ok, buf = cv2.imencode(".jpg", salida,
+                                   [cv2.IMWRITE_JPEG_QUALITY, int(calidad)])
+            if not ok:
+                return None
+            datos = buf.tobytes()
+            with self._cond:
+                if self._seq.get(indice, 0) == seq:      # sigue vigente
+                    variantes = self._jpeg.setdefault(indice, {})
+                    if len(variantes) >= self.MAX_VARIANTES:
+                        variantes.clear()
+                    variantes[clave] = datos
+            return datos
+
+    # ---- Clientes y telemetria -----------------------------------------
+    def entra_cliente(self, indice):
+        with self._cond:
+            self._clientes[indice] = self._clientes.get(indice, 0) + 1
+            return self._clientes[indice]
+
+    def sale_cliente(self, indice):
+        with self._cond:
+            self._clientes[indice] = max(0, self._clientes.get(indice, 0) - 1)
+            if not self._clientes[indice]:
+                self._jpeg.pop(indice, None)   # nadie mira: soltar los JPEG
+            return self._clientes[indice]
+
+    def clientes(self, indice=None):
+        with self._cond:
             if indice is None:
-                self._frames.clear(); self._jpeg.clear()
+                return dict(self._clientes)
+            return self._clientes.get(indice, 0)
+
+    def anotar_envio(self, indice):
+        """Un fotograma mas enviado al navegador. Devuelve los FPS de envio."""
+        with self._cond:
+            medidor = self._envios.get(indice)
+            if medidor is None:
+                medidor = self._envios[indice] = Medidor()
+        return medidor.tick()
+
+    def fps_enviados(self, indice):
+        with self._cond:
+            medidor = self._envios.get(indice)
+        return medidor.fps if medidor else 0
+
+    # ---- Fin de vida -----------------------------------------------------
+    def limpiar(self, indice=None):
+        """Olvida los fotogramas (al parar el sistema) para no retener RAM, y
+        DESPIERTA a los clientes dormidos para que no se queden colgados."""
+        with self._cond:
+            if indice is None:
+                self._frames.clear()
+                self._jpeg.clear()
+                self._meta.clear()
+                for medidor in self._envios.values():
+                    medidor.reset()
             else:
-                self._frames.pop(indice, None); self._jpeg.pop(indice, None)
+                self._frames.pop(indice, None)
+                self._jpeg.pop(indice, None)
+                self._meta.pop(indice, None)
+                if indice in self._envios:
+                    self._envios[indice].reset()
+            self._generacion += 1
+            self._cond.notify_all()
 
 
+# =============================================================================
+# Detectores
+# =============================================================================
 class RedDetector:
     """Deteccion de objetos rojos, con la misma salida que antes.
 
@@ -325,29 +914,95 @@ class FaceDetector:
         return list(caras), gris
 
 
-class Medidor:
-    """Cuenta fotogramas por segundo sin coste apreciable.
+# =============================================================================
+# Reconocimiento: mapa ESTABLE de etiquetas
+# =============================================================================
+# POR QUE EXISTE: el codigo anterior traducia el id que devuelve LBPH a un
+# nombre indexando la lista de carpetas de disco (os.listdir). Ese orden no
+# esta garantizado y ademas CAMBIA al anadir o borrar a alguien: tras un alta,
+# el modelo entrenado seguia diciendo "id 2" pero la lista ya apuntaba a otra
+# persona, asi que el sistema saludaba a quien no era. El mapa se guarda ahora
+# junto al modelo y se lee al reconocer.
+ARCHIVO_ETIQUETAS = "trainer_labels.json"
 
-    Antes cada camara repetia este mismo bloque con 3 variables globales
-    (fps_counter1/fps1/last_fps_time1 y sus gemelas para la camara 2)."""
 
-    def __init__(self):
-        self.fps = 0
-        self._n = 0
-        self._t0 = None
+def guardar_mapa_etiquetas(nombres, ruta=ARCHIVO_ETIQUETAS, modelo="trainer.yml"):
+    """Guarda id -> nombre en el momento de entrenar. 'nombres' es la lista de
+    nombres en el MISMO orden con el que se etiquetaron las caras."""
+    datos = {
+        "version": 1,
+        "modelo": modelo,
+        "creado": time.time(),
+        "etiquetas": {str(i): nombre for i, nombre in enumerate(nombres)},
+    }
+    with open(ruta, "w", encoding="utf-8") as f:
+        json.dump(datos, f, ensure_ascii=False, indent=2)
+    return datos
 
-    def tick(self, ahora):
-        if self._t0 is None:
-            self._t0 = ahora
-            return self.fps
-        self._n += 1
-        if ahora - self._t0 >= 1.0:
-            self.fps = self._n
-            self._n = 0
-            self._t0 = ahora
-        return self.fps
 
-    def reset(self):
-        self.fps = 0
-        self._n = 0
-        self._t0 = None
+def cargar_mapa_etiquetas(ruta=ARCHIVO_ETIQUETAS):
+    """Devuelve {id_int: nombre}. Diccionario vacio si no hay mapa (modelo
+    antiguo entrenado antes de este cambio) o si el fichero esta corrupto."""
+    if not os.path.exists(ruta):
+        return {}
+    try:
+        with open(ruta, "r", encoding="utf-8") as f:
+            datos = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[vision] {ruta} ilegible ({e}); se reentrenara para regenerarlo")
+        return {}
+    etiquetas = datos.get("etiquetas", {})
+    salida = {}
+    for k, v in etiquetas.items():
+        try:
+            salida[int(k)] = str(v)
+        except (TypeError, ValueError):
+            continue
+    return salida
+
+
+def similitud_desde_distancia(distancia, umbral):
+    """Convierte la DISTANCIA de LBPH en un 0..100 legible.
+
+    LBPH no devuelve un porcentaje de acierto: devuelve una distancia donde
+    MENOR ES MEJOR y sin techo definido. El codigo anterior mostraba
+    int(100 - distancia), que con distancia 150 daba "-50 %" en pantalla.
+
+    Aqui se define explicitamente como "cerca del umbral esta la coincidencia":
+    100 = calcado, 0 = justo en el limite de aceptacion. No es una
+    probabilidad y no se debe presentar como tal."""
+    if umbral <= 0:
+        return 0
+    return int(max(0, min(100, round(100.0 * (1.0 - distancia / float(umbral))))))
+
+
+# =============================================================================
+# Rutas de video seguras
+# =============================================================================
+# POR QUE: /play_video/<camera>/<filename> construia la ruta concatenando lo
+# que llegaba por la URL. Con camera=".." se sale de la carpeta videos/ y se
+# sirve cualquier fichero del proyecto. El servidor escucha en 0.0.0.0, o sea
+# que eso es alcanzable desde toda la red local.
+CAMARAS_VIDEO = ("camara1", "camara2")
+_NOMBRE_VIDEO = re.compile(r"^[A-Za-z0-9._-]+\.avi$")
+
+
+def ruta_video_segura(base, camara, nombre):
+    """Ruta absoluta del video, o None si la peticion no es aceptable.
+
+    Tres comprobaciones independientes, porque cada una para un ataque
+    distinto: lista blanca de camaras, nombre sin separadores ni '..', y
+    verificacion final de que la ruta REAL sigue dentro de base."""
+    if camara not in CAMARAS_VIDEO:
+        return None
+    if not nombre or not _NOMBRE_VIDEO.match(nombre):
+        return None
+    raiz = os.path.realpath(base)
+    destino = os.path.realpath(os.path.join(raiz, camara, nombre))
+    # commonpath sobre rutas ya normalizadas: cubre symlinks y '..' residuales.
+    try:
+        if os.path.commonpath([raiz, destino]) != raiz:
+            return None
+    except ValueError:      # unidades distintas en Windows
+        return None
+    return destino

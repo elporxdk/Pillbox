@@ -109,10 +109,37 @@ import sys
 # ================= CONFIGURACIÓN =================
 MAX_PERSONS = 5
 IMAGES_PER_PERSON = 500
-CONF_LIMIT = 700
 
-FRAME_W, FRAME_H = 640, 480
-VIEW_W, VIEW_H = 400, 300
+#  UMBRAL DEL RECONOCIMIENTO FACIAL (LBPH)
+#  ---------------------------------------
+#  OJO: LBPH NO devuelve un porcentaje de acierto. Devuelve una DISTANCIA en
+#  la que MENOR ES MEJOR y sin techo definido. El valor anterior (700) dejaba
+#  pasar practicamente cualquier cara como "AUTORIZADO", porque en la practica
+#  una cara totalmente distinta rara vez supera 200.
+#
+#  COMO CALIBRARLO EN TU EQUIPO (no copies un numero de internet):
+#    1. Entrena con tus personas registradas.
+#    2. Arranca con el reconocimiento activado. Cada cara reconocida imprime
+#       en consola su distancia real:
+#           [lbph] distancia=42.7 umbral=80 -> Ana
+#    3. Ponte tu delante: anota las distancias (seran las BAJAS).
+#       Que se ponga alguien no registrado: anota las suyas (seran ALTAS).
+#    4. Elige un umbral entre ambos grupos, mas cerca del grupo bajo.
+#           MEDIBOT_LBPH_UMBRAL=65 python3 main.py
+#  El valor por defecto es un PUNTO DE PARTIDA conservador, no una verdad
+#  universal: depende de tu camara, tu luz y tus 500 imagenes por persona.
+CONF_LIMIT = float(os.environ.get("MEDIBOT_LBPH_UMBRAL", "80"))
+
+#  Resolucion de CAPTURA y ANALISIS (lo que se pide al driver).
+FRAME_W = int(os.environ.get("MEDIBOT_CAM_W", "640"))
+FRAME_H = int(os.environ.get("MEDIBOT_CAM_H", "480"))
+
+#  Tamano del panel de video DENTRO de la ventana Tkinter. Ya NO limita lo que
+#  ve la web: antes se publicaba el fotograma reducido a este tamano y el
+#  navegador lo re-ampliaba, de ahi la imagen blanda. Ahora se publica a
+#  resolucion completa y cada consumidor (Tk, web) escala a lo que necesita.
+VIEW_W = int(os.environ.get("MEDIBOT_GUI_W", "400"))
+VIEW_H = int(os.environ.get("MEDIBOT_GUI_H", "300"))
 
 ZONE_X = FRAME_W // 3
 ZONE_Y = FRAME_H // 3
@@ -127,7 +154,38 @@ VIDEO_PATH = "videos"
 # ================================================
 
 # ================= CONFIGURACIÓN DE CÁMARAS ============
-CAMERA_INDICES = [0, 1] 
+def _indice_camara(variable, defecto):
+    """Indice de camara desde el entorno. Vacio o negativo = camara apagada."""
+    bruto = os.environ.get(variable, "").strip()
+    if not bruto:
+        return defecto
+    try:
+        valor = int(bruto)
+    except ValueError:
+        print(f"[cam] {variable}={bruto!r} no es un entero; uso {defecto}")
+        return defecto
+    return None if valor < 0 else valor
+
+
+CAMERA_INDICES = [_indice_camara("MEDIBOT_CAM0", 0),
+                  _indice_camara("MEDIBOT_CAM1", 1)]
+
+#  Perfiles de captura y de emision web. Son INDEPENDIENTES: se puede analizar
+#  a 640x480 y emitir a 480x360 con calidad 55 cuando la red o la CPU aprietan.
+PERFIL_CAPTURA = medibot_vision.PerfilCaptura.desde_entorno()
+PERFIL_WEB = medibot_vision.PerfilWeb.desde_entorno()
+
+#  Informacion REAL de cada camara (lo que el driver acepto, no lo que se
+#  pidio). Se rellena en initialize_cameras() y se publica en /api/all.
+info_camaras = {0: None, 1: None}
+
+#  Detectores caros que se pueden apagar sin editar codigo. Por defecto ambos
+#  quedan como estaban (encendidos), asi el comportamiento no cambia salvo que
+#  se pida expresamente.
+#    MEDIBOT_DETECT_ROJO=0  -> ahorra ~1,3 ms/frame (cvtColor HSV + morfologia)
+#    MEDIBOT_OVERLAY=0      -> ahorra los textos dibujados sobre el video
+DETECCION_ROJO = medibot_vision.leer_booleano("MEDIBOT_DETECT_ROJO", True)
+OVERLAYS_ACTIVOS = medibot_vision.leer_booleano("MEDIBOT_OVERLAY", True)
 # ================================================
 
 # ================= SERVOS DE CAMARA (pan/tilt) =================
@@ -652,6 +710,85 @@ if cascade is None:
 
 recognizer = None
 
+#  MAPA ESTABLE id -> nombre (se guarda al entrenar, se lee al reconocer).
+#  POR QUE: antes el nombre salia de persons[id_] con la lista de carpetas de
+#  disco. os.listdir NO garantiza orden, y aunque lo garantizara, dar de alta
+#  o borrar a alguien DESPLAZA los indices: el modelo seguia diciendo "id 2"
+#  pero la lista ya apuntaba a otra persona. Resultado: el robot autorizaba
+#  con el nombre equivocado. Ahora el mapa viaja junto al modelo.
+etiquetas_lbph = {}
+
+#  Ultimas distancias observadas: es lo que hace falta para CALIBRAR el umbral
+#  sin adivinar. Se publican en /api/all -> reconocimiento.distancias.
+_distancias_lbph = []
+_distancias_lock = threading.Lock()
+
+
+def cargar_reconocedor():
+    """Carga trainer.yml Y su mapa de etiquetas, o devuelve None.
+
+    Un unico sitio para esto: antes se repetia en cuatro lugares (boton de la
+    GUI, boton de la web, arranque y toggle), y ahora ademas hay que cargar el
+    mapa de nombres junto al modelo. Cuatro copias eran cuatro sitios donde
+    olvidarlo."""
+    if not os.path.exists("trainer.yml"):
+        return None
+    if not hasattr(cv2, "face"):
+        print("AVISO: esta instalacion de OpenCV no trae el modulo 'face' "
+              "(opencv-contrib-python). El reconocimiento queda desactivado.")
+        return None
+    try:
+        modelo = cv2.face.LBPHFaceRecognizer_create()
+        modelo.read("trainer.yml")
+    except cv2.error as e:
+        print(f"Error cargando modelo de reconocimiento: {e}")
+        return None
+    cargar_etiquetas_lbph()
+    return modelo
+
+
+def cargar_etiquetas_lbph():
+    """Relee el mapa id -> nombre del disco. Se llama al cargar el modelo."""
+    global etiquetas_lbph
+    etiquetas_lbph = medibot_vision.cargar_mapa_etiquetas()
+    if etiquetas_lbph:
+        print(f"Mapa de etiquetas cargado: {len(etiquetas_lbph)} personas")
+    elif os.path.exists("trainer.yml"):
+        print("AVISO: hay trainer.yml pero no trainer_labels.json. "
+              "El modelo es anterior a este cambio: vuelve a entrenar para "
+              "que los nombres dejen de depender del orden del disco.")
+    return etiquetas_lbph
+
+
+def nombre_de_etiqueta(id_):
+    """Nombre de la persona a partir del id que devuelve LBPH.
+
+    Sin mapa (modelo antiguo) NO se inventa un nombre a partir del orden del
+    disco: se muestra el id, que es la verdad disponible."""
+    if id_ in etiquetas_lbph:
+        return etiquetas_lbph[id_]
+    return f"ID {id_}"
+
+
+def _registrar_distancia_lbph(distancia, nombre):
+    """Anota la distancia observada (para calibrar) y la imprime.
+
+    Es la herramienta de calibracion del umbral: con el reconocimiento
+    activado se ve en consola la distancia REAL de cada cara, que es el dato
+    que hace falta para elegir MEDIBOT_LBPH_UMBRAL con criterio."""
+    etiqueta = nombre or "DESCONOCIDO"
+    print(f"[lbph] distancia={distancia:.1f} umbral={CONF_LIMIT:.0f} -> {etiqueta}")
+    with _distancias_lock:
+        _distancias_lbph.append({"distancia": round(float(distancia), 1),
+                                 "nombre": etiqueta, "t": time.time()})
+        del _distancias_lbph[:-20]      # solo las 20 ultimas: no crece
+
+
+def distancias_lbph_recientes():
+    with _distancias_lock:
+        return list(_distancias_lbph)
+
+
 # Variables globales para ambas cámaras
 camera1 = None
 camera2 = None
@@ -677,63 +814,82 @@ captured_images = 0
 face_position = {"x": "center", "y": "center"}
 last_face_time = 0
 detected_red_objects = []
-fps_counter1 = 0
-fps_counter2 = 0
+#  FPS de captura publicados en la GUI y en las APIs. El conteo lo llevan
+#  ahora los medidor_captura[...] (ver read_frame_from_camera); estas dos
+#  variables se mantienen porque las leen la GUI, /api/all, /api/esp32 y
+#  /stats, y romperlas romperia la API publica.
 fps1 = 0
 fps2 = 0
-last_fps_time1 = time.time()
-last_fps_time2 = time.time()
 video_files = []
 
 # ================= MANEJO DE CÁMARAS MÚLTIPLES SIMULTÁNEAS =========
 def initialize_cameras():
-    """Inicializa ambas cámaras xd"""
+    """Inicializa ambas cámaras y REGISTRA lo que el driver aceptó de verdad.
+
+    QUE CAMBIA respecto a la version anterior y por que importa:
+
+    1. ORDEN DE NEGOCIACION. Antes se fijaba el FOURCC (MJPG) DESPUES de la
+       resolucion. En V4L2 eso hace que el driver renegocie el formato y puede
+       dejar la captura en YUYV sin comprimir. YUYV a 640x480 son ~614 KB por
+       fotograma; por USB 2.0 solo caben ~9-10 FPS. Es exactamente el sintoma
+       "la camara pierde FPS". Ahora se fija FOURCC -> resolucion -> FPS ->
+       buffer, que es el orden que respeta V4L2 (ver medibot_vision.abrir_camara).
+
+    2. SE LEEN LAS PROPIEDADES REALES. Pedir 640x480@30 MJPG no garantiza
+       nada; ahora se imprime lo que la camara devuelve y se avisa si no
+       coincide, en vez de suponerlo.
+
+    3. TODO CONFIGURABLE POR ENTORNO (indice, resolucion, FPS, FourCC,
+       backend), para poder probar combinaciones sin editar codigo.
+    """
     global camera1, camera2
-    success1 = False
-    success2 = False
-    
-    try:
-        # Inicializar cámara 1
-        if CAMERA_INDICES[0] is not None:
-            cap1 = cv2.VideoCapture(CAMERA_INDICES[0], cv2.CAP_V4L2)
-            if cap1.isOpened():
-                cap1.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
-                cap1.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
-                cap1.set(cv2.CAP_PROP_FPS, 30)
-                cap1.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap1.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-                camera_optimizer.apply_settings(cap1)
-                camera1 = cap1
-                success1 = True
-                print(f"Cámara 1 inicializada en índice {CAMERA_INDICES[0]}")
-            else:
-                print(f"Error: No se pudo abrir cámara 1 en índice {CAMERA_INDICES[0]}")
-        
-        # Inicializar cámara 2
-        if len(CAMERA_INDICES) > 1 and CAMERA_INDICES[1] is not None:
-            cap2 = cv2.VideoCapture(CAMERA_INDICES[1], cv2.CAP_V4L2)
-            if cap2.isOpened():
-                cap2.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
-                cap2.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
-                cap2.set(cv2.CAP_PROP_FPS, 30)
-                cap2.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap2.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-                camera_optimizer.apply_settings(cap2)
-                camera2 = cap2
-                success2 = True
-                print(f"Cámara 2 inicializada en índice {CAMERA_INDICES[1]}")
-            else:
-                print(f"Error: No se pudo abrir cámara 2 en índice {CAMERA_INDICES[1]}")
-        
-        return success1 or success2
-        
-    except Exception as e:
-        print(f"Error inicializando cámaras: {e}")
-        return False
+    resultados = []
+
+    for posicion in (0, 1):
+        indice = CAMERA_INDICES[posicion] if posicion < len(CAMERA_INDICES) else None
+        if indice is None:
+            print(f"Cámara {posicion + 1}: desactivada por configuración")
+            info_camaras[posicion] = None
+            continue
+
+        cap, info = medibot_vision.abrir_camara(indice, PERFIL_CAPTURA)
+        info_camaras[posicion] = info
+        if cap is None:
+            print(f"Error: No se pudo abrir cámara {posicion + 1} en índice {indice}")
+            continue
+
+        # Los ajustes de imagen (brillo/contraste) van DESPUES de negociar el
+        # formato: algunos drivers los descartan al cambiar de modo.
+        camera_optimizer.apply_settings(cap)
+
+        if posicion == 0:
+            camera1 = cap
+        else:
+            camera2 = cap
+        resultados.append(posicion)
+        print(f"Cámara {posicion + 1} inicializada en índice {indice}")
+
+    if not resultados:
+        print("Ninguna cámara disponible. Comprueba los dispositivos con:")
+        print("    ls /dev/video*")
+        print("    v4l2-ctl --list-formats-ext -d /dev/video0")
+        print("Para arrancar sin hardware:  MEDIBOT_CAMARA_FAKE=1 python3 main.py")
+    return bool(resultados)
+
+
+def resolucion_activa(camera_index):
+    """(ancho, alto) REALES de una cámara; si no hay dato, los pedidos."""
+    info = info_camaras.get(camera_index)
+    if info is not None and info.ancho and info.alto:
+        return info.ancho, info.alto
+    return FRAME_W, FRAME_H
 
 def release_cameras():
     """Libera ambas cámaras de forma segura"""
-    global camera1, camera2, video_writer1, video_writer2
+    global camera1, camera2, video_writer1, video_writer2, fps1, fps2
+    fps1 = fps2 = 0
+    for _i in (0, 1):
+        medidor_captura[_i].reset()
     try:
         if camera1 is not None:
             camera1.release()
@@ -773,34 +929,35 @@ def get_active_camera():
         return camera2
     return camera1  # Por defecto cámara 1
 
+#  Medidores de FPS REALMENTE capturados (uno por cámara). Sustituyen a las
+#  seis variables globales de antes, que contaban un fotograma aunque la
+#  lectura hubiera FALLADO: con una cámara desconectada seguían marcando ~30
+#  FPS de fotogramas inexistentes, justo cuando más falta hacía enterarse.
+medidor_captura = {0: medibot_vision.Medidor(), 1: medibot_vision.Medidor()}
+
+
 def read_frame_from_camera(camera, camera_index):
-    """Lee un frame de una cámara específica"""
-    global fps_counter1, fps1, last_fps_time1, fps_counter2, fps2, last_fps_time2
+    """Lee un frame de una cámara específica.
+
+    Solo cuenta el fotograma si la lectura SALIÓ BIEN, para que los FPS
+    publicados sean fotogramas de verdad."""
+    global fps1, fps2
     try:
         if camera is None or not camera.isOpened():
             return False, None
-        
+
         ret, frame = camera.read()
-        
-        # Calcular FPS para la cámara específica
+        if not ret or frame is None:
+            return False, None
+
+        fps = medidor_captura[camera_index].tick(time.time())
         if camera_index == 0:
-            fps_counter1 += 1
-            current_time = time.time()
-            if current_time - last_fps_time1 >= 1.0:
-                fps1 = fps_counter1
-                fps_counter1 = 0
-                last_fps_time1 = current_time
+            fps1 = fps
         else:
-            fps_counter2 += 1
-            current_time = time.time()
-            if current_time - last_fps_time2 >= 1.0:
-                fps2 = fps_counter2
-                fps_counter2 = 0
-                last_fps_time2 = current_time
-        
-        return ret, frame
-        
-    except Exception as e:
+            fps2 = fps
+        return True, frame
+
+    except cv2.error as e:
         print(f"Error leyendo frame de cámara {camera_index}: {e}")
         return False, None
 
@@ -872,7 +1029,10 @@ def process_camera(camera_index):
             if current_time - ultimo_informe >= PERF_CADA_SEGUNDOS:
                 ultimo_informe = current_time
                 fps_actual = fps1 if es_principal else fps2
-                print(f"[perf cam{camera_index + 1}] {fps_actual} FPS | {perf.resumen()}")
+                print(f"[perf cam{camera_index + 1}] captura {fps_actual} FPS | "
+                      f"web {frame_hub.fps_enviados(camera_index)} FPS "
+                      f"({frame_hub.clientes(camera_index)} clientes) | "
+                      f"{perf.resumen()}")
 
             # Etapa 2: todo nuestro procesamiento (detectores + dibujo). Se
             # mide con marcas porque el bloque es largo y tiene ramas.
@@ -884,12 +1044,19 @@ def process_camera(camera_index):
 
             # ---- Objetos rojos -------------------------------------------
             # Se dibuja sobre el propio frame (antes se hacia frame.copy()).
+            # Configurable: con MEDIBOT_DETECT_ROJO=0 se ahorran ~1,3 ms por
+            # fotograma (cvtColor a HSV + dos morfologias + findContours) en
+            # los montajes que no siguen objetos de color.
             processed_frame = frame
-            red_objects = _red_detector.detectar(processed_frame, dibujar=True)
+            if DETECCION_ROJO:
+                red_objects = _red_detector.detectar(processed_frame,
+                                                     dibujar=OVERLAYS_ACTIVOS)
+                object_tracker.update_tracking(red_objects, current_time)
+                if object_tracker.tracking_enabled and OVERLAYS_ACTIVOS:
+                    processed_frame = object_tracker.draw_tracking(processed_frame, red_objects)
+            else:
+                red_objects = []
             detected_red_objects = red_objects   # publicar para las APIs web
-            object_tracker.update_tracking(red_objects, current_time)
-            if object_tracker.tracking_enabled:
-                processed_frame = object_tracker.draw_tracking(processed_frame, red_objects)
 
             # ---- Caras: SOLO si alguien va a usarlas ----------------------
             # Se conserva la estructura original (incluido centrar los servos
@@ -920,11 +1087,7 @@ def process_camera(camera_index):
                         break
 
                 elif not capture_mode and recognition_enabled and recognizer is not None and len(faces) > 0:
-                    known = False
                     last_face_time = current_time
-                    # La lista de personas se lee UNA vez por frame (y ademas
-                    # va cacheada), no una vez por cara como antes.
-                    persons = get_registered_persons()
 
                     for (x, y, w, h) in faces:
                         detection_count += 1
@@ -934,7 +1097,6 @@ def process_camera(camera_index):
                             id_, conf = recognizer.predict(roi_gray)
 
                             if conf < CONF_LIMIT:
-                                known = True
                                 cx, cy = x + w // 2, y + h // 2
 
                                 pos_x = "left" if cx < ZONE_X else ("right" if cx > ZONE_X * 2 else "center")
@@ -944,8 +1106,17 @@ def process_camera(camera_index):
                                 if es_principal:
                                     move_servos(pos_x, pos_y)
 
-                                person_name = persons[id_]["name"] if id_ < len(persons) else f"ID {id_}"
-                                label = f"{person_name} ({int(100-conf)}%)"
+                                # El nombre sale del mapa GUARDADO AL ENTRENAR,
+                                # no del orden de os.listdir: ese orden cambia
+                                # al dar de alta o borrar a alguien y hacia que
+                                # el sistema saludara a la persona equivocada.
+                                person_name = nombre_de_etiqueta(id_)
+                                similitud = medibot_vision.similitud_desde_distancia(
+                                    conf, CONF_LIMIT)
+                                _registrar_distancia_lbph(conf, person_name)
+                                # "sim" y no "%": LBPH da distancia, no
+                                # probabilidad. Ver similitud_desde_distancia.
+                                label = f"{person_name} (sim {similitud})"
 
                                 cv2.putText(processed_frame, label, (x, y - 30),
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -954,22 +1125,28 @@ def process_camera(camera_index):
                                 cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
                                 system_status = f"Rostro: {person_name}"
                             else:
+                                _registrar_distancia_lbph(conf, None)
                                 cv2.putText(processed_frame, "DESCONOCIDO", (x, y - 10),
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                                 cv2.rectangle(processed_frame, (x, y), (x+w, y+h), (0, 0, 255), 3)
                                 system_status = "Rostro Desconocido"
-                        except Exception as e:
+                        except cv2.error as e:
                             print(f"Error en reconocimiento facial: {e}")
                             system_status = "Error Reconocimiento"
                         break
-
-                    if not known and not capture_mode and len(faces) == 0:
-                        if es_principal:
-                            center_pwm()
-                        if system_status not in ["Rostro Conocido", "Rostro Desconocido", "Error Reconocimiento"]:
-                            system_status = "Escaneando"
                 elif es_principal:
+                    # Detección pedida pero SIN caras en este fotograma.
+                    #  Aqui vivia una rama inalcanzable: comprobaba
+                    #  len(faces) == 0 dentro del bloque que exige
+                    #  len(faces) > 0, asi que el estado "Escaneando" no se
+                    #  ponia nunca. Ahora esta en la rama correcta, y solo
+                    #  aplica al reconocimiento (en modo captura el estado lo
+                    #  lleva el contador de imagenes).
                     center_pwm()
+                    if (recognition_enabled and not capture_mode
+                            and system_status not in ("Rostro Desconocido",
+                                                      "Error Reconocimiento")):
+                        system_status = "Escaneando"
 
             # ---- Seguimiento de objetos rojos (si no hay caras) -----------
             if es_principal and len(faces) == 0 and red_objects and object_tracker.tracking_enabled:
@@ -984,21 +1161,26 @@ def process_camera(camera_index):
 
             # ---- Grabación ------------------------------------------------
             if recording:
+                # El VideoWriter se abre con el tamano REAL del fotograma. Con
+                # las constantes FRAME_W/FRAME_H, si el driver entregaba otra
+                # resolucion, cv2 descartaba en silencio cada write() y el .avi
+                # salia vacio o corrupto.
+                alto_rec, ancho_rec = processed_frame.shape[:2]
                 if es_principal and not recording_cam1:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     video_filename = os.path.join(VIDEO_PATH, "camara1", f"video_cam1_{timestamp}.avi")
                     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                    video_writer1 = cv2.VideoWriter(video_filename, fourcc, 20.0, (FRAME_W, FRAME_H))
+                    video_writer1 = cv2.VideoWriter(video_filename, fourcc, 20.0, (ancho_rec, alto_rec))
                     recording_cam1 = True
-                    print(f"Cámara 1 comenzó a grabar: {video_filename}")
+                    print(f"Cámara 1 comenzó a grabar: {video_filename} ({ancho_rec}x{alto_rec})")
 
                 if not es_principal and not recording_cam2:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     video_filename = os.path.join(VIDEO_PATH, "camara2", f"video_cam2_{timestamp}.avi")
                     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                    video_writer2 = cv2.VideoWriter(video_filename, fourcc, 20.0, (FRAME_W, FRAME_H))
+                    video_writer2 = cv2.VideoWriter(video_filename, fourcc, 20.0, (ancho_rec, alto_rec))
                     recording_cam2 = True
-                    print(f"Cámara 2 comenzó a grabar: {video_filename}")
+                    print(f"Cámara 2 comenzó a grabar: {video_filename} ({ancho_rec}x{alto_rec})")
 
                 if es_principal and video_writer1 is not None:
                     video_writer1.write(processed_frame)
@@ -1020,44 +1202,56 @@ def process_camera(camera_index):
                     print("Cámara 2 detuvo la grabación")
 
             # ---- Información sobre el vídeo -------------------------------
-            cv2.putText(processed_frame, f"Cámara: {camera_index + 1}", (10, FRAME_H - 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            #  Se dibuja usando el tamano REAL del fotograma, no las constantes
+            #  FRAME_W/FRAME_H: si el driver entrego 320x240 en vez de los
+            #  640x480 pedidos, los textos caian fuera de la imagen y no se
+            #  veian. Con MEDIBOT_OVERLAY=0 se puede quitar todo este bloque.
+            if OVERLAYS_ACTIVOS:
+                alto_img, ancho_img = processed_frame.shape[:2]
+                cv2.putText(processed_frame, f"Cámara: {camera_index + 1}", (10, alto_img - 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-            fps_text = f"FPS Cam1: {fps1}" if es_principal else f"FPS Cam2: {fps2}"
-            cv2.putText(processed_frame, fps_text, (FRAME_W - 150, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                fps_text = f"FPS Cam1: {fps1}" if es_principal else f"FPS Cam2: {fps2}"
+                cv2.putText(processed_frame, fps_text, (max(10, ancho_img - 150), 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-            if recording and ((es_principal and recording_cam1) or (not es_principal and recording_cam2)):
-                cv2.putText(processed_frame, "● GRABANDO", (FRAME_W - 120, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                if recording and ((es_principal and recording_cam1) or (not es_principal and recording_cam2)):
+                    cv2.putText(processed_frame, "● GRABANDO", (max(10, ancho_img - 120), 60),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-            if len(red_objects) > 0:
-                cv2.putText(processed_frame, f"Objetos Rojos: {len(red_objects)}", (10, 90),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                if len(red_objects) > 0:
+                    cv2.putText(processed_frame, f"Objetos Rojos: {len(red_objects)}", (10, 90),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-            if object_tracker.tracking_enabled:
-                cv2.putText(processed_frame, "SEGUIMIENTO ACTIVO", (10, FRAME_H - 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                if DETECCION_ROJO and object_tracker.tracking_enabled:
+                    cv2.putText(processed_frame, "SEGUIMIENTO ACTIVO", (10, alto_img - 20),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             # ---- Publicar el fotograma ------------------------------------
-            # Antes se hacian hasta TRES copias completas por frame
-            # (processed_frame.copy() y last_frameN.copy()). Ahora el frame se
-            # publica una vez en el buzon: nadie lo modifica despues, asi que
-            # compartir la referencia es seguro y no cuesta memoria.
             perf.anotar("proceso", (time.perf_counter() - t_proceso) * 1000.0)
 
             # ---- Etapa 3: publicar el fotograma ---------------------------
+            #  CAMBIO IMPORTANTE: antes se publicaba el fotograma REDUCIDO a
+            #  VIEW_W x VIEW_H (400x300), que es el tamano del panelito de
+            #  Tkinter. La web consumia ese mismo fotograma y el navegador lo
+            #  volvia a AMPLIAR para llenar su contenedor: de ahi la imagen
+            #  blanda y con los textos ilegibles. Perdiamos el 61 % de los
+            #  pixeles capturados antes de que nadie los viera.
+            #
+            #  Ahora se publica a resolucion COMPLETA y cada consumidor escala
+            #  a lo suyo: Tk a 400x300 (ya lo hacia) y la web al perfil web
+            #  (que por defecto es la resolucion nativa). El coste anadido es
+            #  una copia de 640x480 (~0,07 ms medidos; el resize que se quita
+            #  costaba ~0,28 ms), asi que ademas sale mas barato.
+            #
+            #  La copia NO es opcional: el frame publicado lo leen a la vez el
+            #  hilo de Tk y los de Flask, y este bucle sigue dibujando encima
+            #  en la siguiente vuelta. Publicar sin copiar seria una carrera.
             with medibot_vision.Cronometro(perf, "publicar"):
-                if processed_frame.shape[1] != VIEW_W or processed_frame.shape[0] != VIEW_H:
-                    # resize crea un array NUEVO, asi que el bufer que devolvio
-                    # la camara queda libre enseguida (importante con
-                    # CAP_PROP_BUFFERSIZE=1: si se retuviera, el driver se
-                    # quedaria sin bufer donde capturar el siguiente).
-                    salida = cv2.resize(processed_frame, (VIEW_W, VIEW_H))
-                else:
-                    salida = processed_frame.copy()
-
-                frame_hub.publicar(camera_index, salida)
+                frame_hub.publicar(camera_index, processed_frame.copy(),
+                                   meta={"ancho": processed_frame.shape[1],
+                                         "alto": processed_frame.shape[0],
+                                         "t": current_time})
 
             # Sin time.sleep(): el ritmo lo marca camera.read(), que ya espera
             # al sensor. Dormir aqui era lo que tiraba los FPS a la mitad.
@@ -1083,7 +1277,13 @@ def start_camera_processing():
     if not initialize_cameras():
         print("Error: No se pudo inicializar las cámaras")
         return False
-    
+
+    # Empezar a contar de cero: si no, el primer segundo hereda los FPS y el
+    # reparto de tiempos de la sesión anterior y la telemetría miente.
+    for i in (0, 1):
+        medidor_captura[i].reset()
+        perfilador[i].reiniciar()
+
     online = True
     
     # Iniciar hilo para cámara 1
@@ -1151,13 +1351,17 @@ HTML_TEMPLATE = """
             letter-spacing: 1px;
         }
         
+        /* Rejilla responsiva de verdad: dos columnas solo si caben 380 px de
+           ancho cada una. Antes eran SIEMPRE dos columnas fijas (1fr 1fr) y en
+           el movil cada camara quedaba en media pantalla. Con una sola camara
+           conectada, la que hay ocupa todo el ancho disponible. */
         .cameras-container {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+            gap: 24px;
             margin-bottom: 30px;
         }
-        
+
         .camera-box {
             background: #222222;
             border-radius: 8px;
@@ -1191,6 +1395,14 @@ HTML_TEMPLATE = """
             background: #00ff00;
         }
         
+        /* PROPORCION REAL DE LA CAMARA.
+           Antes el contenedor tenia height: 350px fijo. Con una columna ancha
+           en escritorio eso da una caja panoramica en la que un 4:3 se queda
+           con franjas negras enormes a los lados, y en el movil obligaba a una
+           caja de 350 px de alto pasara lo que pasara. Ahora la caja adopta la
+           proporcion REAL que reporta la camara (--ar, que fija el JavaScript
+           desde /api/all -> camaras_reales.proporcion), asi que no hay que
+           estirar ni recortar nada: 4:3 se ve como 4:3 y 16:9 como 16:9. */
         .video-container {
             position: relative;
             border-radius: 5px;
@@ -1198,19 +1410,44 @@ HTML_TEMPLATE = """
             margin-top: 10px;
             border: 1px solid #333333;
             background: #000000;
-            height: 350px;
+            width: 100%;
+            aspect-ratio: var(--ar, 4 / 3);
+            /* Tope de altura para que en un monitor ancho con UNA sola cámara
+               el vídeo no ocupe media pantalla de alto y empuje los controles
+               fuera de la vista. Si se llega al tope, object-fit: contain sigue
+               garantizando que la imagen NO se deforme. */
+            max-height: 70vh;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        
+
         .video-container img {
             width: 100%;
             height: 100%;
-            object-fit: contain;
+            object-fit: contain;   /* red de seguridad: nunca deforma */
             display: block;
         }
-        
+
+        /* Linea de estado bajo cada camara: legibilidad por encima de efectos.
+           Dice lo que hace falta para diagnosticar sin abrir la consola:
+           resolucion real, FPS capturados y FPS realmente enviados. */
+        .stream-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 14px;
+            margin-top: 8px;
+            font-size: 0.82em;
+            color: #9aa4ad;
+            font-family: 'Courier New', monospace;
+        }
+        .stream-stats b { color: #00ffff; font-weight: 600; }
+        .stream-stats .warn { color: #ffb020; }
+
+        /* Camara ausente: se oculta su tarjeta entera en vez de dejar un hueco
+           negro con controles que no hacen nada. */
+        .camera-box.ausente { display: none; }
+
         .camera-info {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -1447,10 +1684,10 @@ HTML_TEMPLATE = """
         }
         
         @media (max-width: 1200px) {
-            .cameras-container {
-                grid-template-columns: 1fr;
-            }
-            
+            /* La rejilla de cámaras ya no se fuerza aquí a una sola columna:
+               con auto-fit se reparte sola (dos columnas mientras quepan 380 px
+               cada una, una sola por debajo). Forzarlo aquí desperdiciaba media
+               pantalla en tablets. */
             .control-panel {
                 grid-template-columns: repeat(2, 1fr);
             }
@@ -1672,7 +1909,7 @@ HTML_TEMPLATE = """
         <p class="subtitle">Detección facial, seguimiento de objetos y grabación simultánea con dos cámaras</p>
         
         <div class="cameras-container">
-            <div class="camera-box">
+            <div class="camera-box" id="camera1-box">
                 <div class="camera-title" id="cam1-title">
                     <span class="status-dot"></span>
                     CÁMARA 1 (Principal)
@@ -1721,17 +1958,29 @@ HTML_TEMPLATE = """
                     </div>
                     <div class="info-item">
                         <div class="info-label">Resolución</div>
-                        <div class="info-value">640x480</div>
+                        <!-- Ya no está escrito a mano: lo rellena /api/all con
+                             lo que el driver aceptó DE VERDAD. Antes ponía
+                             siempre 640x480 aunque se estuviera capturando a
+                             320x240, que es justo el dato que hacía falta para
+                             darse cuenta del problema. -->
+                        <div class="info-value" id="res-1">—</div>
                     </div>
                 </div>
+                <div class="stream-stats" id="stats-1">
+                    <span>captura <b id="cap-fps-1">0</b> fps</span>
+                    <span>web <b id="web-fps-1">0</b> fps</span>
+                    <span>emitido <b id="web-res-1">—</b></span>
+                    <span>calidad <b id="web-q-1">—</b></span>
+                    <span id="cuello-1"></span>
+                </div>
             </div>
-            
+
             <div class="camera-box" id="camera2-box">
                 <div class="camera-title" id="cam2-title">
                     <span class="status-dot"></span>
                     CÁMARA 2 (Secundaria)
                 </div>
-                <div class="video-container">
+                <div class="video-container" id="cam2-view">
                     <img src="/video/1" alt="Cámara 2 en vivo" id="video-stream-2">
                 </div>
                 <div class="camera-info">
@@ -1749,8 +1998,15 @@ HTML_TEMPLATE = """
                     </div>
                     <div class="info-item">
                         <div class="info-label">Resolución</div>
-                        <div class="info-value">640x480</div>
+                        <div class="info-value" id="res-2">—</div>
                     </div>
+                </div>
+                <div class="stream-stats" id="stats-2">
+                    <span>captura <b id="cap-fps-2">0</b> fps</span>
+                    <span>web <b id="web-fps-2">0</b> fps</span>
+                    <span>emitido <b id="web-res-2">—</b></span>
+                    <span>calidad <b id="web-q-2">—</b></span>
+                    <span id="cuello-2"></span>
                 </div>
             </div>
         </div>
@@ -1881,13 +2137,16 @@ HTML_TEMPLATE = """
             document.getElementById('cam1-title').classList.toggle('active', data.cameras.camera1.active);
             document.getElementById('cam2-title').classList.toggle('active', data.cameras.camera2.active);
 
-            // Mostrar solo la(s) cámara(s) activa(s): ocultar la 2 si no se detecta
+            // Mostrar solo la(s) cámara(s) activa(s). Se usa una clase en vez
+            // de forzar gridTemplateColumns a mano: la rejilla ya es
+            // responsiva (auto-fit), así que al ocultar una tarjeta la otra
+            // se expande sola y sigue funcionando igual en móvil.
             var cam2box = document.getElementById('camera2-box');
-            if (cam2box) {
-                cam2box.style.display = data.cameras.camera2.active ? '' : 'none';
-                document.querySelector('.cameras-container').style.gridTemplateColumns =
-                    data.cameras.camera2.active ? '1fr 1fr' : '1fr';
-            }
+            if (cam2box) { cam2box.classList.toggle('ausente', !data.cameras.camera2.active); }
+            var cam1box = document.getElementById('camera1-box');
+            if (cam1box) { cam1box.classList.toggle('ausente', !data.cameras.camera1.active && !data.online); }
+
+            actualizarTelemetria(data);
 
             // Reflejar el estado del reconocimiento en el botón
             var recBtn = document.getElementById('recognitionBtn');
@@ -1947,6 +2206,58 @@ HTML_TEMPLATE = """
             }
         }
         
+        // ---- Telemetría por cámara -------------------------------------
+        // Muestra lo que hace falta para diagnosticar SIN abrir la consola:
+        // resolución real negociada, FPS capturados, FPS realmente enviados al
+        // navegador y qué etapa manda. Además fija la proporción real del
+        // contenedor (--ar) para que un 4:3 no se vea estirado.
+        function texto(id, valor) {
+            var el = document.getElementById(id);
+            if (el && el.textContent !== String(valor)) { el.textContent = valor; }
+        }
+
+        function actualizarTelemetria(data) {
+            var reales = data.camaras_reales || {};
+            var perf = data.perf || {};
+            var web = data.perfil_web || {};
+            var fpsCap = perf.fps_captura || {};
+            var fpsWeb = perf.fps_web || {};
+
+            [1, 2].forEach(function (n) {
+                var info = reales['cam' + n];
+                var vista = document.getElementById('cam' + n + '-view');
+
+                if (info && info.ancho && info.alto) {
+                    texto('res-' + n, info.ancho + 'x' + info.alto +
+                          (info.fourcc ? ' ' + info.fourcc : '') +
+                          (info.fps ? ' @' + info.fps : ''));
+                    if (vista && info.proporcion) {
+                        vista.style.setProperty('--ar', info.ancho + ' / ' + info.alto);
+                    }
+                    // Ancho emitido: el perfil web manda; si no se fijó, se
+                    // emite a la resolución nativa de la cámara.
+                    var wAncho = web.ancho || info.ancho;
+                    var wAlto = web.alto || Math.round(wAncho * info.alto / info.ancho);
+                    texto('web-res-' + n, wAncho + 'x' + wAlto);
+                } else {
+                    texto('res-' + n, 'sin cámara');
+                    texto('web-res-' + n, '—');
+                }
+                texto('cap-fps-' + n, fpsCap['cam' + n] || 0);
+                texto('web-fps-' + n, fpsWeb['cam' + n] || 0);
+                texto('web-q-' + n, web.calidad ? (web.calidad + ' / máx ' + web.fps_max + ' fps') : '—');
+
+                // Quién manda: si es "camara", optimizar Python no servirá de
+                // nada; hay que tocar resolución, formato o exposición.
+                var cuello = perf['cuello_cam' + n];
+                var el = document.getElementById('cuello-' + n);
+                if (el) {
+                    el.textContent = cuello ? ('manda: ' + cuello) : '';
+                    el.className = (cuello === 'camara') ? 'warn' : '';
+                }
+            });
+        }
+
         function updatePosition(data) {
             // Reset all cells
             document.querySelectorAll('.position-cell').forEach(cell => {
@@ -2348,58 +2659,112 @@ def index():
 def video(camera_index):
     """Stream MJPEG de cada cámara.
 
-    OPTIMIZACIONES frente a la version anterior:
-      - El JPEG se codifica UNA vez por fotograma en el buzon compartido
-        (frame_hub) y se reparte a todos los navegadores. Antes cada cliente
-        recodificaba el mismo frame (~1.9 ms cada uno): con la pagina abierta
-        en dos sitios se pagaba el doble por nada.
-      - Solo se envia cuando hay fotograma NUEVO (numero de secuencia), en vez
-        de reenviar el mismo a ciegas cada 30 ms.
-      - Se acabaron las copias: antes se hacia last_frameN.copy() por cliente
-        y por frame solo para codificarlo.
+    Se mantiene MJPEG a proposito: es lo unico que un navegador (movil
+    incluido) reproduce con un simple <img src>, sin JavaScript, sin WebRTC y
+    sin servidor extra. En una LAN y con el perfil web ajustado, la latencia
+    es de decenas de milisegundos; cambiar a WebRTC o HLS traeria
+    infraestructura y complejidad que este proyecto no necesita.
+
+    LO QUE HACE ESTE GENERADOR:
+      - ESPERA (no sondea) a que haya fotograma nuevo. Ver el comentario del
+        bucle: el sondeo anterior competia por el mismo lock que el hilo de
+        captura, asi que frenaba la camara.
+      - Emite como mucho PERFIL_WEB.fps_max fotogramas por segundo, al tamano
+        y calidad del perfil web. Captura y emision son independientes: se
+        puede analizar a 640x480 y emitir 480x360 q50 a 10 FPS.
+      - El JPEG se codifica UNA vez por fotograma en el buzon compartido y se
+        reparte a todos los navegadores (medido: con 3 clientes el coste de
+        codificacion sigue siendo 1,1 ms, no 3,3 ms).
+      - Solo se envia cuando hay fotograma NUEVO (numero de secuencia).
       - La codificacion es perezosa: si nadie mira la web, no se codifica nada.
+      - Si el navegador se va, el generador muere y suelta su plaza (finally).
+      - Con el sistema detenido no se procesa nada: solo un aviso cacheado a
+        2 FPS para que el navegador no muestre la imagen rota.
     """
+    if camera_index not in (0, 1):
+        return "Cámara inexistente", 404
+
     def generate_frames():
         # El bucle NO depende de 'online': al detener el sistema se sigue
         # sirviendo un aviso, asi el navegador no se queda con la imagen rota.
         aviso_cacheado = None
         estado_aviso = None
         ultima_seq = -1
+        periodo_min = 1.0 / PERFIL_WEB.fps_max     # tope de emision
+        proximo_envio = 0.0
 
-        while True:
-            frame_bytes = None
-            if online:
-                seq = frame_hub.secuencia(camera_index)
-                if seq != ultima_seq:
-                    frame_bytes = frame_hub.jpeg(camera_index, calidad=80)
-                    if frame_bytes is not None:
-                        ultima_seq = seq
+        frame_hub.entra_cliente(camera_index)
+        try:
+            while True:
+                frame_bytes = None
+                if online:
+                    #  ESPERA en vez de SONDEO. Antes este bucle daba vueltas
+                    #  cada 5 ms pidiendo el lock del buzon: medido con un
+                    #  productor a 12 FPS y dos clientes, 15,6 despertares por
+                    #  fotograma entregado y 2,81 ms de latencia media. Y ese
+                    #  lock es el MISMO que necesita el hilo de captura para
+                    #  publicar, asi que el sondeo no solo gastaba CPU: frenaba
+                    #  la camara. Esperando en la condicion: 1,0 despertares
+                    #  por fotograma y 0,25 ms de latencia.
+                    espera = max(0.0, proximo_envio - time.monotonic())
+                    if espera:
+                        time.sleep(espera)
+                    _, seq = frame_hub.esperar_nuevo(camera_index, ultima_seq,
+                                                     timeout=1.0)
+                    if seq != ultima_seq:
+                        ancho_src, alto_src = resolucion_activa(camera_index)
+                        destino = PERFIL_WEB.tamano_para(ancho_src, alto_src)
+                        frame_bytes = frame_hub.jpeg(camera_index,
+                                                     calidad=PERFIL_WEB.calidad,
+                                                     tamano=destino)
+                        if frame_bytes is not None:
+                            ultima_seq = seq
+                            #  El siguiente instante se ACUMULA, no se calcula
+                            #  como "ahora + periodo". Medido con el bench: con
+                            #  una fuente de 30 FPS y un tope de 25, reiniciar
+                            #  el reloj en cada envio hacia perder un fotograma
+                            #  de cada dos y emitir 15 FPS en vez de 25. Al
+                            #  acumular, el ritmo medio sale el pedido.
+                            ahora = time.monotonic()
+                            proximo_envio += periodo_min
+                            if proximo_envio < ahora - periodo_min:
+                                proximo_envio = ahora   # tras una pausa, no acelerar
+                            frame_hub.anotar_envio(camera_index)
 
-            if frame_bytes is None:
-                # Aviso (negro con texto). Se genera y codifica UNA vez por
-                # estado y luego se reutiliza: antes se recreaba el array y se
-                # recodificaba el JPEG 5 veces por segundo para siempre.
-                texto = (f"Camara {camera_index + 1} no disponible"
-                         if online else "Sistema detenido")
-                if aviso_cacheado is None or estado_aviso != texto:
-                    aviso = np.zeros((VIEW_H, VIEW_W, 3), dtype=np.uint8)
-                    cv2.putText(aviso, texto, (50, VIEW_H // 2),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                    ok, buf = cv2.imencode('.jpg', aviso,
-                                           [cv2.IMWRITE_JPEG_QUALITY, 80])
-                    aviso_cacheado = buf.tobytes() if ok else b''
-                    estado_aviso = texto
-                frame_bytes = aviso_cacheado
-                time.sleep(0.2)     # aviso a ~5 fps: no quemar CPU en vano
-            else:
-                time.sleep(0.005)   # ceder CPU; el ritmo lo marca la camara
+                if frame_bytes is None:
+                    # Aviso (negro con texto). Se genera y codifica UNA vez por
+                    # estado y luego se reutiliza: antes se recreaba el array y
+                    # se recodificaba el JPEG 5 veces por segundo para siempre.
+                    texto = (f"Camara {camera_index + 1} no disponible"
+                             if online else "Sistema detenido")
+                    if aviso_cacheado is None or estado_aviso != texto:
+                        ancho_src, alto_src = resolucion_activa(camera_index)
+                        ancho_av, alto_av = PERFIL_WEB.tamano_para(ancho_src, alto_src)
+                        aviso = np.zeros((alto_av, ancho_av, 3), dtype=np.uint8)
+                        escala_txt = max(0.4, ancho_av / 640.0 * 0.7)
+                        (tw, _th), _ = cv2.getTextSize(
+                            texto, cv2.FONT_HERSHEY_SIMPLEX, escala_txt, 2)
+                        cv2.putText(aviso, texto,
+                                    (max(5, (ancho_av - tw) // 2), alto_av // 2),
+                                    cv2.FONT_HERSHEY_SIMPLEX, escala_txt,
+                                    (255, 255, 255), 2)
+                        ok, buf = cv2.imencode('.jpg', aviso,
+                                               [cv2.IMWRITE_JPEG_QUALITY,
+                                                PERFIL_WEB.calidad])
+                        aviso_cacheado = buf.tobytes() if ok else b''
+                        estado_aviso = texto
+                    frame_bytes = aviso_cacheado
+                    time.sleep(0.5)     # aviso a 2 fps: no quemar CPU en vano
 
-            try:
+                # Si el navegador cierra la pestana, Flask cierra el generador
+                # y aqui salta GeneratorExit. NO se captura (deriva de
+                # BaseException, no de Exception): asi el generador muere de
+                # verdad y el finally suelta el cliente. Antes, sin contador de
+                # clientes, no habia forma de saber si quedaba alguno vivo.
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            except Exception as e:
-                print(f"Error generando frame cámara {camera_index}: {e}")
-                time.sleep(0.1)
+        finally:
+            frame_hub.sale_cliente(camera_index)
 
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
@@ -2427,7 +2792,33 @@ def api_all():
         # Reparto REAL del tiempo del bucle de video, en milisegundos por
         # etapa. Sirve para ver de un vistazo si los FPS los limita la camara
         # ("camara" alto) o nuestro procesamiento ("proceso" alto).
-        "perf": {"cam1": perfilador[0].medias(), "cam2": perfilador[1].medias()},
+        #  Se mantiene la forma antigua {cam1:{etapa:ms}} para no romper a
+        #  quien ya la lea, y se anaden claves nuevas al lado.
+        "perf": {
+            "cam1": perfilador[0].medias(),
+            "cam2": perfilador[1].medias(),
+            "cuello_cam1": perfilador[0].cuello_de_botella(),
+            "cuello_cam2": perfilador[1].cuello_de_botella(),
+            "fps_captura": {"cam1": fps1, "cam2": fps2},
+            "fps_web": {"cam1": frame_hub.fps_enviados(0),
+                        "cam2": frame_hub.fps_enviados(1)},
+            "clientes_web": {"cam1": frame_hub.clientes(0),
+                             "cam2": frame_hub.clientes(1)},
+        },
+        # Lo que el driver acepto DE VERDAD (no lo que se le pidio) y el perfil
+        # con el que se emite a la web. La proporcion sale de aqui para que el
+        # navegador no deforme la imagen.
+        "camaras_reales": {
+            "cam1": info_camaras[0].como_dict() if info_camaras[0] else None,
+            "cam2": info_camaras[1].como_dict() if info_camaras[1] else None,
+        },
+        "perfil_web": PERFIL_WEB.como_dict(),
+        "perfil_captura": PERFIL_CAPTURA.como_dict(),
+        "reconocimiento": {
+            "umbral": CONF_LIMIT,
+            "etiquetas": len(etiquetas_lbph),
+            "distancias": distancias_lbph_recientes(),
+        },
         "red_objects": detected_red_objects,
         "largest_red_object": max(detected_red_objects, key=lambda x: x['area']) if detected_red_objects else None,
         "camera_settings": {
@@ -2537,11 +2928,21 @@ def api_videos():
 
 @app.route("/play_video/<camera>/<filename>")
 def play_video(camera, filename):
-    """Reproduce un video grabado"""
-    file_path = os.path.join(VIDEO_PATH, camera, filename)
-    if not os.path.exists(file_path):
+    """Reproduce un video grabado.
+
+    SEGURIDAD: antes se concatenaba directamente lo que llegaba por la URL
+    (os.path.join(VIDEO_PATH, camera, filename)). Con camera=".." se salia de
+    videos/ y se podia leer cualquier fichero del proyecto — y este servidor
+    escucha en 0.0.0.0, o sea que era alcanzable desde toda la red local.
+    Ahora la ruta la valida medibot_vision.ruta_video_segura: lista blanca de
+    camaras, nombre sin separadores ni '..', y comprobacion final de que la
+    ruta REAL sigue dentro de VIDEO_PATH."""
+    file_path = medibot_vision.ruta_video_segura(VIDEO_PATH, camera, filename)
+    if file_path is None:
+        return "Petición no válida", 400
+    if not os.path.isfile(file_path):
         return "Video no encontrado", 404
-    
+
     def generate():
         with open(file_path, 'rb') as f:
             while True:
@@ -2549,13 +2950,19 @@ def play_video(camera, filename):
                 if not data:
                     break
                 yield data
-    
+
     return Response(generate(), mimetype='video/x-msvideo')
 
 @app.route("/download_video/<camera>/<filename>")
 def download_video(camera, filename):
-    """Descarga un video grabado"""
-    return send_from_directory(os.path.join(VIDEO_PATH, camera), filename, as_attachment=True)
+    """Descarga un video grabado (misma validación que /play_video)."""
+    file_path = medibot_vision.ruta_video_segura(VIDEO_PATH, camera, filename)
+    if file_path is None:
+        return "Petición no válida", 400
+    if not os.path.isfile(file_path):
+        return "Video no encontrado", 404
+    return send_from_directory(os.path.realpath(os.path.join(VIDEO_PATH, camera)),
+                               filename, as_attachment=True)
 
 @app.route("/position")
 def get_position():
@@ -2623,15 +3030,8 @@ def toggle_system_endpoint():
     
     if not online:
         # Iniciar sistema
-        if not os.path.exists("trainer.yml"):
-            recognizer = None
-        else:
-            try:
-                recognizer = cv2.face.LBPHFaceRecognizer_create()
-                recognizer.read("trainer.yml")
-            except:
-                recognizer = None
-        
+        recognizer = cargar_reconocedor()
+
         online = True
         face_position = {"x": "center", "y": "center"}
         detection_count = 0
@@ -2702,18 +3102,15 @@ def toggle_recognition_endpoint():
     global recognition_enabled, recognizer
     recognition_enabled = not recognition_enabled
     if recognition_enabled:
-        if recognizer is None and os.path.exists("trainer.yml"):
-            try:
-                recognizer = cv2.face.LBPHFaceRecognizer_create()
-                recognizer.read("trainer.yml")
-            except Exception:
-                recognizer = None
+        if recognizer is None:
+            recognizer = cargar_reconocedor()
         if recognizer is None:
             recognition_enabled = False
             return jsonify({"recognition_enabled": False,
                             "message": "No hay modelo entrenado (trainer.yml)"})
     return jsonify({
         "recognition_enabled": recognition_enabled,
+        "umbral": CONF_LIMIT,
         "message": f"Reconocimiento {'activado' if recognition_enabled else 'desactivado'}"
     })
 
@@ -3012,11 +3409,17 @@ def train_system():
         try:
             faces = []
             labels = []
-            
+            #  Nombres EN EL ORDEN CON EL QUE SE ETIQUETA. Es justo lo que hay
+            #  que guardar: el modelo aprende "id 0, id 1..." y sin este mapa
+            #  la unica forma de traducirlo era volver a listar el disco, cuyo
+            #  orden cambia al dar de alta o borrar a alguien.
+            nombres = []
+
             for idx, person in enumerate(persons):
                 progress_label.config(text=f"Procesando: {person['name']}")
                 person_path = os.path.join(DATA_PATH, person['name'])
-                
+                nombres.append(person['name'])
+
                 for image_name in os.listdir(person_path):
                     if image_name.endswith('.jpg'):
                         image_path = os.path.join(person_path, image_name)
@@ -3024,22 +3427,28 @@ def train_system():
                         if image is not None:
                             faces.append(image)
                             labels.append(idx)
-            
+
             if not faces:
                 progress_window.destroy()
                 messagebox.showerror("Error", "No se encontraron imágenes válidas para entrenar.")
                 return
-            
+
             progress_label.config(text="Generando modelo...")
-            
+
             recognizer_temp = cv2.face.LBPHFaceRecognizer_create()
             recognizer_temp.train(faces, np.array(labels))
             recognizer_temp.save("trainer.yml")
-            
+            medibot_vision.guardar_mapa_etiquetas(nombres)
+            cargar_etiquetas_lbph()
+
             progress_window.destroy()
             messagebox.showinfo("Entrenamiento Completo",
-                               f"El sistema ha sido entrenado exitosamente con {len(persons)} personas.")
-            
+                               f"El sistema ha sido entrenado exitosamente con {len(persons)} personas.\n\n"
+                               f"Umbral de reconocimiento actual: {CONF_LIMIT:.0f}\n"
+                               "Actívalo y mira la consola: cada cara imprime su\n"
+                               "distancia real ([lbph] distancia=...), que es lo que\n"
+                               "necesitas para ajustar MEDIBOT_LBPH_UMBRAL.")
+
         except Exception as e:
             progress_window.destroy()
             messagebox.showerror("Error", f"Error durante el entrenamiento:\n{str(e)}")
@@ -3240,16 +3649,9 @@ def toggle_system():
     if not online:
         # Iniciar sistema: la cámara arranca SIN reconocer caras.
         # Se precarga el modelo (si existe) por si luego activas el reconocimiento.
-        if os.path.exists("trainer.yml"):
-            try:
-                recognizer = cv2.face.LBPHFaceRecognizer_create()
-                recognizer.read("trainer.yml")
-                print("Modelo de reconocimiento facial precargado (reconocimiento desactivado)")
-            except Exception as e:
-                print(f"Error cargando modelo de reconocimiento: {e}")
-                recognizer = None
-        else:
-            recognizer = None
+        recognizer = cargar_reconocedor()
+        if recognizer is not None:
+            print("Modelo de reconocimiento facial precargado (reconocimiento desactivado)")
 
         online = True
         face_position = {"x": "center", "y": "center"}
@@ -3343,13 +3745,8 @@ def toggle_recognition():
 
     if recognition_enabled:
         # Cargar el modelo si aún no está cargado
-        if recognizer is None and os.path.exists("trainer.yml"):
-            try:
-                recognizer = cv2.face.LBPHFaceRecognizer_create()
-                recognizer.read("trainer.yml")
-            except Exception as e:
-                print(f"Error cargando modelo: {e}")
-                recognizer = None
+        if recognizer is None:
+            recognizer = cargar_reconocedor()
         if recognizer is None:
             recognition_enabled = False
             messagebox.showwarning("Reconocimiento",
@@ -3390,7 +3787,16 @@ def _set_widget(clave, widget, **kwargs):
 
 def _pintar_panel(indice, label, seq_vista):
     """Vuelca el ultimo fotograma de una camara en su label de Tk.
-    Devuelve la nueva secuencia dibujada (o la misma si no habia nada nuevo)."""
+    Devuelve la nueva secuencia dibujada (o la misma si no habia nada nuevo).
+
+    NOTA SOBRE EL COSTE: ahora el buzon guarda el fotograma a resolucion
+    completa, asi que este resize a VIEW_W x VIEW_H si se ejecuta (antes el
+    frame ya llegaba reducido). El trabajo no es nuevo, se ha MOVIDO del hilo
+    de captura al de Tk: ~0,28 ms por fotograma y camara (medido a 640->400),
+    y como la interfaz solo repinta cuando hay fotograma nuevo y como mucho
+    cada GUI_REFRESCO_MS, son ~11 ms de CPU por segundo con dos camaras. Ese
+    es el precio de que la web reciba la imagen nitida; si en la Raspberry
+    resultara caro, se reduce con MEDIBOT_GUI_MS (menos repintados)."""
     frame, seq = frame_hub.obtener_si_nuevo(indice, seq_vista)
     if frame is None:
         return seq_vista
@@ -3999,11 +4405,10 @@ fullscreen_btn = ttk.Button(control_frame,
            command=lambda: open_fullscreen())
 fullscreen_btn.pack(pady=5, fill=tk.X)
 
-# Botón: lanza Pastillero.py y divide la pantalla (Visión | Pastillero)
-pastillero_split_btn = ttk.Button(control_frame,
-           text="ABRIR PASTILLERO (pantalla dividida)",
-           command=abrir_pastillero_dividido)
-pastillero_split_btn.pack(pady=5, fill=tk.X)
+# (Aquí había un SEGUNDO botón de Pillbox, idéntico en función al verde de
+#  arriba: ambos llamaban a abrir_pastillero_dividido y se sobrescribían la
+#  misma variable, así que en pantalla salían dos botones para lo mismo.
+#  Se conserva solo el verde destacado, que es el que se ve mejor.)
 
 separator = tk.Frame(monitoring_main_frame, bg="#222222", height=1)
 separator.pack(fill=tk.X, padx=20, pady=10)
