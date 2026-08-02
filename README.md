@@ -270,6 +270,47 @@ MEDIBOT_GUI_MS=33 python3 main.py      # refresco de la interfaz (def.: 50 ms)
 MEDIBOT_PERF_SEG=2 python3 main.py     # cada cuanto se imprime la medicion
 ```
 
+### La ruleta del dispensador (28BYJ-48 + ULN2003)
+
+**Si se encienden las cuatro luces del ULN2003, empieza por aqui.**
+
+```
+PINTEST
+```
+
+Enciende **una sola bobina cada vez**, 1,2 s, diciendo cual deberia iluminarse.
+Es lo que distingue un fallo de firmware de uno de cables:
+
+| Lo que ves con `PINTEST` | Que significa |
+|---|---|
+| se enciende **una** cada vez, en orden | cableado correcto |
+| se encienden **las cuatro** a la vez | los cables **no** estan en A0-A3; algo mas mueve esos pines (tipico: bobinas puestas en 10-13, que son del mando PS2, o en 6-9, que son headers de encoder) |
+| se enciende **otra distinta** | el orden IN1..IN4 esta cruzado |
+| **ninguna** se enciende | falta el 5 V del ULN2003, o su GND no esta unido al GND del Arduino (el fallo mas frecuente) |
+
+> Ojo: **con el motor girando es normal ver las cuatro luces encendidas.** La
+> secuencia activa dos bobinas a la vez y cambia 341 veces por segundo, asi que
+> cada LED va al 50 % a unos 85 Hz y el ojo las ve todas encendidas. Eso no es
+> un fallo. El fallo es que sigan encendidas **paradas**, o que el motor zumbe
+> sin girar.
+
+El cableado se declara en **un solo sitio** del sketch:
+
+```c
+#define RULETA_IN1 PIN_A0
+#define RULETA_IN2 PIN_A1
+#define RULETA_IN3 PIN_A2
+#define RULETA_IN4 PIN_A3
+```
+
+Si mueves los cables, cambia solo esas cuatro lineas. **El compilador comprueba
+que no chocan** con el Serial (0/1), el servo (D2), los encoders (6-9), el mando
+PS2 (10-13) ni el I2C (A4/A5): un pin ocupado no compila, en vez de subirse y
+portarse raro.
+
+Otros diagnosticos: `STEPTEST[,k]` gira k compartimientos aislado del resto,
+`MOTORTEST` prueba los 4 motores DC, `I2CSCAN` busca el Motor Shield (0x60).
+
 ### Encoders de los motores
 
 Se usa la **libreria oficial del shield** (`QGPMaker_Encoder`), que ya conoce
