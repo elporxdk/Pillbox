@@ -33,6 +33,7 @@ pyserial y openpty (Unix) y se saltan solas si no estan.
 """
 
 import os
+import re
 import sys
 import threading
 import time
@@ -159,6 +160,177 @@ class PruebasEncoders(unittest.TestCase):
         ard.encoders = [100, 200, 999, 999]      # M3/M4 no deben salir
         linea = ard.procesar("ENC")[0]
         self.assertEqual(protocolo.enteros(linea, 4), [100, 200, 0, 0])
+
+
+# =============================================================================
+class PruebasRuleta(unittest.TestCase):
+    """La ruleta (28BYJ-48 + ULN2003) y su secuencia de bobinas.
+
+    EL FALLO QUE VIGILAN
+    --------------------
+    Se reporto que "no se envian correctamente los movimientos a la placa del
+    ULN2003 y se encienden todas las luces". Dos cosas distintas:
+
+      1. Las cuatro luces encendidas A LA VEZ es IMPOSIBLE por codigo: la
+         secuencia enciende siempre exactamente dos bobinas. Si se ven las
+         cuatro fijas, o el motor gira (85 Hz al 50%: el ojo las ve todas) o
+         los cables no estan en los pines que cree el firmware.
+      2. Lo que SI era un fallo real: Stepper::step() bloqueaba hasta 19,5 s en
+         un DISPENSE. El buffer serie del UNO son 64 bytes = 67 ms a 9600
+         baudios, asi que todo lo que mandaba la Raspberry mientras la ruleta
+         giraba se perdia. De ahi "no se envian correctamente los movimientos".
+
+    Estas pruebas fijan las dos propiedades para que no vuelvan."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+            cls.codigo = f.read()
+        m = re.search(r'SECUENCIA_PASOS\[4\]\s*=\s*\{([^}]*)\}', cls.codigo)
+        assert m, "No se encontro la tabla SECUENCIA_PASOS en el firmware"
+        cls.secuencia = [int(v.strip(), 0) for v in m.group(1).split(",")]
+
+    # ---- La secuencia de bobinas ------------------------------------
+    def test_la_secuencia_tiene_cuatro_estados(self):
+        self.assertEqual(len(self.secuencia), 4)
+
+    def test_nunca_hay_mas_de_dos_bobinas_encendidas(self):
+        """Las cuatro luces a la vez no las puede producir este codigo."""
+        for i, paso in enumerate(self.secuencia):
+            self.assertEqual(bin(paso).count("1"), 2,
+                             f"El paso {i} enciende {bin(paso).count('1')} "
+                             f"bobinas ({paso:04b}); deben ser exactamente 2.")
+
+    def test_las_bobinas_activas_son_CONTIGUAS_no_opuestas(self):
+        """El fallo clasico del 28BYJ-48.
+
+        Con el orden ingenuo (IN1,IN2,IN3,IN4) la libreria Stepper genera
+        1010 y 0101: bobinas OPUESTAS, que se anulan. El motor zumba, se
+        calienta y no gira. Tienen que ser contiguas (1100, 0110, 0011, 1001),
+        y 1001 cuenta como contigua porque el anillo cierra."""
+        opuestas = {0b1010, 0b0101}
+        for i, paso in enumerate(self.secuencia):
+            self.assertNotIn(paso, opuestas,
+                             f"El paso {i} ({paso:04b}) activa bobinas opuestas: "
+                             "el motor zumbaria sin girar.")
+
+    def test_la_secuencia_recorre_el_anillo_sin_repetir(self):
+        self.assertEqual(len(set(self.secuencia)), 4, "Hay pasos repetidos")
+
+    def test_cada_bobina_se_usa_lo_mismo(self):
+        """Si una bobina se activa mas veces que otra, el giro es irregular."""
+        for bit in range(4):
+            veces = sum(1 for p in self.secuencia if p & (1 << bit))
+            self.assertEqual(veces, 2, f"La bobina {bit} se activa {veces} veces")
+
+    def test_coincide_con_lo_que_generaba_la_libreria_Stepper(self):
+        """La calibracion mecanica no cambia al dejar de usar Stepper.
+
+        El sketch la llamaba como Stepper(2048, IN1, IN3, IN2, IN4). Se
+        reproduce aqui su tabla interna y se traduce a IN1..IN4."""
+        interna = [(1, 0, 1, 0), (0, 1, 1, 0), (0, 1, 0, 1), (1, 0, 0, 1)]
+        destino = ["IN1", "IN3", "IN2", "IN4"]      # orden de los argumentos
+        esperado = []
+        for paso in interna:
+            v = dict(zip(destino, paso))
+            esperado.append((v["IN1"] << 3) | (v["IN2"] << 2) |
+                            (v["IN3"] << 1) | v["IN4"])
+        self.assertEqual(self.secuencia, esperado)
+
+    def test_siguen_siendo_2048_pasos_y_256_por_compartimiento(self):
+        self.assertIn("PASOS_POR_VUELTA  = 2048", self.codigo)
+        self.assertIn("PASOS_POR_VUELTA / N_COMPARTIMIENTOS", self.codigo)
+
+    def test_la_velocidad_equivale_a_las_10_rpm_de_antes(self):
+        m = re.search(r'US_POR_PASO\s*=\s*(\d+)', self.codigo)
+        self.assertIsNotNone(m, "No se encontro US_POR_PASO")
+        rpm = 60e6 / 2048 / int(m.group(1))
+        self.assertAlmostEqual(rpm, 10.0, delta=0.1,
+                               msg=f"La ruleta iria a {rpm:.1f} rpm, no a 10")
+
+    # ---- Que no vuelva a quedarse sordo -----------------------------
+    def test_ya_no_se_usa_la_libreria_Stepper(self):
+        """Su step() es bloqueante: es la causa de perder ordenes."""
+        self.assertNotIn("#include <Stepper.h>", self.codigo)
+        self.assertNotIn("ruleta.step(", self.codigo)
+
+    def test_el_giro_atiende_el_serie_mientras_gira(self):
+        cuerpo = re.search(r'void girarPasos\(long pasos\)\s*\{(.*?)\n\}',
+                           self.codigo, re.S)
+        self.assertIsNotNone(cuerpo, "No se encontro girarPasos()")
+        self.assertIn("leerSerial()", cuerpo.group(1),
+                      "girarPasos() debe leer el serie mientras gira o se "
+                      "pierden ordenes (buffer de 64 bytes = 67 ms).")
+
+    def test_el_dispensador_no_usa_delay(self):
+        """delay(2500) dejaba al Arduino sordo 3 s por cada pastilla."""
+        cuerpo = re.search(r'void dispensar\(int n\)\s*\{(.*?)\n\}',
+                           self.codigo, re.S)
+        self.assertIsNotNone(cuerpo, "No se encontro dispensar()")
+        #  Sin los comentarios: un  // antes delay(...)  que explica el cambio
+        #  no es una llamada, y hacer fallar la prueba por el comentario que
+        #  documenta el arreglo seria absurdo.
+        codigo = re.sub(r'//[^\n]*', '', cuerpo.group(1))
+        self.assertNotIn("delay(", codigo,
+                         "Usa esperarAtendiendo(), que sigue leyendo el serie.")
+
+    def test_toda_espera_del_dispensador_atiende_el_serie(self):
+        cuerpo = re.search(r'void esperarAtendiendo\(unsigned long ms\)\s*\{(.*?)\n\}',
+                           self.codigo, re.S)
+        self.assertIsNotNone(cuerpo, "No se encontro esperarAtendiendo()")
+        self.assertIn("leerSerial()", cuerpo.group(1))
+
+    # ---- Seguridad y diagnostico ------------------------------------
+    def test_las_bobinas_se_sueltan_al_terminar(self):
+        """Sin esto se quedan las cuatro luces fijas y el motor calentandose."""
+        for funcion in ("girarPasos", "servirRuleta"):
+            cuerpo = re.search(r'\b' + funcion + r'\([^)]*\)\s*\{(.*?)\n\}',
+                               self.codigo, re.S)
+            self.assertIsNotNone(cuerpo, f"No se encontro {funcion}()")
+            self.assertIn("liberarBobinas()", cuerpo.group(1),
+                          f"{funcion}() debe soltar las bobinas al acabar")
+
+    def test_una_segunda_orden_de_ruleta_a_mitad_de_giro_se_rechaza(self):
+        """Dos giros solapados descuadran compActual y la EEPROM."""
+        self.assertIn("ruletaOcupada", self.codigo)
+        self.assertIn('ERR,OCUPADO', self.codigo)
+
+    def test_STOP_sigue_llegando_con_la_ruleta_girando(self):
+        """La seguridad del chasis no se sacrifica: solo se filtran las
+        ordenes de RULETA, no las de movimiento."""
+        guardia = re.search(r'if \(ruletaOcupada && \((.*?)\)\) \{',
+                            self.codigo, re.S)
+        self.assertIsNotNone(guardia, "No se encontro el guardia de reentrada")
+        filtrados = guardia.group(1)
+        for prohibido in ("STOP", "MOVE", "GPIO", "PING", "VEL"):
+            self.assertNotIn(f'"{prohibido}"', filtrados,
+                             f"{prohibido} NO puede bloquearse mientras gira")
+
+    def test_existe_el_diagnostico_de_cableado(self):
+        """PINTEST enciende una bobina cada vez: distingue firmware de cables."""
+        self.assertIn('cmd == "PINTEST"', self.codigo)
+
+    def test_el_pinout_esta_declarado_una_sola_vez(self):
+        """Antes el pinout aparecia en tres comentarios que no coincidian."""
+        for macro in ("RULETA_IN1", "RULETA_IN2", "RULETA_IN3", "RULETA_IN4"):
+            definiciones = re.findall(r'^#define ' + macro + r'\s', self.codigo,
+                                      re.M)
+            self.assertEqual(len(definiciones), 1,
+                             f"{macro} definido {len(definiciones)} veces")
+
+    def test_el_compilador_vigila_los_choques_de_pines(self):
+        """Cablear la ruleta sobre el PS2 o los encoders no debe compilar."""
+        self.assertIn("RULETA_CHOCA", self.codigo)
+        self.assertIn("#error", self.codigo)
+        #  El preprocesador no ve  const int : usar A0 en vez de PIN_A0 dejaria
+        #  la comprobacion siempre en falso sin avisar.
+        guardia = re.search(r'#define RULETA_CHOCA.*?\n(?:.*?\\\n)*.*?\n',
+                            self.codigo)
+        self.assertIsNotNone(guardia)
+        self.assertNotIn("SERVO_PIN", guardia.group(0),
+                         "SERVO_PIN es const int: el preprocesador lo lee como 0")
+        self.assertIn("PIN_A4", guardia.group(0),
+                      "Usa PIN_A4 (macro), no A4 (const int)")
 
 
 # =============================================================================

@@ -115,7 +115,6 @@
 #include "PS2X_lib.h"
 #include "QGPMaker_MotorShield.h"
 #include "QGPMaker_Encoder.h"     // encoders de los motores (libreria del shield)
-#include <Stepper.h>
 #include <Servo.h>
 #include <EEPROM.h>
 
@@ -184,14 +183,38 @@ Servo servoTilt;
 #endif
 
 // ------------- Motor paso a paso (ruleta) -------------
-//  ULN2003 en A0, A1, A2, A3  <-- CABLEADO REAL DE ESTE ROBOT.
-//
+//  ═══ EL UNICO SITIO DONDE SE DECLARA EL CABLEADO DEL ULN2003 ═══
+//  Si mueves los cables, cambia SOLO estas cuatro lineas. Antes el pinout
+//  aparecia repetido en tres comentarios distintos y NO COINCIDIAN entre si
+//  (uno decia A0..A3, otro "ULN2003 en 8/9/10/11", otro "el stepper en 6-9").
+//  Seguir el comentario equivocado lleva a cablear las bobinas sobre los pines
+//  del mando PS2 (10-13) o sobre los headers de encoder (6-9): entonces las
+//  luces del ULN2003 se encienden solas —las mueve el PS2, no la ruleta— y el
+//  motor no gira. Ahora hay una sola fuente de verdad y el compilador la
+//  comprueba (ver COMPROBACION DE PINES mas abajo).
+//  Se usan PIN_A0..PIN_A3 y no A0..A3 a proposito: en el core de Arduino, A0 es
+//  una  static const uint8_t , no una macro, y el PREPROCESADOR no puede verla
+//  (la tomaria como 0 y la comprobacion de choques de abajo pasaria siempre sin
+//  mirar nada). PIN_A0 si es una macro, y vale exactamente lo mismo.
+#ifndef PIN_A0            // fuera del core de AVR (analisis estatico, tests)
+#define PIN_A0 14
+#define PIN_A1 15
+#define PIN_A2 16
+#define PIN_A3 17
+#define PIN_A4 18
+#define PIN_A5 19
+#endif
+
+#define RULETA_IN1 PIN_A0
+#define RULETA_IN2 PIN_A1
+#define RULETA_IN3 PIN_A2
+#define RULETA_IN4 PIN_A3
+
 //  POR QUE EN LOS ANALOGICOS: en el Uno, A0..A5 son pines digitales completos
-//  (digitalWrite funciona igual que en 0-13, y la libreria Stepper solo usa
-//  digitalWrite), asi que mueven el ULN2003 sin problema. Ponerlos aqui deja
-//  LIBRES los cuatro headers Encoder del shield (D2-D9) para los encoders de
-//  los motores. Excepcion: A6/A7 del Nano/Pro Mini son solo entrada analogica,
-//  no servirian; en el Uno no existen.
+//  (digitalWrite funciona igual que en 0-13), asi que mueven el ULN2003 sin
+//  problema. Ponerlos aqui deja LIBRES los cuatro headers Encoder del shield
+//  (D2-D9) para los encoders de los motores. Excepcion: A6/A7 del Nano/Pro
+//  Mini son solo entrada analogica, no servirian; en el Uno no existen.
 //
 //  ATENCION, NO USAR NUNCA LOS PINES 0 NI 1:
 //    Son el RX/TX del puerto serie por USB (header WIFI/BT del shield) y estan
@@ -200,16 +223,65 @@ Servo servoTilt;
 //    efecto, asi que las bobinas conectadas ahi NUNCA reciben la secuencia de
 //    pasos y el motor solo vibra. Ademas todo lo que responde el Arduino
 //    (POS, OK,MOVE...) saldria por el pin 1 hacia una bobina.
-const int PIN_IN1 = A0;
-const int PIN_IN2 = A1;
-const int PIN_IN3 = A2;
-const int PIN_IN4 = A3;
+const int PIN_IN1 = RULETA_IN1;
+const int PIN_IN2 = RULETA_IN2;
+const int PIN_IN3 = RULETA_IN3;
+const int PIN_IN4 = RULETA_IN4;
 
 const int  PASOS_POR_VUELTA  = 2048;                                 // 28BYJ-48 (ajusta si es necesario)
 const int  N_COMPARTIMIENTOS = 8;
 const int  PASOS_POR_COMP    = PASOS_POR_VUELTA / N_COMPARTIMIENTOS; // 256 pasos = 45 grados
 
-Stepper ruleta(PASOS_POR_VUELTA, PIN_IN1, PIN_IN3, PIN_IN2, PIN_IN4);
+// ── COMPROBACION DE PINES EN TIEMPO DE COMPILACION ───────────────────────
+//  Si alguien recablea la ruleta sobre un pin que ya tiene dueno, el sketch NO
+//  COMPILA y dice cual es el choque, en vez de subirse y portarse raro. Es la
+//  clase de fallo que se manifiesta como "las luces se encienden todas y el
+//  motor no gira", que desde fuera parece un problema de la placa ULN2003.
+//  Ojo: aqui van NUMEROS y macros, nunca  const int , por lo dicho arriba sobre
+//  el preprocesador. El 2 es SERVO_PIN; que sigan siendo el mismo pin lo
+//  comprueba PIN_SERVO_ESPERADO justo debajo.
+#define PIN_SERVO_ESPERADO 2
+#define RULETA_CHOCA(p) ((p) == 0 || (p) == 1 ||  /* Serial RX/TX */          \
+                         (p) == PIN_SERVO_ESPERADO ||   /* servo disp. (D2) */\
+                         (p) == 6 || (p) == 7 ||  /* header Encoder2 (M2) */  \
+                         (p) == 8 || (p) == 9 ||  /* header Encoder1 (M1) */  \
+                         (p) == 10 || (p) == 11 || (p) == 12 || (p) == 13 ||  \
+                         (p) == PIN_A4 || (p) == PIN_A5)  /* I2C del shield */
+#if RULETA_CHOCA(RULETA_IN1) || RULETA_CHOCA(RULETA_IN2) || \
+    RULETA_CHOCA(RULETA_IN3) || RULETA_CHOCA(RULETA_IN4)
+#error "Pin de la ruleta ocupado. Libres en este robot: A0,A1,A2,A3 (y D3,D4,D5). Prohibidos: 0/1 (Serial), 2 (servo), 6-9 (encoders), 10-13 (PS2), A4/A5 (I2C)."
+#endif
+#if (RULETA_IN1 == RULETA_IN2) || (RULETA_IN1 == RULETA_IN3) || \
+    (RULETA_IN1 == RULETA_IN4) || (RULETA_IN2 == RULETA_IN3) || \
+    (RULETA_IN2 == RULETA_IN4) || (RULETA_IN3 == RULETA_IN4)
+#error "Dos bobinas de la ruleta declaradas en el mismo pin."
+#endif
+
+// ── SECUENCIA DE PASOS (antes: libreria Stepper) ─────────────────────────
+//  SE SUSTITUYE LA LIBRERIA Stepper POR ESTA TABLA. Motivo: Stepper::step() es
+//  BLOQUEANTE — se queda dentro haciendo espera activa hasta terminar TODOS los
+//  pasos. A 10 rpm son 2,93 ms por paso y 256 pasos por compartimiento, o sea
+//  0,75 s por compartimiento: un SELECT lejano bloquea 5,3 s y un DISPENSE
+//  hasta 19,5 s. Durante todo ese rato leerSerial() NO se llama, y el buffer de
+//  recepcion del Uno son 64 bytes = 67 ms de trafico a 9600 baudios. Todo lo
+//  que manda la Raspberry mientras la ruleta gira SE PIERDE, incluidos los '\n':
+//  dos ordenes se pegan en una linea sin sentido. De ahi "no se envian
+//  correctamente los movimientos". Ahora se avanza UN paso por vuelta de loop()
+//  y el serie se atiende sin interrupcion.
+//
+//  La tabla reproduce EXACTAMENTE lo que generaba Stepper con el orden de pines
+//  (IN1, IN3, IN2, IN4) que usaba el sketch, asi que la calibracion mecanica no
+//  cambia: siguen siendo 2048 pasos por vuelta y 256 por compartimiento.
+//  Bits: IN1,IN2,IN3,IN4 -> 1100, 0110, 0011, 1001 (dos bobinas CONTIGUAS).
+//  Ese "contiguas" es lo importante: con el orden ingenuo (IN1,IN2,IN3,IN4)
+//  saldria 1010/0101, o sea bobinas OPUESTAS, y el motor solo zumba.
+//  NUNCA hay mas de dos bobinas activas: las cuatro luces encendidas a la vez
+//  es imposible por construccion.
+const uint8_t SECUENCIA_PASOS[4] = { 0b1100, 0b0110, 0b0011, 0b1001 };
+
+//  Microsegundos por paso. Equivale al antiguo ruleta.setSpeed(10) rpm:
+//  60e6 / 2048 pasos / 10 rpm = 2930 us.
+const unsigned long US_POR_PASO = 2930;
 
 int compActual = 1;   // compartimiento que esta ARRIBA (zona de carga/espera, 1..8)
 
@@ -518,6 +590,10 @@ void responderRPM() {
 // ═════════════════════════════════════════════════════════════
 //  DISPENSADOR — utilidades
 // ═════════════════════════════════════════════════════════════
+//  Suelta las cuatro bobinas: apaga las cuatro luces del ULN2003 y deja de
+//  calentar el motor. Se llama SIEMPRE al terminar de girar. Es lo unico que
+//  evita que la ruleta se quede consumiendo ~200 mA parada, que es corriente
+//  robada al Motor Shield y a los servos.
 void liberarBobinas() {
   digitalWrite(PIN_IN1, LOW);
   digitalWrite(PIN_IN2, LOW);
@@ -525,17 +601,68 @@ void liberarBobinas() {
   digitalWrite(PIN_IN4, LOW);
 }
 
+// Escribe UN estado de la secuencia en las cuatro bobinas.
+//  Por construccion enciende como mucho dos: si alguna vez se ven las cuatro
+//  luces fijas, no lo ha hecho este codigo (mira el cableado con PINTEST).
+void escribirBobinas(uint8_t patronBits) {
+  digitalWrite(PIN_IN1, (patronBits & 0b1000) ? HIGH : LOW);
+  digitalWrite(PIN_IN2, (patronBits & 0b0100) ? HIGH : LOW);
+  digitalWrite(PIN_IN3, (patronBits & 0b0010) ? HIGH : LOW);
+  digitalWrite(PIN_IN4, (patronBits & 0b0001) ? HIGH : LOW);
+}
+
 // ═════════════════════════════════════════════════════════════
 //  RULETA - GIRO EN UNA SOLA DIRECCION (retroceso PROHIBIDO)
 //  Logica SELECT + DISPENSE (misma que Pillbox_Dispensador.ino)
 // ═════════════════════════════════════════════════════════════
+//  GIRO NO BLOQUEANTE. Ver la nota larga junto a SECUENCIA_PASOS: la libreria
+//  Stepper se quedaba dentro hasta 19,5 s y el Arduino se volvia sordo al
+//  puerto serie. Aqui se da un paso y se vuelve, de modo que leerSerial() sigue
+//  corriendo mientras la ruleta gira.
+
+long pasosPendientes = 0;         // > 0 mientras queda giro por hacer
+uint8_t faseRuleta   = 0;         // indice dentro de SECUENCIA_PASOS
+unsigned long ultimoPasoUs = 0;
+
+bool ruletaGirando() { return pasosPendientes > 0; }
+
+// Da un paso si ya toca por tiempo. Devuelve true si aun queda giro pendiente.
+bool servirRuleta() {
+  if (pasosPendientes <= 0) return false;
+  unsigned long ahora = micros();
+  //  Resta sin signo: se comporta bien cuando micros() da la vuelta (~70 min).
+  if (ahora - ultimoPasoUs < US_POR_PASO) return true;
+  ultimoPasoUs = ahora;
+  faseRuleta = (faseRuleta + 1) & 0x03;
+  escribirBobinas(SECUENCIA_PASOS[faseRuleta]);
+  pasosPendientes--;
+  if (pasosPendientes == 0) {
+    liberarBobinas();
+    return false;
+  }
+  return true;
+}
+
+//  Cierto mientras hay un giro en curso. Sirve para dos cosas: rechazar una
+//  segunda orden de ruleta a mitad de giro (descuadraria compActual y la EEPROM)
+//  y no conducir el chasis con el mando mientras cae la pastilla.
+bool ruletaOcupada = false;
+
+// Encolan trabajo y esperan a que termine SIN dejar de atender el puerto serie.
+//  Se mantiene la forma bloqueante hacia quien llama (SELECT/DISPENSE siguen
+//  siendo secuenciales, que es lo que espera el Pillbox), pero por dentro el
+//  serie se sigue leyendo: ya no se pierde ninguna orden mientras gira.
+//  Se declaran aqui y se definen tras leerSerial(): se usan mutuamente. NO se
+//  confia en los prototipos que genera el IDE de Arduino, porque solo los crea
+//  al preprocesar el .ino y cualquier otro compilador (o un .cpp) fallaria.
+void girarPasos(long pasos);
+void esperarAtendiendo(unsigned long ms);
 
 // Avanza 'k' compartimientos HACIA ADELANTE (solo adelante; k normalizado 0..7).
 void avanzarComps(int k) {
   k = ((k % N_COMPARTIMIENTOS) + N_COMPARTIMIENTOS) % N_COMPARTIMIENTOS;
   if (k > 0) {
-    ruleta.step((long)k * PASOS_POR_COMP);
-    liberarBobinas();
+    girarPasos((long)k * PASOS_POR_COMP);
   }
 }
 
@@ -568,9 +695,9 @@ void dispensar(int n) {
   avanzarComps(rot);                           // comp N a la zona de dispensado
 
   servoDispensador.write(SERVO_DISPENSA);
-  delay(2500);
+  esperarAtendiendo(2500);          // antes delay(): 3 s sordo por pastilla
   servoDispensador.write(SERVO_REPOSO);
-  delay(500);
+  esperarAtendiendo(500);
 
   avanzarComps((N_COMPARTIMIENTOS - rot) % N_COMPARTIMIENTOS);   // vuelve a HOME
   compActual = 1;
@@ -676,6 +803,17 @@ void procesarComando(String linea) {
     arg.trim();
   }
   cmd.toUpperCase();
+
+  //  Ordenes que mueven la ruleta. Si llega una mientras ya esta girando, se
+  //  rechaza en vez de reentrar: dos giros solapados descuadrarian compActual y
+  //  la posicion guardada en EEPROM dejaria de corresponder con la realidad.
+  //  El resto de ordenes (MOVE, STOP, PING, ENC...) SI se atienden girando.
+  if (ruletaOcupada && (cmd == "SELECT" || cmd == "GOTO" || cmd == "HOME" ||
+                        cmd == "DISPENSE" || cmd == "DISPENSAR" ||
+                        cmd == "STEPTEST" || cmd == "PINTEST")) {
+    Serial.print(F("ERR,OCUPADO,")); Serial.println(cmd);
+    return;
+  }
 
   if (cmd == "SELECT" || cmd == "GOTO") {
     // ACK inmediato: confirma que el comando LLEGO y el giro va a empezar. Asi
@@ -834,19 +972,42 @@ void procesarComando(String linea) {
     //    estan bien; el problema esta fuera del firmware (tipicamente un bajon
     //    de tension al mover a la vez motores DC / servos por el mismo USB:
     //    alimenta el ULN2003 / el shield con una fuente aparte).
-    //  - Si NO gira ni aqui -> revisar cableado ULN2003 en 8/9/10/11 y su 5V.
+    //  - Si NO gira ni aqui -> usa PINTEST, que dice cual es el problema.
     int comps = (arg.length() > 0) ? arg.toInt() : N_COMPARTIMIENTOS;
     comps = constrain(comps, 1, 64);
     Serial.print(F("STEPTEST: girando "));
     Serial.print(comps);
     Serial.println(F(" compartimiento(s) hacia adelante..."));
     for (int i = 0; i < comps; i++) {
-      ruleta.step(PASOS_POR_COMP);
+      girarPasos(PASOS_POR_COMP);
       Serial.print(F("  comp "));
       Serial.println(i + 1);
     }
-    liberarBobinas();
     Serial.println(F("STEPTEST: fin"));
+
+  } else if (cmd == "PINTEST") {
+    // Diagnostico de CABLEADO del ULN2003: enciende UNA bobina cada vez, 1,2 s,
+    // diciendo cual deberia iluminarse. Es la prueba que distingue un problema
+    // de firmware de uno de cables, y responde justo a "se encienden todas las
+    // luces": aqui tiene que verse UNA sola encendida en cada tramo.
+    //
+    //   4 luces encendidas a la vez  -> los cables NO estan en A0..A3; algo mas
+    //       esta moviendo esos pines (tipico: bobinas puestas en 10-13, que son
+    //       del mando PS2, o en 6-9, que son los headers de encoder).
+    //   se enciende otra distinta    -> el orden IN1..IN4 esta cruzado; corrige
+    //       los cables o las cuatro lineas RULETA_INx del principio del sketch.
+    //   NINGUNA se enciende          -> falta el 5 V del ULN2003 o su GND no
+    //       esta unido al GND del Arduino (el mas frecuente de todos).
+    Serial.println(F("PINTEST: 1 bobina cada vez. Debe encenderse UNA sola luz."));
+    const uint8_t soloUna[4] = { 0b1000, 0b0100, 0b0010, 0b0001 };
+    for (int i = 0; i < 4; i++) {
+      Serial.print(F("  IN")); Serial.print(i + 1);
+      Serial.print(F(" (pin A")); Serial.print(i); Serial.println(F(") ENCENDIDA"));
+      escribirBobinas(soloUna[i]);
+      esperarAtendiendo(1200);
+    }
+    liberarBobinas();
+    Serial.println(F("PINTEST: fin (todas apagadas)"));
 
   } else if (cmd == "I2CSCAN") {
     // Diagnostico: escanea el bus I2C y lista las direcciones que responden.
@@ -902,6 +1063,37 @@ void leerSerial() {
   }
 }
 
+// ---------- Giro de la ruleta atendiendo el serie ----------
+//  Encola 'pasos' y no vuelve hasta darlos todos, PERO sin dejar sordo al
+//  Arduino: en cada vuelta se llama a leerSerial(). Asi el Pillbox sigue
+//  siendo secuencial (SELECT termina antes de contestar POS) y a la vez no se
+//  pierde ni una orden de la Raspberry mientras el motor gira.
+//
+//  El guardia ruletaOcupada impide que una orden que llegue a mitad de giro
+//  (otro SELECT, un DISPENSE) vuelva a entrar aqui y se enrede consigo misma.
+//  Las ordenes de chasis SI se atienden: un STOP tiene que funcionar siempre,
+//  incluso con la ruleta girando.
+void girarPasos(long pasos) {
+  if (pasos <= 0) return;
+  pasosPendientes = pasos;
+  ultimoPasoUs = micros() - US_POR_PASO;   // el primer paso sale ya
+  ruletaOcupada = true;
+  while (servirRuleta()) {
+    leerSerial();
+  }
+  ruletaOcupada = false;
+  liberarBobinas();
+}
+
+//  Espera 'ms' sin dejar de atender el serie. Sustituye a los delay() del
+//  dispensador, que dejaban al Arduino sordo 3 s por cada pastilla.
+void esperarAtendiendo(unsigned long ms) {
+  unsigned long inicio = millis();
+  while (millis() - inicio < ms) {
+    leerSerial();
+  }
+}
+
 // ═════════════════════════════════════════════════════════════
 //  SETUP
 // ═════════════════════════════════════════════════════════════
@@ -924,7 +1116,8 @@ void setup() {
   // Arduino nunca respondia por Serial).
   //  PS2 en 13(clock), 11(command), 10(attention), 12(data): son sus pines de
   //  SIEMPRE y NO se tocan (el mando esta cableado asi de fabrica en el robot).
-  //  No hace falta moverlos: con el stepper en 6-9 no se pisan.
+  //  No chocan con la ruleta: esta va en A0..A3, y el compilador lo
+  //  comprueba (ver COMPROBACION DE PINES).
   ps2Presente = false;
   for (int intento = 0; intento < 10; intento++) {
     if (ps2x.config_gamepad(13, 11, 10, 12, true, true) == 0) {
@@ -949,7 +1142,8 @@ void setup() {
   pinMode(PIN_IN4, OUTPUT);
   liberarBobinas();
 
-  ruleta.setSpeed(10);   // velocidad en rpm
+  //  La velocidad de la ruleta ya no se fija aqui: es US_POR_PASO, arriba,
+  //  junto a la secuencia de pasos. Sigue equivaliendo a 10 rpm.
 
   servoDispensador.attach(SERVO_PIN);
   servoDispensador.write(SERVO_REPOSO);
@@ -1004,8 +1198,19 @@ void loop() {
   // ── Dispensador: comandos de la RPi/PC por Serial (no bloqueante) ──
   leerSerial();
 
+  // ── Ruleta: red de seguridad ──────────────────────────────
+  //  girarPasos() ya sirve el giro entero, asi que normalmente no queda nada
+  //  pendiente aqui. Se llama igualmente para que ningun camino pueda dejar
+  //  las bobinas a medias: si quedaran pasos sin dar, las cuatro luces se
+  //  quedarian fijas y el motor calentandose parado.
+  servirRuleta();
+
   // ── Mando PS2, a su propio ritmo y sin bloquear ───────────
-  if (ps2Presente && (millis() - ultimaLecturaPS2 >= PERIODO_PS2_MS)) {
+  //  Mientras se dispensa NO se conduce con el mando: el chasis tiene que
+  //  estar quieto para que la pastilla caiga donde debe. Las ordenes por COM
+  //  (incluido STOP) se siguen atendiendo siempre.
+  if (ps2Presente && !ruletaGirando() &&
+      (millis() - ultimaLecturaPS2 >= PERIODO_PS2_MS)) {
     ultimaLecturaPS2 = millis();
 
     // La vibracion del boton X se pide en la MISMA lectura, en vez de con

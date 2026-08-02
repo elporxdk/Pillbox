@@ -153,6 +153,12 @@ COMANDOS = {c.nombre: c for c in (
     Comando("PROTO", 0, 1.0, ("PROTO", _ERR), "Version de protocolo del firmware."),
     Comando("MOTORTEST", 0, 8.0, ("MOTORTEST: fin", _ERR), "Prueba los 4 motores DC."),
     Comando("STEPTEST", (0, 1), 20.0, ("STEPTEST: fin", _ERR), "Prueba el paso a paso."),
+    #  PINTEST enciende UNA bobina del ULN2003 cada vez, 1,2 s, diciendo cual
+    #  deberia iluminarse. Es lo que distingue un fallo de firmware de uno de
+    #  cables: si se ven las cuatro luces a la vez, los cables no estan donde
+    #  el firmware cree. 4 x 1,2 s + margen.
+    Comando("PINTEST", 0, 8.0, ("PINTEST: fin", _ERR),
+            "Enciende las bobinas de la ruleta una a una (diagnostico de cableado)."),
     Comando("I2CSCAN", 0, 3.0, ("I2CSCAN:", _ERR), "Escanea el bus I2C."),
 
     # ---- Compatibilidad (protocolo antiguo de Vision) ----
