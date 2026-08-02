@@ -127,6 +127,43 @@ banda; y la columna `manda` señala la etapa que limita.
 | `MEDIBOT_OVERLAY` | `1` | `0` quita los textos dibujados sobre el video |
 | `MEDIBOT_LBPH_UMBRAL` | `80` | umbral del reconocimiento facial (ver abajo) |
 
+### Controles de imagen (brillo, contraste, saturacion...)
+
+**Por defecto no se toca ninguno**, y esa es la opcion recomendada: los
+valores de fabrica de una webcam dan una imagen correcta. Solo se aplican los
+controles que se pidan explicitamente:
+
+| Variable | Control | Rango tipico en una C270 |
+|---|---|---|
+| `MEDIBOT_CAM_BRILLO` | brightness | `0..255` (def. `128`) |
+| `MEDIBOT_CAM_CONTRASTE` | contrast | `0..255` (def. `32`) |
+| `MEDIBOT_CAM_SATURACION` | saturation | `0..255` (def. `32`) |
+| `MEDIBOT_CAM_NITIDEZ` | sharpness | `0..255` (def. `24`) |
+| `MEDIBOT_CAM_GANANCIA` | gain | `0..255` (def. `0`) |
+| `MEDIBOT_CAM_EXPOSICION` | exposure | `1..10000` (def. `166`) |
+
+> **Van en las unidades del dispositivo, no en 0..1.** Es el fallo que hacia
+> que una Logitech C270 se viera **gris y horrible**: el codigo mandaba
+> `saturation=0.5` sobre un rango `0..255`, el driver lo redondeaba a **0**, y
+> saturacion 0 significa literalmente sin color. Igual con `contrast=0.3` (0 =
+> imagen plana) y `brightness=0.5` (0 = lo mas oscuro). Ahora, si se detecta un
+> valor asi, el programa avisa en consola en vez de dejar la imagen en gris.
+
+El rango real de **tu** camara se consulta con:
+
+```bash
+v4l2-ctl -d /dev/video0 --list-ctrls
+```
+
+Tras cada ajuste el valor se vuelve a **leer** del driver para comprobar que
+de verdad se aplico; lo aceptado y lo rechazado se registra en consola y se
+publica en `/api/all` (`controles_camara`). Ejemplo — subir la saturacion de
+una C270 sin tocar nada mas:
+
+```bash
+MEDIBOT_CAM_SATURACION=60 python3 main.py
+```
+
 ### Arrancar sin camara (demo o desarrollo)
 
 ```bash

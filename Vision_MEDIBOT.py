@@ -424,63 +424,101 @@ def move_servos(x_pos, y_pos):
 
 # ================= OPTIMIZADOR DE CÁMARA =========
 class CameraOptimizer:
+    """Ajustes de imagen de la camara.
+
+    POR QUE SE REESCRIBIO: la version anterior guardaba los valores en una
+    escala 0..1 (brightness=0.5, saturation=0.5...) y los mandaba tal cual con
+    camera.set(). Pero V4L2 usa el rango NATIVO del dispositivo en enteros: en
+    una Logitech C270 la saturacion va de 0 a 255 (por defecto 32), asi que ese
+    0.5 llegaba al driver como 0.
+
+        saturacion 0  =  imagen SIN COLOR  ->  se veia gris
+        contraste  0  =  imagen plana      ->  se veia lavada
+        brillo     0  =  lo mas oscuro
+
+    Y no saltaba ningun aviso porque habia un  except: pass  desnudo, nadie
+    miraba el booleano que devuelve set(), y nadie volvia a leer el valor para
+    comprobar si se habia aplicado. Ademas se ejecutaba en CADA arranque.
+
+    AHORA: por defecto NO SE TOCA NADA (los valores de fabrica de la camara dan
+    una imagen correcta), los valores van en unidades del dispositivo, y cada
+    intento se verifica releyendo del driver. La logica esta en
+    medibot_vision.ControlesCamara, que se puede probar sin camara.
+
+    Se conservan los nombres de atributos y metodos porque los usan /api/all,
+    /optimize_camera y /update_camera_setting."""
+
     def __init__(self):
-        self.brightness = 0.5
-        self.contrast = 0.5
-        self.saturation = 0.5
-        self.sharpness = 0.5
-        self.exposure = 0.0
-        
+        self.controles = medibot_vision.ControlesCamara.desde_entorno()
+        #  Lo que el driver dice tener de verdad. Se rellena al aplicar y es lo
+        #  que se publica: antes /api/all mostraba los 0.5 inventados, que no
+        #  se correspondian con nada de lo que la camara tenia puesto.
+        self.reales = {}
+
+    # ---- Atributos que espera la API publica ---------------------------
+    def _valor(self, nombre):
+        real = self.reales.get(nombre)
+        return real if real is not None else self.controles.pedido(nombre)
+
+    @property
+    def brightness(self):
+        return self._valor("brightness")
+
+    @property
+    def contrast(self):
+        return self._valor("contrast")
+
+    @property
+    def saturation(self):
+        return self._valor("saturation")
+
+    @property
+    def sharpness(self):
+        return self._valor("sharpness")
+
+    @property
+    def exposure(self):
+        return self._valor("exposure")
+
+    # ---- Operaciones ---------------------------------------------------
     def auto_adjust(self, frame):
-        """Ajusta la cámara"""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        # Ajustar brillo con el histograma
-        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
-        hist_percent = np.cumsum(hist) / np.sum(hist)
-        
-        # Encontrar percentiles para ajuste
-        dark_thresh = np.where(hist_percent > 0.05)[0][0]
-        bright_thresh = np.where(hist_percent > 0.95)[0][0]
-        
-        # Ajustar parámetros
-        if dark_thresh < 50:
-            self.brightness = min(1.0, self.brightness + 0.1)
-        elif bright_thresh > 200:
-            self.brightness = max(0.0, self.brightness - 0.1)
-            
-        # Ajustar contraste basado en desviación estándar
-        std_dev = np.std(gray)
-        if std_dev < 30:
-            self.contrast = min(1.0, self.contrast + 0.1)
-        elif std_dev > 100:
-            self.contrast = max(0.0, self.contrast - 0.1)
-            
+        """Ya NO toca la camara.
+
+        La version anterior movia brightness/contrast en la escala 0..1 sin
+        llegar a llamar nunca a apply_settings(), asi que su unico efecto era
+        empeorar los valores que se enviarian la proxima vez que alguien
+        pulsara "Optimizar camara". Un autoajuste util tendria que trabajar en
+        las unidades del dispositivo y conocer el rango real, que OpenCV no
+        expone; mientras tanto, la exposicion automatica de la propia camara
+        hace mejor ese trabajo.
+
+        Se conserva la firma porque el bucle de video la llama."""
         return frame
-    
-    def apply_settings(self, camera):
-        """Aplica los ajustes a la cámara"""
-        try:
-            camera.set(cv2.CAP_PROP_BRIGHTNESS, self.brightness)
-            camera.set(cv2.CAP_PROP_CONTRAST, self.contrast)
-            camera.set(cv2.CAP_PROP_SATURATION, self.saturation)
-            camera.set(cv2.CAP_PROP_SHARPNESS, self.sharpness)
-            camera.set(cv2.CAP_PROP_EXPOSURE, self.exposure)
-        except:
-            pass
-    
+
+    def apply_settings(self, camera, indice=None):
+        """Aplica los controles PEDIDOS y comprueba que se aplicaron."""
+        informe = self.controles.aplicar(camera, indice=indice)
+        # Publicar lo que la camara tiene REALMENTE, se haya tocado o no.
+        self.reales = {k: v for k, v in self.controles.leer(camera).items()
+                       if v is not None}
+        return informe
+
     def manual_adjust(self, setting, value):
-        """Ajuste manual de parámetros"""
-        if setting == "brightness":
-            self.brightness = value
-        elif setting == "contrast":
-            self.contrast = value
-        elif setting == "saturation":
-            self.saturation = value
-        elif setting == "sharpness":
-            self.sharpness = value
-        elif setting == "exposure":
-            self.exposure = value
+        """Ajuste manual, EN UNIDADES DEL DISPOSITIVO (p.ej. 0..255).
+        Lanza ValueError si el control no existe."""
+        return self.controles.fijar(setting, value)
+
+    def estado(self):
+        """Lo que hay que saber para diagnosticar una imagen fea."""
+        return {
+            "pedidos": dict(self.controles.ajustes),
+            "reales": dict(self.reales),
+            "resumen": self.controles.resumen(),
+            "nota": ("Valores en UNIDADES DEL DISPOSITIVO (v4l2-ctl "
+                     "--list-ctrls), no en 0..1. Sin variables de entorno no "
+                     "se toca ningun control."),
+        }
+
 
 camera_optimizer = CameraOptimizer()
 
@@ -885,7 +923,7 @@ def initialize_cameras():
 
         # Los ajustes de imagen (brillo/contraste) van DESPUES de negociar el
         # formato: algunos drivers los descartan al cambiar de modo.
-        camera_optimizer.apply_settings(cap)
+        camera_optimizer.apply_settings(cap, indice=posicion)
 
         if posicion == 0:
             camera1 = cap
@@ -995,13 +1033,6 @@ _face_detector = medibot_vision.FaceDetector(cascade, escala=0.5,
                                              scale_factor=1.1, min_neighbors=5,
                                              min_size=(30, 30))
 
-# Cada cuantos fotogramas se recalcula el auto-ajuste de camara. Su histograma
-# cuesta ~0.9 ms y sus valores solo cambian de forma gradual con la luz, asi
-# que hacerlo 1 de cada 15 frames (2 veces por segundo) da el mismo resultado
-# visible por la 15ava parte del coste.
-AUTOAJUSTE_CADA_N_FRAMES = 15
-
-
 def _necesita_deteccion_facial():
     """?Hay alguien que vaya a USAR las caras detectadas?
 
@@ -1063,9 +1094,11 @@ def process_camera(camera_index):
             # mide con marcas porque el bloque es largo y tiene ramas.
             t_proceso = time.perf_counter()
 
-            # Auto-ajuste de camara: caro y de efecto lento -> no cada frame.
-            if n_frame % AUTOAJUSTE_CADA_N_FRAMES == 0:
-                camera_optimizer.auto_adjust(frame)
+            #  Aqui se llamaba a camera_optimizer.auto_adjust(), que movia
+            #  brillo/contraste en una escala 0..1 sin llegar a enviarlos nunca
+            #  a la camara: solo servia para empeorar los valores que se
+            #  mandarian al pulsar "Optimizar camara". La exposicion automatica
+            #  de la propia webcam hace mejor ese trabajo.
 
             # ---- Objetos rojos -------------------------------------------
             # Se dibuja sobre el propio frame (antes se hacia frame.copy()).
@@ -2992,6 +3025,10 @@ def api_all():
         },
         "red_objects": detected_red_objects,
         "largest_red_object": max(detected_red_objects, key=lambda x: x['area']) if detected_red_objects else None,
+        #  Estos valores son ahora los que el driver tiene DE VERDAD, leidos
+        #  con get(), en unidades del dispositivo. Antes eran los 0.5 fijos que
+        #  el programa se inventaba y que no correspondian a nada de lo que la
+        #  camara tenia puesto.
         "camera_settings": {
             "brightness": camera_optimizer.brightness,
             "contrast": camera_optimizer.contrast,
@@ -2999,6 +3036,9 @@ def api_all():
             "sharpness": camera_optimizer.sharpness,
             "exposure": camera_optimizer.exposure
         },
+        # Detalle para diagnosticar una imagen fea: que se pidio, que quedo y
+        # que rechazo el driver.
+        "controles_camara": camera_optimizer.estado(),
         "system_info": {
             "ip_address": get_ip(),
             "port": 5000,
@@ -3297,23 +3337,43 @@ def optimize_camera_endpoint():
     data = request.get_json()
     camera_index = data.get('camera_index', 0)
     
-    if camera_index == 0 and camera1 is not None:
-        camera_optimizer.apply_settings(camera1)
-        return jsonify({"message": "Cámara 1 optimizada"})
-    elif camera_index == 1 and camera2 is not None:
-        camera_optimizer.apply_settings(camera2)
-        return jsonify({"message": "Cámara 2 optimizada"})
-    
-    return jsonify({"error": "Cámara no disponible"}), 400
+    camara = camera1 if camera_index == 0 else (camera2 if camera_index == 1 else None)
+    if camara is None:
+        return jsonify({"error": "Cámara no disponible"}), 400
+
+    #  Se devuelve lo que el driver ACEPTO, no un "optimizada" a ciegas. Sin
+    #  controles pedidos no se toca nada, que es el comportamiento correcto por
+    #  defecto: los valores de fabrica de la camara dan una imagen usable.
+    informe = camera_optimizer.apply_settings(camara, indice=camera_index)
+    if not informe:
+        return jsonify({"message": "Sin ajustes que aplicar: se usan los "
+                                   "valores por defecto de la cámara",
+                        "controles": camera_optimizer.estado()})
+    fallidos = {n: r["motivo"] for n, r in informe.items() if not r["ok"]}
+    return jsonify({
+        "message": (f"Cámara {camera_index + 1}: "
+                    f"{len(informe) - len(fallidos)} de {len(informe)} controles aplicados"),
+        "aplicados": {n: r["despues"] for n, r in informe.items() if r["ok"]},
+        "fallidos": fallidos,
+        "controles": camera_optimizer.estado(),
+    })
 
 @app.route("/auto_optimize_camera", methods=["POST"])
 def auto_optimize_camera_endpoint():
-    """Optimiza automáticamente la cámara"""
+    """Estado de los controles de imagen.
+
+    ANTES decia "Optimización automática completada" sin hacer nada util: el
+    auto-ajuste por software reescalaba el fotograma ya capturado a ciegas.
+    Ahora la ruta se conserva (la API no se rompe) pero informa de la verdad:
+    manda el driver, y lo que se toque se pide explicitamente."""
     return jsonify({
-        "message": "Optimización automática completada",
+        "message": "El ajuste automático por software está desactivado: "
+                   "manda la cámara. Usa /update_camera_setting o las "
+                   "variables MEDIBOT_CAM_* para tocar un control concreto.",
         "brightness": camera_optimizer.brightness,
         "contrast": camera_optimizer.contrast,
-        "saturation": camera_optimizer.saturation
+        "saturation": camera_optimizer.saturation,
+        "controles": camera_optimizer.estado(),
     })
 
 @app.route("/update_area_threshold", methods=["POST"])
@@ -3335,16 +3395,33 @@ def update_camera_setting():
     setting = data.get('setting')
     value = data.get('value')
     
-    if setting and value is not None:
+    if not setting or value is None:
+        return jsonify({"error": "Datos inválidos"}), 400
+
+    #  IMPORTANTE: el valor va en UNIDADES DEL DISPOSITIVO (en una C270,
+    #  0..255), NO en 0..1. Mandar 0.5 aqui pone el control practicamente a
+    #  cero: con la saturacion, eso deja la imagen en blanco y negro.
+    try:
         camera_optimizer.manual_adjust(setting, value)
-        # Aplicar a ambas cámaras
-        if camera1 is not None:
-            camera_optimizer.apply_settings(camera1)
-        if camera2 is not None:
-            camera_optimizer.apply_settings(camera2)
-        return jsonify({"message": f"Ajuste {setting} actualizado a {value}"})
-    
-    return jsonify({"error": "Datos inválidos"}), 400
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    informe = {}
+    for indice, camara in ((0, camera1), (1, camera2)):
+        if camara is not None:
+            informe = camera_optimizer.apply_settings(camara, indice=indice)
+    if not informe:
+        return jsonify({"error": "No hay ninguna cámara abierta"}), 400
+
+    resultado = informe.get(setting)
+    if resultado and not resultado["ok"]:
+        return jsonify({"error": f"La cámara no aceptó {setting}={value}: "
+                                 f"{resultado['motivo']}",
+                        "controles": camera_optimizer.estado()}), 400
+    return jsonify({
+        "message": f"Ajuste {setting} = {resultado['despues'] if resultado else value}",
+        "controles": camera_optimizer.estado(),
+    })
 
 @app.route("/clear_tracking", methods=["POST"])
 def clear_tracking():
