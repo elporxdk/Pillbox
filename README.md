@@ -127,6 +127,43 @@ banda; y la columna `manda` señala la etapa que limita.
 | `MEDIBOT_OVERLAY` | `1` | `0` quita los textos dibujados sobre el video |
 | `MEDIBOT_LBPH_UMBRAL` | `80` | umbral del reconocimiento facial (ver abajo) |
 
+### Controles de imagen (brillo, contraste, saturacion...)
+
+**Por defecto no se toca ninguno**, y esa es la opcion recomendada: los
+valores de fabrica de una webcam dan una imagen correcta. Solo se aplican los
+controles que se pidan explicitamente:
+
+| Variable | Control | Rango tipico en una C270 |
+|---|---|---|
+| `MEDIBOT_CAM_BRILLO` | brightness | `0..255` (def. `128`) |
+| `MEDIBOT_CAM_CONTRASTE` | contrast | `0..255` (def. `32`) |
+| `MEDIBOT_CAM_SATURACION` | saturation | `0..255` (def. `32`) |
+| `MEDIBOT_CAM_NITIDEZ` | sharpness | `0..255` (def. `24`) |
+| `MEDIBOT_CAM_GANANCIA` | gain | `0..255` (def. `0`) |
+| `MEDIBOT_CAM_EXPOSICION` | exposure | `1..10000` (def. `166`) |
+
+> **Van en las unidades del dispositivo, no en 0..1.** Es el fallo que hacia
+> que una Logitech C270 se viera **gris y horrible**: el codigo mandaba
+> `saturation=0.5` sobre un rango `0..255`, el driver lo redondeaba a **0**, y
+> saturacion 0 significa literalmente sin color. Igual con `contrast=0.3` (0 =
+> imagen plana) y `brightness=0.5` (0 = lo mas oscuro). Ahora, si se detecta un
+> valor asi, el programa avisa en consola en vez de dejar la imagen en gris.
+
+El rango real de **tu** camara se consulta con:
+
+```bash
+v4l2-ctl -d /dev/video0 --list-ctrls
+```
+
+Tras cada ajuste el valor se vuelve a **leer** del driver para comprobar que
+de verdad se aplico; lo aceptado y lo rechazado se registra en consola y se
+publica en `/api/all` (`controles_camara`). Ejemplo — subir la saturacion de
+una C270 sin tocar nada mas:
+
+```bash
+MEDIBOT_CAM_SATURACION=60 python3 main.py
+```
+
 ### Arrancar sin camara (demo o desarrollo)
 
 ```bash
@@ -239,12 +276,30 @@ Se usa la **libreria oficial del shield** (`QGPMaker_Encoder`), que ya conoce
 el mapeo de pines y calcula las RPM. Con el ULN2003 movido a A0-A3 quedan
 libres los headers de encoder:
 
-| header | pines | motor | disponible |
+**Solo se habilitan DOS: M1 y M2, uno por cada lado del chasis.**
+
+| header | pines | motor | estado |
 |---|---|---|---|
-| Encoder1 | D8, D9 | M1 | si |
-| Encoder2 | D6, D7 | M2 | si |
-| Encoder4 | D4, D5 | M4 | si |
-| Encoder3 | D2, D3 | M3 | **no**: D2 es el unico sitio libre para el servo dispensador |
+| Encoder1 | D8, D9 | M1 (lado A) | **habilitado** |
+| Encoder2 | D6, D7 | M2 (lado B) | **habilitado** |
+| Encoder4 | D4, D5 | M4 (lado B) | no: redundante, gira siempre con M2 |
+| Encoder3 | D2, D3 | M3 (lado A) | **no conectar**: D2 es la senal del servo dispensador |
+
+**Por que solo dos.** Los motores van emparejados por lados: **M1 y M3 son un
+lado, M2 y M4 el otro**. Los dos de un mismo lado giran siempre juntos, asi que
+su encoder mide lo mismo. Con M1 + M2 ya se tiene el recorrido de cada lado,
+que es todo lo que hace falta para odometria: el **avance** es la media de los
+dos y el **giro** su diferencia. M4 solo repetia el dato de M2.
+
+**Por que M3 no se puede usar, pase lo que pase.** Su header (Encoder3) ocupa
+los pines D2 y D3, y **D2 es donde va la senal del servo dispensador**. Si se
+conecta el encoder de M3, su salida y la del Arduino empujan la misma linea:
+dos drivers peleando por un cable. Ademas de no funcionar, puede danar el pin.
+**No conectes nada al header Encoder3.**
+
+Como efecto secundario, **D4 y D5 quedan libres**. D5 era el pin del servo
+*tilt* de la camara, asi que ahora se puede montar el pan/tilt sin sacrificar
+ningun encoder de los que se usan.
 
 **4320 cuentas = 1 vuelta** del eje de salida (12 PPR x 4 cuadratura x 90 de
 reductora).
@@ -252,10 +307,13 @@ reductora).
 Por Serial:
 
 ```
-ENC        -> ENC,4320,-2160,0,864        posicion acumulada (con signo)
-ENCRPM     -> ENCRPM,120,-118,0,119       velocidad de cada motor en RPM
+ENC        -> ENC,4320,-2160,0,0          posicion acumulada (con signo)
+ENCRPM     -> ENCRPM,120,-118,0,0         velocidad de cada motor en RPM
 ENCRESET   -> ENC,0,0,0,0                 pone las cuentas a cero
 ```
+
+Se siguen enviando **cuatro campos** para no romper a quien ya los lea; los de
+M3 y M4 van fijos a `0`.
 
 Desde Python:
 
@@ -268,14 +326,122 @@ rpm     = ms.leer_rpm()                  # [m1, m2, m3, m4] o None
 vueltas = cuentas[0] / ms.CUENTAS_POR_VUELTA
 ```
 
-El campo de M3 llega siempre a 0. Las tres funciones devuelven `None` si el
-Arduino no responde, para poder distinguirlo de cuatro ceros legitimos (que
-significan "motores parados").
+Los campos de **M3 y M4 llegan siempre a 0** (no estan habilitados). Las tres
+funciones devuelven `None` si el Arduino no responde, para poder distinguirlo
+de cuatro ceros legitimos (que significan "motores parados").
+
+Para odometria con los dos encoders que hay:
+
+```python
+c = ms.leer_encoders()
+if c:
+    avance = (c[0] + c[1]) / 2 / ms.CUENTAS_POR_VUELTA   # vueltas medias
+    giro   = (c[0] - c[1]) / ms.CUENTAS_POR_VUELTA       # diferencia entre lados
+```
 
 Los servos de camara pan/tilt estan desactivados (`USAR_SERVOS_CAMARA 0` en el
 sketch) porque este robot no lleva ese soporte; por eso D3 y D5 quedan para
 encoders. Si algun dia montas el pan/tilt, pon ese `#define` a 1: recuperas los
 servos y pierdes los encoders 3 y 4.
+
+## Protocolo serie Medibot <-> Arduino (v2)
+
+`medibot_protocolo.py` es **la** definicion del protocolo. Antes estaba escrito
+tres veces (Vision, Pillbox y firmware) y las tres se habian separado sin que
+nadie lo notara, porque el lado Python **descartaba las respuestas**:
+
+| Comando que enviaba Python | Que hacia el firmware | Sintoma |
+|---|---|---|
+| `MOVE,SPINL` / `MOVE,SPINR` | no los conocia -> **paraba** el robot, y contestaba `OK,MOVE,SPINL` | los botones de giro paraban el robot, con ACK conforme |
+| `VEL,<200..255>` | no existia -> `ERR,VEL,231` | el deslizador de velocidad no hacia **nada** |
+| `TRUCO,<1..4>` | no existia -> `ERR,TRUCO,1` | los trucos no hacian nada |
+
+### Formato de linea
+
+```
+NOMBRE[,arg1[,arg2]]<LF>
+```
+
+- **9600 baud**, 8N1. Sale de `protocolo.BAUDIOS`, que debe coincidir con
+  `Serial.begin()` del sketch (hay una prueba que lo comprueba).
+- **ASCII de 7 bits.** Nada de acentos: el firmware compara con `String` de
+  Arduino y un caracter multibyte rompe la comparacion en silencio.
+- **Terminador: un solo `\n` (LF).** El firmware ignora los `\r`, asi que CRLF
+  tambien vale, pero se manda solo LF.
+- Separador coma, nombre en MAYUSCULAS, maximo 96 bytes por linea (el Arduino
+  UNO tiene 2 KB de RAM: sin tope, un flujo sin `\n` lo reinicia).
+- **Toda orden responde algo.** Esa es la regla que permite detectar un
+  desajuste en vez de sufrirlo.
+
+### Comandos
+
+| Comando | Args | Respuesta | Que hace |
+|---|---|---|---|
+| `MOVE,<dir>` | `FWD` `BACK` `LEFT` `RIGHT` `SPINL` `SPINR` `STOP` | `OK,MOVE,<dir>` | mueve el chasis |
+| `VEL,<n>` | 200..255 | `OK,VEL,<n>` | velocidad (se recorta al rango) |
+| `TRUCO,<n>` | 1..4 | `OK,TRUCO,<n>` y luego `FIN,TRUCO,<n>` | movimiento especial |
+| `DISPENSE[,<n>]` | 1..8 | `OK,DISPENSE,<n>`, `DISPENSADO,<n>`, `POS,<n>` | dispensa |
+| `GOTO,<n>` / `SELECT,<n>` | 1..8 | `OK,GOTO,<n>`, `POS,<n>` | gira la ruleta |
+| `HOME` | — | `OK,HOME`, `POS,<n>` | ruleta al origen |
+| `GETPOS` | — | `POS,<n>` | compartimiento actual |
+| `SERVO,<n>` | 0..90 | `SERVO,<n>` | servo dispensador |
+| `ENC` / `ENCRPM` / `ENCRESET` | — | `ENC,a,b,0,d` | encoders |
+| `PING` | — | `PONG` | comprobar el enlace |
+| `PROTO` | — | `PROTO,2,MEDIBOT` | version del firmware |
+| `GPIO,<pin>,<v>` / `PWM,<pin>,<duty>` | — | `OK,GPIO,...` | protocolo antiguo (se mantiene) |
+
+Cualquier comando desconocido o argumento invalido devuelve `ERR,<linea>`.
+Al arrancar, el Arduino emite `READY,MEDIBOT,2`, lo que permite detectar que
+se reinicio (por ejemplo, por un bajon de tension al arrancar los motores).
+
+```bash
+python3 medibot_protocolo.py     # imprime la tabla completa
+```
+
+### Comprobar que ambos lados hablan lo mismo
+
+```python
+import medibot_serial as ms
+ms.ping()                       # True si el Arduino contesta PONG
+ms.comprobar_compatibilidad()   # compara la version de protocolo
+ms.mover("SPINL")               # devuelve una Respuesta VALIDADA
+ms.fijar_velocidad(231)
+```
+
+Al arrancar, si el Arduino lleva un sketch anterior a esta version, se avisa
+en consola en vez de descubrirlo porque un comando concreto no hace nada.
+
+### Probar sin la placa
+
+`arduino_falso.py` simula el Arduino detras de un **puerto serie real**
+(pseudoterminal), asi que se ejercita el codigo de pyserial autentico:
+
+```bash
+python3 arduino_falso.py                     # imprime el /dev/pts/N a usar
+python3 arduino_falso.py --viejo             # simula el firmware ANTIGUO
+
+# en otra terminal, con el puerto que imprimio:
+MEDIBOT_SERIAL_PORT=/dev/pts/5 python3 serial_hub.py
+```
+
+Con `--viejo` se reproduce el fallo original (el robot se para ante `SPINL`
+mientras responde `OK`), util para comprobar que ahora **si** se detecta.
+
+### Pruebas del protocolo
+
+```bash
+python3 test_protocolo_serial.py       # 50 pruebas, sin placa
+```
+
+Cubren dos caminos independientes:
+
+1. **Paridad con el firmware**: lee el propio `MEDIBOT.MOVE.` y comprueba que
+   implementa cada comando y cada movimiento de la tabla, que los baudios
+   coinciden y que la version de protocolo es la misma. Sin placa y sin
+   compilador de Arduino.
+2. **Ida y vuelta real**: por un pseudoterminal, con el `serial_hub` autentico,
+   incluyendo rafagas de comandos consecutivos para verificar que las
+   respuestas no se mezclan.
 
 ### Si la autodeteccion no encuentra el Arduino
 

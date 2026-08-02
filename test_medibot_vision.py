@@ -408,6 +408,149 @@ class PruebasAperturaCamara(unittest.TestCase):
 
 
 # =============================================================================
+class CapturaConControles:
+    """Camara falsa con controles de imagen en unidades REALES.
+
+    Los rangos y valores por defecto son los de una Logitech C270 (leidos con
+    `v4l2-ctl --list-ctrls`), que es donde se vio el problema: mandar 0.5 a la
+    saturacion, cuyo rango es 0..255, la deja practicamente en 0 y la imagen
+    sale en escala de grises."""
+
+    RANGOS = {                       # (min, max, por_defecto)
+        cv2.CAP_PROP_BRIGHTNESS: (0, 255, 128),
+        cv2.CAP_PROP_CONTRAST: (0, 255, 32),
+        cv2.CAP_PROP_SATURATION: (0, 255, 32),
+        cv2.CAP_PROP_SHARPNESS: (0, 255, 24),
+        cv2.CAP_PROP_GAIN: (0, 255, 0),
+        cv2.CAP_PROP_EXPOSURE: (1, 10000, 166),
+    }
+
+    def __init__(self, soportados=None):
+        self.soportados = (set(self.RANGOS) if soportados is None
+                           else set(soportados))
+        self.valores = {p: d for p, (_, _, d) in self.RANGOS.items()}
+
+    def get(self, prop):
+        if prop not in self.soportados:
+            return 0.0
+        return float(self.valores.get(prop, 0.0))
+
+    def set(self, prop, valor):
+        if prop not in self.soportados:
+            return False                      # como V4L2 con un control ausente
+        lo, hi, _ = self.RANGOS[prop]
+        if not lo <= valor <= hi:
+            return False                      # fuera de rango: no se aplica
+        self.valores[prop] = int(round(valor))
+        return True
+
+
+class PruebasControlesCamara(unittest.TestCase):
+    """LA imagen gris de la C270: unidades del dispositivo, no 0..1."""
+
+    def setUp(self):
+        self.cam = CapturaConControles()
+        self.avisos = []
+
+    def _controles(self, ajustes=None):
+        return mv.ControlesCamara(ajustes, log=self.avisos.append)
+
+    def test_por_defecto_no_toca_nada(self):
+        """Los valores de fábrica de la cámara dan una imagen correcta."""
+        antes = dict(self.cam.valores)
+        informe = self._controles().aplicar(self.cam)
+        self.assertEqual(informe, {})
+        self.assertEqual(self.cam.valores, antes)
+
+    def test_reproduce_la_imagen_gris_y_la_detecta(self):
+        """El fallo original: saturación 0.5 sobre un rango 0..255.
+
+        0.5 está DENTRO de 0..255, así que el driver lo acepta y la deja
+        prácticamente en 0: imagen sin color. Lo que antes no ocurría es el
+        aviso."""
+        c = self._controles({"saturation": 0.5})
+        c.aplicar(self.cam)
+        self.assertEqual(self.cam.valores[cv2.CAP_PROP_SATURATION], 0,
+                         "0.5 en un rango 0..255 deja la saturación en 0")
+        texto = " ".join(self.avisos)
+        self.assertIn("UNIDADES DEL DISPOSITIVO", texto)
+        self.assertIn("gris", texto)
+        self.assertIn("v4l2-ctl", texto)
+
+    def test_avisa_tambien_del_contraste_y_el_brillo(self):
+        for control in ("contrast", "brightness", "sharpness"):
+            with self.subTest(control=control):
+                self.avisos.clear()
+                self._controles({control: 0.5}).aplicar(CapturaConControles())
+                self.assertTrue(any("UNIDADES DEL DISPOSITIVO" in a
+                                    for a in self.avisos),
+                                f"sin aviso de escala para {control}")
+
+    def test_un_valor_correcto_se_aplica_y_se_verifica(self):
+        informe = self._controles({"saturation": 40}).aplicar(self.cam)
+        self.assertTrue(informe["saturation"]["ok"], informe["saturation"])
+        self.assertEqual(informe["saturation"]["despues"], 40)
+        self.assertEqual(self.cam.valores[cv2.CAP_PROP_SATURATION], 40)
+        self.assertFalse(any("UNIDADES" in a for a in self.avisos),
+                         "no debe avisar de escala con un valor correcto")
+
+    def test_un_valor_fuera_de_rango_se_detecta(self):
+        """El driver lo rechaza; antes nadie miraba el booleano ni releía."""
+        informe = self._controles({"saturation": 900}).aplicar(self.cam)
+        self.assertFalse(informe["saturation"]["ok"])
+        self.assertIn("driver", informe["saturation"]["motivo"])
+        self.assertTrue(any("NO se pudo aplicar" in a for a in self.avisos))
+
+    def test_un_control_que_la_camara_no_soporta_se_detecta(self):
+        cam = CapturaConControles(soportados=[cv2.CAP_PROP_BRIGHTNESS])
+        informe = self._controles({"sharpness": 24}).aplicar(cam)
+        self.assertFalse(informe["sharpness"]["ok"])
+
+    def test_leer_devuelve_las_unidades_reales(self):
+        estado = self._controles().leer(self.cam)
+        self.assertEqual(estado["brightness"], 128.0)
+        self.assertEqual(estado["saturation"], 32.0)
+
+    def test_desde_entorno_sin_variables_no_pide_nada(self):
+        previas = {v: os.environ.pop(v, None)
+                   for v in mv.ControlesCamara.ENTORNO.values()}
+        try:
+            self.assertEqual(mv.ControlesCamara.desde_entorno().ajustes, {})
+        finally:
+            for k, v in previas.items():
+                if v is not None:
+                    os.environ[k] = v
+
+    def test_desde_entorno_lee_solo_lo_pedido(self):
+        os.environ["MEDIBOT_CAM_SATURACION"] = "40"
+        try:
+            c = mv.ControlesCamara.desde_entorno(log=self.avisos.append)
+            self.assertEqual(c.ajustes, {"saturation": 40.0})
+        finally:
+            os.environ.pop("MEDIBOT_CAM_SATURACION", None)
+
+    def test_una_variable_no_numerica_avisa_y_se_ignora(self):
+        os.environ["MEDIBOT_CAM_BRILLO"] = "mucho"
+        try:
+            c = mv.ControlesCamara.desde_entorno(log=self.avisos.append)
+            self.assertEqual(c.ajustes, {})
+            self.assertTrue(any("no es un numero" in a for a in self.avisos))
+        finally:
+            os.environ.pop("MEDIBOT_CAM_BRILLO", None)
+
+    def test_un_control_inexistente_se_rechaza_al_fijarlo(self):
+        with self.assertRaises(ValueError):
+            self._controles().fijar("colorines", 10)
+
+    def test_fijar_a_None_deja_de_tocar_el_control(self):
+        c = self._controles({"saturation": 40})
+        c.fijar("saturation", None)
+        self.assertEqual(c.aplicar(self.cam), {})
+
+    def test_el_resumen_dice_que_no_se_toca_nada(self):
+        self.assertIn("no se toca nada", self._controles().resumen())
+
+
 class PruebasRutasVideo(unittest.TestCase):
     """El servidor escucha en 0.0.0.0: estas rutas las ve toda la LAN."""
 

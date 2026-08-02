@@ -47,12 +47,16 @@ import socket
 import threading
 import time
 
+import medibot_protocolo as protocolo   # LA definicion del protocolo serie
+
 HOST = "127.0.0.1"
 PORT = 5055
 
 # Puerto serie: fija MEDIBOT_SERIAL_PORT para elegirlo a mano; vacio = autodetectar
 SERIAL_PORT = os.environ.get("MEDIBOT_SERIAL_PORT") or None
-SERIAL_BAUD = int(os.environ.get("MEDIBOT_SERIAL_BAUD", "9600"))
+#  Los baudios salen del protocolo, no de un numero suelto: asi no pueden
+#  separarse de Serial.begin() del firmware sin que se note.
+SERIAL_BAUD = int(os.environ.get("MEDIBOT_SERIAL_BAUD", str(protocolo.BAUDIOS)))
 RETRY_SECONDS = 2        # cada cuanto reintenta conectar si no hay Arduino
 SERIAL_TIMEOUT = 1.0     # timeout de readline() - amplio para evitar
                          # desconexiones intermitentes en lecturas lentas
@@ -147,8 +151,8 @@ def _marcar_desconectado(motivo):
     if conn is not None:
         try:
             conn.close()
-        except Exception:
-            pass
+        except OSError as e:
+            print(f"HUB: al cerrar el puerto: {e}")
         print(f"HUB: Arduino desconectado ({motivo}); reconectando...")
 
 
@@ -162,47 +166,96 @@ def _monitor_reconexion():
         time.sleep(RETRY_SECONDS)
 
 
+#  Lineas que llegan del Arduino SIN que nadie las haya pedido: el saludo
+#  READY,MEDIBOT,<v> tras un reinicio, o el POS,<n> que sigue a un dispensado
+#  largo. Antes se perdian con reset_input_buffer() o, peor, se atribuian al
+#  SIGUIENTE comando, que es como un ERR de un comando viejo acababa
+#  pareciendo el fallo de otro. Ahora se guardan aparte.
+_espontaneas = []
+_MAX_ESPONTANEAS = 20
+
+
+def _guardar_espontanea(linea):
+    _espontaneas.append(linea)
+    del _espontaneas[:-_MAX_ESPONTANEAS]
+    print(f"[HUB espontanea] {linea}")
+
+
+def _drenar_pendiente():
+    """Vacia lo que el Arduino dejo en el buffer ANTES de escribir un comando
+    nuevo, guardandolo en vez de tirarlo.
+
+    POR QUE NO reset_input_buffer(): esa llamada DESCARTA bytes que ya habian
+    llegado. Si el Arduino acababa de reiniciarse (READY) o de terminar un
+    dispensado (POS,3), esa informacion se perdia sin dejar rastro."""
+    if _serial_conn is None:
+        return
+    try:
+        while _serial_conn.in_waiting:
+            linea = _serial_conn.readline().decode("ascii", errors="replace").strip()
+            if linea:
+                _guardar_espontanea(linea)
+    except (OSError, AttributeError) as e:
+        print(f"HUB: no se pudo drenar el buffer de entrada: {e}")
+
+
 def procesar(cmd, wait, until):
     """Escribe cmd en el Arduino y recolecta lineas de respuesta.
     Devuelve (enviado_real, lineas).
 
-    JUSTICIA: los comandos "fire and forget" (movimiento/servos de Vision, sin
-    'until') NO bloquean el puerto. Si esta ocupado (p.ej. dispensando o hay un
-    comando con respuesta en curso), se DESCARTAN en vez de encolarse. Asi un
-    DISPENSE nunca se queda sin turno aunque Vision inunde el hub de comandos.
-    Los comandos con respuesta (DISPENSE/GOTO) SI esperan su turno."""
-    fire_and_forget = not until
+    TURNOS: los comandos transitorios (movimiento sin 'until') no deben
+    bloquear el puerto mientras se dispensa. Si esta ocupado, se descartan...
+    SALVO LOS CRITICOS.
+
+    POR QUE LA EXCEPCION: STOP y VEL se descartaban como cualquier otro
+    comando transitorio. Descartar un STOP mientras el robot avanza significa
+    que el robot SIGUE AVANZANDO, y ademas se devolvia enviado=True, o sea que
+    Vision creia haberlo parado. Un STOP perdido es un choque; ahora espera su
+    turno como los comandos con respuesta."""
+    critico = protocolo.es_critico(cmd)
+    fire_and_forget = not until and not critico
 
     if fire_and_forget:
         if not _serial_lock.acquire(blocking=False):
-            return True, []          # puerto ocupado: descartar el comando transitorio
+            # Puerto ocupado: se descarta, y se DICE (antes devolvia True,
+            # haciendo creer al llamador que la orden habia salido).
+            return False, [f"DESCARTADO_PUERTO_OCUPADO: {cmd}"]
     else:
-        _serial_lock.acquire()       # esperar turno para un comando con respuesta
+        _serial_lock.acquire()       # esperar turno (respuesta o critico)
     try:
         if _serial_conn is None:
             if not fire_and_forget:
                 print(f"[HUB sin Arduino] {cmd}")
             return False, [f"SIN_ARDUINO: {cmd}"]
         try:
-            _serial_conn.reset_input_buffer()
-            _serial_conn.write((cmd + "\n").encode())
+            _drenar_pendiente()
+            _serial_conn.write((cmd + protocolo.TERMINADOR).encode(protocolo.CODIFICACION))
             _serial_conn.flush()
             lineas = []
-            if fire_and_forget:
-                # No esperar respuesta; solo drenar lo que ya haya llegado.
-                time.sleep(0.01)
+            if not until:
+                # Sin respuesta esperada (critico o transitorio): dar un
+                # margen corto para recoger el ACK sin bloquear el puerto.
+                time.sleep(0.02)
                 while _serial_conn.in_waiting:
-                    linea = _serial_conn.readline().decode(errors="ignore").strip()
+                    linea = _serial_conn.readline().decode(
+                        protocolo.CODIFICACION, errors="replace").strip()
                     if linea:
                         lineas.append(linea)
                 return True, lineas
             t0 = time.time()
             while time.time() - t0 < wait:
-                linea = _serial_conn.readline().decode(errors="ignore").strip()
-                if linea:
-                    lineas.append(linea)
-                    if any(linea.startswith(u) for u in until):
-                        break
+                linea = _serial_conn.readline().decode(
+                    protocolo.CODIFICACION, errors="replace").strip()
+                if not linea:
+                    continue
+                # Una linea espontanea (READY tras un reinicio) NO cierra la
+                # espera del comando en curso: se aparta y se sigue oyendo.
+                if linea.startswith("READY"):
+                    _guardar_espontanea(linea)
+                    continue
+                lineas.append(linea)
+                if any(linea.startswith(u) for u in until):
+                    break
             print(f"[HUB] {cmd} -> {lineas} ({time.time()-t0:.1f}s)")
             return True, lineas
         except Exception as e:
@@ -216,13 +269,15 @@ def procesar(cmd, wait, until):
             base = cmd.split(",")[0].strip().upper()
             if until and base in ("GOTO", "HOME", "GETPOS") and serial_connect():
                 try:
-                    _serial_conn.reset_input_buffer()
-                    _serial_conn.write((cmd + "\n").encode())
+                    _drenar_pendiente()
+                    _serial_conn.write(
+                        (cmd + protocolo.TERMINADOR).encode(protocolo.CODIFICACION))
                     _serial_conn.flush()
                     lineas = []
                     t0 = time.time()
                     while time.time() - t0 < wait:
-                        linea = _serial_conn.readline().decode(errors="ignore").strip()
+                        linea = _serial_conn.readline().decode(
+                            protocolo.CODIFICACION, errors="replace").strip()
                         if linea:
                             lineas.append(linea)
                             if any(linea.startswith(u) for u in until):
@@ -239,7 +294,11 @@ def procesar(cmd, wait, until):
 
 def _respuesta_status():
     return {"ok": True, "serial_open": serial_open(),
-            "port": _port_name if serial_open() else None, "baud": SERIAL_BAUD}
+            "port": _port_name if serial_open() else None, "baud": SERIAL_BAUD,
+            "protocolo": protocolo.VERSION_PROTOCOLO,
+            # Lo que el Arduino dijo sin que nadie se lo pidiera (READY tras un
+            # reinicio, POS tras un dispensado). Antes se perdia.
+            "espontaneas": list(_espontaneas)}
 
 
 def handle_client(conn, addr):
@@ -287,8 +346,12 @@ def handle_client(conn, addr):
                     continue
                 enviado, lineas = procesar(cmd, wait, until)
                 conn.sendall((json.dumps({"ok": enviado, "lines": lineas}) + "\n").encode())
-    except Exception:
-        pass
+    except (OSError, socket.timeout) as e:
+        # Un cliente que se va cierra el socket: es normal, no un fallo. Pero
+        # se registra en vez de tragarselo con un except desnudo.
+        print(f"HUB: cliente {addr} desconectado ({type(e).__name__}: {e})")
+    except Exception as e:                       # noqa: BLE001 - hilo de servicio
+        print(f"HUB: error atendiendo a {addr}: {type(e).__name__}: {e}")
     finally:
         conn.close()
 

@@ -304,6 +304,234 @@ class Cronometro:
         return False
 
 
+# =============================================================================
+# Controles de imagen de la camara (brillo, contraste, saturacion...)
+# =============================================================================
+class ControlesCamara:
+    """Ajustes de imagen EN LAS UNIDADES DEL DISPOSITIVO, con verificacion.
+
+    EL FALLO QUE ARREGLA (por eso existe esta clase)
+    ------------------------------------------------
+    El codigo anterior guardaba los ajustes en una escala 0..1 y los mandaba
+    tal cual:
+
+        self.saturation = 0.5
+        camera.set(cv2.CAP_PROP_SATURATION, self.saturation)
+
+    Pero V4L2 NO usa 0..1: usa el rango nativo del dispositivo, en enteros. En
+    una Logitech C270 la saturacion va de 0 a 255 (por defecto 32), asi que ese
+    0.5 llegaba al driver como 0.
+
+    Saturacion 0 significa literalmente SIN COLOR: la imagen salia en escala de
+    grises. Y contraste 0 la dejaba plana y lavada. De ahi el "se ve gris y
+    horrible". Lo mismo con brillo (0..255, def. 128 -> 0 = lo mas oscuro) y
+    con la exposicion (1..10000 -> 0 esta fuera de rango).
+
+    Tres cosas lo mantenian invisible, y las tres se corrigen aqui:
+      1. Un  except: pass  desnudo se tragaba cualquier fallo.
+      2. camera.set() devuelve un booleano que nadie miraba. V4L2 responde
+         False cuando el control no existe o el valor esta fuera de rango.
+      3. Nadie volvia a LEER el valor para comprobar si se habia aplicado.
+
+    COMO FUNCIONA AHORA
+      * Por defecto NO SE TOCA NADA. Los valores de fabrica de una webcam dan
+         una imagen correcta; el programa solo interviene si se lo piden.
+      * Los valores van en unidades del dispositivo (0..255 en una C270), no
+         en una escala inventada.
+      * Tras cada set() se vuelve a LEER con get() para saber si de verdad se
+         aplico, y se informa de lo que el driver acepto y de lo que rechazo.
+      * Si se detecta el error de escala (mandar 0.5 a un control cuyo valor
+         actual es 32) se avisa explicitamente en vez de dejar la imagen gris.
+
+    OpenCV no expone el minimo/maximo de cada control, asi que el rango real
+    se consulta con:
+        v4l2-ctl -d /dev/video0 --list-ctrls
+    """
+
+    #  Nombre -> propiedad de OpenCV. Se usan los nombres en ingles porque son
+    #  los que ya publicaba /api/all y los que devuelve v4l2-ctl.
+    PROPIEDADES = {
+        "brightness": getattr(cv2, "CAP_PROP_BRIGHTNESS", None),
+        "contrast": getattr(cv2, "CAP_PROP_CONTRAST", None),
+        "saturation": getattr(cv2, "CAP_PROP_SATURATION", None),
+        "sharpness": getattr(cv2, "CAP_PROP_SHARPNESS", None),
+        "gain": getattr(cv2, "CAP_PROP_GAIN", None),
+        "exposure": getattr(cv2, "CAP_PROP_EXPOSURE", None),
+    }
+
+    #  Variable de entorno por control. Sin definir = no tocar ese control.
+    ENTORNO = {
+        "brightness": "MEDIBOT_CAM_BRILLO",
+        "contrast": "MEDIBOT_CAM_CONTRASTE",
+        "saturation": "MEDIBOT_CAM_SATURACION",
+        "sharpness": "MEDIBOT_CAM_NITIDEZ",
+        "gain": "MEDIBOT_CAM_GANANCIA",
+        "exposure": "MEDIBOT_CAM_EXPOSICION",
+    }
+
+    #  Por debajo de este valor, un ajuste "parece" estar en escala 0..1. Si
+    #  ademas el driver reporta un valor actual mucho mayor, es casi seguro el
+    #  error de escala que dejaba la imagen gris.
+    SOSPECHA_ESCALA = 1.001
+
+    def __init__(self, ajustes=None, log=print):
+        # {nombre: valor} SOLO de lo que se quiere tocar. Vacio = no tocar nada.
+        self.ajustes = dict(ajustes or {})
+        self.log = log
+        self.ultimo_informe = {}
+
+    @staticmethod
+    def _num(valor):
+        """Entero como entero, decimal como decimal.
+
+        V4L2 guarda enteros, pero un backend que devuelva 0.5 no puede
+        imprimirse como '0': seria justo esconder el fallo que buscamos."""
+        if valor is None:
+            return "?"
+        return f"{valor:.0f}" if float(valor).is_integer() else f"{valor:g}"
+
+    # ---- Configuracion -------------------------------------------------
+    @classmethod
+    def desde_entorno(cls, log=print):
+        """Lee solo los controles definidos explicitamente en el entorno.
+
+        Sin variables, no se toca NADA: es lo correcto por defecto, porque los
+        valores de fabrica de la camara ya dan una imagen usable."""
+        ajustes = {}
+        for nombre, variable in cls.ENTORNO.items():
+            bruto = os.environ.get(variable, "").strip()
+            if not bruto:
+                continue
+            try:
+                ajustes[nombre] = float(bruto)
+            except ValueError:
+                log(f"[cam] {variable}={bruto!r} no es un numero; se ignora")
+        return cls(ajustes, log=log)
+
+    def pedido(self, nombre):
+        return self.ajustes.get(nombre)
+
+    def fijar(self, nombre, valor):
+        """Marca un control para aplicarlo. valor=None lo deja sin tocar."""
+        if nombre not in self.PROPIEDADES:
+            raise ValueError(f"Control desconocido: {nombre}. "
+                             f"Validos: {', '.join(sorted(self.PROPIEDADES))}")
+        if valor is None:
+            self.ajustes.pop(nombre, None)
+        else:
+            self.ajustes[nombre] = float(valor)
+        return self.ajustes.get(nombre)
+
+    # ---- Lectura -------------------------------------------------------
+    def leer(self, captura):
+        """Lo que el driver dice tener AHORA, en sus propias unidades.
+        None en los controles que la camara no soporta."""
+        estado = {}
+        for nombre, prop in self.PROPIEDADES.items():
+            if prop is None:
+                estado[nombre] = None
+                continue
+            try:
+                valor = captura.get(prop)
+            except (cv2.error, AttributeError):
+                estado[nombre] = None
+                continue
+            # OpenCV devuelve 0 o -1 en los controles que el backend no
+            # soporta. No se puede distinguir de un 0 legitimo, asi que se
+            # publica tal cual y se documenta.
+            estado[nombre] = None if valor is None else float(valor)
+        return estado
+
+    # ---- Aplicacion con verificacion -----------------------------------
+    def aplicar(self, captura, indice=None):
+        """Aplica SOLO los controles pedidos y comprueba que se aplicaron.
+
+        Devuelve {nombre: {"pedido", "antes", "despues", "ok", "motivo"}}.
+        Nunca lanza: una camara que no soporta un control no es un fallo del
+        programa, pero SI hay que decirlo."""
+        etiqueta = f"[cam{indice}]" if indice is not None else "[cam]"
+        informe = {}
+        if not self.ajustes:
+            self.ultimo_informe = {}
+            return informe
+
+        for nombre, valor in sorted(self.ajustes.items()):
+            prop = self.PROPIEDADES.get(nombre)
+            if prop is None:
+                informe[nombre] = {"pedido": valor, "antes": None,
+                                   "despues": None, "ok": False,
+                                   "motivo": "esta version de OpenCV no expone el control"}
+                continue
+
+            try:
+                antes = float(captura.get(prop))
+            except (cv2.error, AttributeError, TypeError):
+                antes = None
+
+            #  AVISO DE ESCALA: mandar 0.5 a un control cuyo valor actual es
+            #  32 (o 128) es el error que dejaba la imagen en gris.
+            if (abs(valor) <= self.SOSPECHA_ESCALA and antes is not None
+                    and abs(antes) > self.SOSPECHA_ESCALA):
+                self.log(f"{etiqueta} AVISO: se pide {nombre}={self._num(valor)} pero la camara "
+                         f"tiene {self._num(antes)}. Estos controles van en las UNIDADES "
+                         f"DEL DISPOSITIVO (p.ej. 0..255), no en 0..1. Un "
+                         f"{nombre}=0 deja la imagen "
+                         f"{'sin color (gris)' if nombre == 'saturation' else 'plana u oscura'}. "
+                         f"Consulta el rango real con: v4l2-ctl --list-ctrls")
+
+            try:
+                acepto = bool(captura.set(prop, float(valor)))
+            except (cv2.error, AttributeError, TypeError) as e:
+                informe[nombre] = {"pedido": valor, "antes": antes,
+                                   "despues": antes, "ok": False,
+                                   "motivo": f"set() fallo: {e}"}
+                continue
+
+            try:
+                despues = float(captura.get(prop))
+            except (cv2.error, AttributeError, TypeError):
+                despues = None
+
+            #  La verdad la da la RELECTURA, no el booleano: hay drivers que
+            #  devuelven True y luego recortan o ignoran el valor.
+            if despues is None:
+                ok, motivo = bool(acepto), "no se pudo releer el valor"
+            elif abs(despues - float(valor)) <= 1.0:
+                ok, motivo = True, ""
+            else:
+                ok = False
+                motivo = (f"el driver dejo {self._num(despues)} en vez de "
+                          f"{self._num(valor)} "
+                          f"(fuera de rango o control de solo lectura)")
+
+            informe[nombre] = {"pedido": valor, "antes": antes,
+                               "despues": despues, "ok": ok, "motivo": motivo}
+
+        aplicados = [n for n, r in informe.items() if r["ok"]]
+        fallidos = {n: r["motivo"] for n, r in informe.items() if not r["ok"]}
+        if aplicados:
+            self.log(f"{etiqueta} controles aplicados: " +
+                     ", ".join(f"{n}={self._num(informe[n]['despues'])}"
+                               for n in sorted(aplicados)))
+        for nombre, motivo in sorted(fallidos.items()):
+            self.log(f"{etiqueta} NO se pudo aplicar {nombre}: {motivo}")
+
+        self.ultimo_informe = informe
+        return informe
+
+    def resumen(self):
+        """Texto legible del ultimo intento de aplicar controles."""
+        if not self.ajustes:
+            return "controles de imagen: por defecto de la camara (no se toca nada)"
+        if not self.ultimo_informe:
+            return f"controles pedidos (aun sin aplicar): {self.ajustes}"
+        partes = []
+        for nombre, r in sorted(self.ultimo_informe.items()):
+            estado = "ok" if r["ok"] else f"FALLO ({r['motivo']})"
+            partes.append(f"{nombre}: pedido {r['pedido']:.0f} -> {estado}")
+        return " | ".join(partes)
+
+
 class Medidor:
     """Cuenta fotogramas por segundo sin coste apreciable.
 
