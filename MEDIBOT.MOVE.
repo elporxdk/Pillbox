@@ -25,9 +25,11 @@
  *                  (en el shield salen por el header WIFI/BT: NO son libres)
  *    2          -> Servo dispensador (libreria Servo)   [header Encoder3]
  *    3          -> libre (el resto del header Encoder3, sin usar)
- *    4,5        -> Encoder del motor M4                  [header Encoder4]
- *    6,7        -> Encoder del motor M2                  [header Encoder2]
- *    8,9        -> Encoder del motor M1                  [header Encoder1]
+ *                  ¡NO conectes el encoder de M3! Su header es D2/D3 y D2 es
+ *                  la senal del servo: dos salidas sobre la misma linea.
+ *    4,5        -> LIBRES (header Encoder4, sin usar: M4 era redundante)
+ *    6,7        -> Encoder del motor M2  (lado B)        [header Encoder2]
+ *    8,9        -> Encoder del motor M1  (lado A)        [header Encoder1]
  *    10,11,12,13-> Mando PS2 (attention/command/data/clock) - OPCIONAL
  *                  Son sus pines de siempre: NO se tocan.
  *    A0..A3     -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
@@ -39,7 +41,8 @@
  *  bobina y las subidas de sketch pueden fallar.
  *
  *  Los servos de camara pan/tilt estan DESACTIVADOS (USAR_SERVOS_CAMARA 0)
- *  porque este robot no lleva ese soporte; asi D3 y D5 quedan para encoders.
+ *  porque este robot no lleva ese soporte. Con M4 fuera, sus pines (D3 y D5)
+ *  estan libres: se puede montar el pan/tilt sin perder ningun encoder.
  *
  *  Motores DC: por el Motor Shield (I2C). AFMS.begin(1600) para que giren
  *  (a 50 Hz casi no reciben potencia).
@@ -68,8 +71,10 @@
  *                  vuelta) para probar el paso a paso AISLADO del resto
  *
  *  ------------------- ORDENES ENCODERS -----------------------
- *  Libreria oficial del shield (QGPMaker_Encoder). Disponibles M1, M2 y M4;
- *  el de M3 NO, porque su pin D2 es el unico sitio libre para el servo
+ *  Libreria oficial del shield (QGPMaker_Encoder). Habilitados M1 y M2, uno
+ *  por lado del chasis (M1/M3 son un lado y M2/M4 el otro, asi que el segundo
+ *  de cada lado no aporta dato nuevo).
+ *  El de M3 NO se puede usar, porque su pin D2 es el unico sitio libre para el servo
  *  dispensador. El campo <m3> va siempre a 0.
  *   ENC            ENC,<m1>,<m2>,0,<m4>     posicion acumulada, con signo
  *   ENCRPM         ENCRPM,<r1>,<r2>,0,<r4>  velocidad de cada motor en RPM
@@ -457,16 +462,28 @@ void handlePS2Servos() {
 //     encoderN.write(0)               // poner a cero (calibrar)
 //     encoderN.getRPM()               // velocidad de giro en RPM
 //
-//  QUE ENCODERS HAY DISPONIBLES: los de M1, M2 y M4.
-//  El de M3 NO se puede usar en este robot: su header (Encoder3) ocupa los
-//  pines D2 y D3, y D2 es el unico sitio que queda para el servo dispensador.
-//  No hay alternativa: el resto de pines estan tomados (D0/D1 son el serie,
-//  D4-D9 los otros encoders, D10-D13 el mando PS2, A0-A3 el ULN2003 y A4/A5
-//  el I2C), y los conectores de servo del propio shield no sirven porque el
-//  PCA9685 esta a 1600 Hz para los motores DC (un servo necesita 50 Hz).
-QGPMaker_Encoder encoder1(1);   // motor M1
-QGPMaker_Encoder encoder2(2);   // motor M2
-QGPMaker_Encoder encoder4(4);   // motor M4
+//  SOLO SE USAN DOS ENCODERS: M1 y M2. Uno por cada lado del chasis.
+//
+//  POR QUE UNO POR LADO Y NO MAS: los motores van emparejados por lados
+//  (ver arcoLadoA/arcoLadoB mas arriba):
+//        lado A = M1 y M3        lado B = M2 y M4
+//  Los dos motores de un mismo lado giran SIEMPRE juntos, asi que su encoder
+//  mide lo mismo. Con M1 + M2 ya se tiene el recorrido de cada lado, que es
+//  todo lo que hace falta para odometria (avance = media, giro = diferencia).
+//  M4 no aportaba un dato nuevo: solo repetia el de M2.
+//
+//  M3 NO SE PUEDE USAR, y esa es la razon de fondo: su header (Encoder3) ocupa
+//  los pines D2 y D3, y D2 es donde va el SERVO DISPENSADOR. Si se conectara
+//  el encoder de M3, su salida y la salida del servo estarian empujando la
+//  misma linea: dos drivers peleando por un cable. Ademas de no funcionar,
+//  puede danar el pin. Por eso M3 queda fuera por diseno, no por olvido.
+//    -> NO conectes nada al header Encoder3.
+//
+//  Al dejar M4 fuera, D4 y D5 quedan LIBRES. D5 era ademas el pin del servo
+//  tilt de la camara: ahora se puede montar el pan/tilt sin sacrificar un
+//  encoder de los que se usan.
+QGPMaker_Encoder encoder1(1);   // motor M1  (lado A)  [header Encoder1: D8,D9]
+QGPMaker_Encoder encoder2(2);   // motor M2  (lado B)  [header Encoder2: D6,D7]
 
 //  Cuentas por vuelta COMPLETA del eje de salida, segun el fabricante:
 //     12 PPR x 4 (cuadratura) x 90 (reductora) = 4320
@@ -477,18 +494,17 @@ const long CUENTAS_POR_VUELTA = 4320;
 void reiniciarEncoders() {
   encoder1.write(0);
   encoder2.write(0);
-  encoder4.write(0);
 }
 
-// Responde siempre con los cuatro campos para no romper a quien lo lea; el
-// tercero (M3) va a 0 porque ese encoder no esta disponible (ver arriba).
+// Se responde SIEMPRE con los cuatro campos para no romper a quien ya lea
+// estas lineas (Python espera cuatro). Los de M3 y M4 van a 0 porque esos
+// encoders no estan habilitados: M3 choca con el servo y M4 era redundante.
 void responderEncoders() {
   Serial.print(F("ENC,"));
   Serial.print(encoder1.read());
   Serial.print(F(","));
   Serial.print(encoder2.read());
-  Serial.print(F(",0,"));
-  Serial.println(encoder4.read());
+  Serial.println(F(",0,0"));
 }
 
 void responderRPM() {
@@ -496,8 +512,7 @@ void responderRPM() {
   Serial.print(encoder1.getRPM());
   Serial.print(F(","));
   Serial.print(encoder2.getRPM());
-  Serial.print(F(",0,"));
-  Serial.println(encoder4.getRPM());
+  Serial.println(F(",0,0"));
 }
 
 // ═════════════════════════════════════════════════════════════

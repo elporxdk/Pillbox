@@ -62,6 +62,7 @@ class ArduinoFalso:
         self.servo = 0
         self.trucos = []
         self.recibidos = []
+        # Solo M1 y M2 estan habilitados en el firmware; M3 y M4 van a 0.
         self.encoders = [0, 0, 0, 0]
 
     # ---------------------------------------------------------------
@@ -150,7 +151,8 @@ class ArduinoFalso:
             return [f"SERVO,{self.servo}"]
 
         if cmd == "ENC":
-            return ["ENC," + ",".join(str(x) for x in self.encoders)]
+            # Como el firmware: cuatro campos, pero M3 y M4 fijos a 0.
+            return [f"ENC,{self.encoders[0]},{self.encoders[1]},0,0"]
         if cmd == "ENCRPM":
             return ["ENCRPM,0,0,0,0"]
         if cmd == "ENCRESET":

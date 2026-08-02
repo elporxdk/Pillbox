@@ -123,8 +123,14 @@ def hub_shutdown():
 
 
 # Encoders de los motores (libreria QGPMaker_Encoder en el Arduino).
-#  Disponibles M1, M2 y M4. El de M3 NO: su pin es el unico sitio libre para el
-#  servo dispensador, asi que su valor llega siempre como 0.
+#  HABILITADOS SOLO M1 y M2, uno por lado del chasis. Los motores van
+#  emparejados por lados (M1/M3 un lado, M2/M4 el otro) y los de un mismo lado
+#  giran siempre juntos, asi que el segundo de cada par no aporta dato nuevo:
+#  con M1 y M2 se tiene el recorrido de cada lado, que es lo que hace falta
+#  para odometria (avance = media, giro = diferencia).
+#  M3 ademas NO SE PUEDE usar: su header ocupa el pin D2, que es la senal del
+#  servo dispensador; conectarlo pondria dos salidas sobre la misma linea.
+#  Los campos de M3 y M4 llegan siempre como 0.
 CUENTAS_POR_VUELTA = 4320   # 12 PPR x 4 (cuadratura) x 90 (reductora)
 
 
@@ -140,14 +146,16 @@ def _pedir_encoders(cmd, prefijo, timeout):
 
 
 def leer_encoders(timeout=1.5):
-    """Posicion acumulada de los encoders: [m1, m2, m3, m4] (m3 siempre 0).
+    """Posicion acumulada de los encoders: [m1, m2, m3, m4].
+    Solo M1 y M2 estan habilitados; m3 y m4 llegan siempre a 0.
     Los valores llevan signo: el sentido de giro va incluido.
     Para pasar a vueltas del eje:  vueltas = cuentas / CUENTAS_POR_VUELTA"""
     return _pedir_encoders("ENC", "ENC", timeout)
 
 
 def leer_rpm(timeout=1.5):
-    """Velocidad de cada motor en RPM: [m1, m2, m3, m4] (m3 siempre 0).
+    """Velocidad de cada motor en RPM: [m1, m2, m3, m4].
+    Solo M1 y M2 estan habilitados; m3 y m4 llegan siempre a 0.
     La calcula la propia libreria del shield en el Arduino."""
     return _pedir_encoders("ENCRPM", "ENCRPM", timeout)
 

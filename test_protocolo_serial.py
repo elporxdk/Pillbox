@@ -110,6 +110,58 @@ class PruebasParidadFirmware(unittest.TestCase):
 
 
 # =============================================================================
+class PruebasEncoders(unittest.TestCase):
+    """Guardan la decision de cableado, que es facil de deshacer sin querer.
+
+    El encoder de M3 comparte el header (D2/D3) con la SENAL DEL SERVO
+    dispensador (D2). Instanciarlo pondria la salida del encoder y la del
+    Arduino sobre la misma linea: dos drivers peleando por un cable, que ni
+    funciona ni es sano para el pin. Si alguien lo anade por comodidad, esta
+    prueba lo para antes de que llegue al robot."""
+
+    def setUp(self):
+        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+            self.codigo = f.read()
+        # Numero de motor de cada encoder instanciado: QGPMaker_Encoder encoderN(N)
+        import re
+        self.instanciados = sorted(
+            int(n) for n in re.findall(r'QGPMaker_Encoder\s+encoder\d+\s*\(\s*(\d+)\s*\)',
+                                       self.codigo))
+
+    def test_hay_exactamente_dos_encoders(self):
+        self.assertEqual(len(self.instanciados), 2,
+                         f"Se esperaban 2 encoders y hay {self.instanciados}")
+
+    def test_son_M1_y_M2_uno_por_lado(self):
+        """M1/M3 son un lado y M2/M4 el otro: hace falta uno de cada."""
+        self.assertEqual(self.instanciados, [1, 2],
+                         "Los encoders habilitados deben ser M1 y M2, uno por "
+                         f"lado del chasis; hay {self.instanciados}")
+
+    def test_el_encoder_de_M3_NO_esta_instanciado(self):
+        """Su header ocupa D2, que es la señal del servo dispensador."""
+        self.assertNotIn(3, self.instanciados,
+                         "El encoder de M3 comparte pin (D2) con el servo "
+                         "dispensador: dos salidas sobre la misma línea.")
+
+    def test_el_pin_del_servo_sigue_siendo_D2(self):
+        """Si el servo se mueve de pin, la razón para excluir M3 cambia."""
+        self.assertIn("SERVO_PIN      = 2", self.codigo,
+                      "El servo ya no está en D2: revisa si M3 sigue vetado.")
+
+    def test_las_respuestas_llevan_cuatro_campos(self):
+        """Se mantienen 4 campos aunque solo haya 2 encoders: Python los lee
+        asi y romperlo obligaria a tocar los dos lados a la vez."""
+        self.assertIn('Serial.println(F(",0,0"))', self.codigo)
+
+    def test_el_simulador_tambien_devuelve_M3_y_M4_a_cero(self):
+        ard = ArduinoFalso()
+        ard.encoders = [100, 200, 999, 999]      # M3/M4 no deben salir
+        linea = ard.procesar("ENC")[0]
+        self.assertEqual(protocolo.enteros(linea, 4), [100, 200, 0, 0])
+
+
+# =============================================================================
 class PruebasConstruccion(unittest.TestCase):
     """Validar ANTES de escribir en el puerto, no despues de un ERR."""
 

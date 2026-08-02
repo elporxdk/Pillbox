@@ -239,12 +239,30 @@ Se usa la **libreria oficial del shield** (`QGPMaker_Encoder`), que ya conoce
 el mapeo de pines y calcula las RPM. Con el ULN2003 movido a A0-A3 quedan
 libres los headers de encoder:
 
-| header | pines | motor | disponible |
+**Solo se habilitan DOS: M1 y M2, uno por cada lado del chasis.**
+
+| header | pines | motor | estado |
 |---|---|---|---|
-| Encoder1 | D8, D9 | M1 | si |
-| Encoder2 | D6, D7 | M2 | si |
-| Encoder4 | D4, D5 | M4 | si |
-| Encoder3 | D2, D3 | M3 | **no**: D2 es el unico sitio libre para el servo dispensador |
+| Encoder1 | D8, D9 | M1 (lado A) | **habilitado** |
+| Encoder2 | D6, D7 | M2 (lado B) | **habilitado** |
+| Encoder4 | D4, D5 | M4 (lado B) | no: redundante, gira siempre con M2 |
+| Encoder3 | D2, D3 | M3 (lado A) | **no conectar**: D2 es la senal del servo dispensador |
+
+**Por que solo dos.** Los motores van emparejados por lados: **M1 y M3 son un
+lado, M2 y M4 el otro**. Los dos de un mismo lado giran siempre juntos, asi que
+su encoder mide lo mismo. Con M1 + M2 ya se tiene el recorrido de cada lado,
+que es todo lo que hace falta para odometria: el **avance** es la media de los
+dos y el **giro** su diferencia. M4 solo repetia el dato de M2.
+
+**Por que M3 no se puede usar, pase lo que pase.** Su header (Encoder3) ocupa
+los pines D2 y D3, y **D2 es donde va la senal del servo dispensador**. Si se
+conecta el encoder de M3, su salida y la del Arduino empujan la misma linea:
+dos drivers peleando por un cable. Ademas de no funcionar, puede danar el pin.
+**No conectes nada al header Encoder3.**
+
+Como efecto secundario, **D4 y D5 quedan libres**. D5 era el pin del servo
+*tilt* de la camara, asi que ahora se puede montar el pan/tilt sin sacrificar
+ningun encoder de los que se usan.
 
 **4320 cuentas = 1 vuelta** del eje de salida (12 PPR x 4 cuadratura x 90 de
 reductora).
@@ -252,10 +270,13 @@ reductora).
 Por Serial:
 
 ```
-ENC        -> ENC,4320,-2160,0,864        posicion acumulada (con signo)
-ENCRPM     -> ENCRPM,120,-118,0,119       velocidad de cada motor en RPM
+ENC        -> ENC,4320,-2160,0,0          posicion acumulada (con signo)
+ENCRPM     -> ENCRPM,120,-118,0,0         velocidad de cada motor en RPM
 ENCRESET   -> ENC,0,0,0,0                 pone las cuentas a cero
 ```
+
+Se siguen enviando **cuatro campos** para no romper a quien ya los lea; los de
+M3 y M4 van fijos a `0`.
 
 Desde Python:
 
@@ -268,9 +289,18 @@ rpm     = ms.leer_rpm()                  # [m1, m2, m3, m4] o None
 vueltas = cuentas[0] / ms.CUENTAS_POR_VUELTA
 ```
 
-El campo de M3 llega siempre a 0. Las tres funciones devuelven `None` si el
-Arduino no responde, para poder distinguirlo de cuatro ceros legitimos (que
-significan "motores parados").
+Los campos de **M3 y M4 llegan siempre a 0** (no estan habilitados). Las tres
+funciones devuelven `None` si el Arduino no responde, para poder distinguirlo
+de cuatro ceros legitimos (que significan "motores parados").
+
+Para odometria con los dos encoders que hay:
+
+```python
+c = ms.leer_encoders()
+if c:
+    avance = (c[0] + c[1]) / 2 / ms.CUENTAS_POR_VUELTA   # vueltas medias
+    giro   = (c[0] - c[1]) / ms.CUENTAS_POR_VUELTA       # diferencia entre lados
+```
 
 Los servos de camara pan/tilt estan desactivados (`USAR_SERVOS_CAMARA 0` en el
 sketch) porque este robot no lleva ese soporte; por eso D3 y D5 quedan para
