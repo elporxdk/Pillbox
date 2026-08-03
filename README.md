@@ -108,6 +108,47 @@ reloj del horario, las casillas de los dias, la barra de desplazamiento):
 llevan `color-scheme`, que sin el dejaba un reloj blanco deslumbrante en medio
 de la pagina oscura.
 
+### He actualizado el codigo y la interfaz sale IGUAL que antes
+
+Casi siempre es una de estas dos, y se distinguen en un segundo. Las dos
+interfaces son **una sola pagina con el JavaScript escrito dentro del HTML**,
+asi que hasta que no llega el HTML nuevo no cambia nada de lo que se ve.
+
+**1. El codigo nuevo no esta en la Pi.** Aprobar un cambio en GitHub no toca
+la Raspberry: hay que traerlo.
+
+```bash
+cd ~/Proyects        # donde este el repo en la Pi
+git pull origin main
+```
+
+Para salir de dudas antes de reiniciar nada, se le pregunta al fichero:
+
+```bash
+grep -c "MEDIBOT</a>" Pastillero.py    # 1 = actualizado, 0 = version vieja
+```
+
+**2. El navegador esta sirviendo una copia guardada.** Se nota en que los
+**datos** si se refrescan (los compartimientos, el estado del Arduino) pero
+los **textos, colores y el tema** siguen como estaban: lo que cambia viene del
+servidor, lo que no cambia viene de la cache.
+
+Ambos servidores mandan ya `Cache-Control: no-store`, asi que no deberia
+volver a pasar; si se arrastra una copia de antes de ese arreglo, un
+**Ctrl+Shift+R** (o abrir en una ventana privada) la tira.
+
+Para comprobarlo sin adivinar, cada interfaz publica la **huella** de su HTML,
+que cambia en cuanto cambia una letra:
+
+```bash
+python3 Pastillero.py                       # imprime "Version de la interfaz: ac596cd2"
+curl -sI http://<ip>:5001/ | grep -i build  # X-Pillbox-Build: ac596cd2
+curl -sI http://<ip>:5000/ | grep -i build  # X-Medibot-Build: ...
+```
+
+Si la huella que enseña el navegador (F12 > Red > la peticion de la pagina) no
+es la que imprime el servidor al arrancar, se esta viendo una copia vieja.
+
 ### Apagar la deteccion de objetos rojos
 
 Boton **Color rojo** entre los controles de Medibot. Apagarla ahorra ~1,3 ms
