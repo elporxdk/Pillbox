@@ -74,10 +74,13 @@ usan Pillbox, Vision y `main.py`, asi que los tres coinciden siempre.
 
 ### Ir de una interfaz a la otra
 
-Medibot lleva un boton **Pastillero** y el Pastillero uno **Volver a Medibot**,
-los dos arriba a la derecha. Solo texto, sin iconos: cada sistema dibuja los
-emojis a su manera y ademas no siguen al tema, asi que en modo oscuro se
-quedaban con su color de siempre.
+Medibot lleva un boton **Pastillero** y el Pastillero uno **MEDIBOT**, los dos
+arriba a la derecha. Solo texto, sin iconos: cada sistema dibuja los emojis a
+su manera y ademas no siguen al tema, asi que en modo oscuro se quedaban con
+su color de siempre.
+
+Son enlaces de verdad (`<a>`), no botones: se pueden abrir en otra pestaña con
+el boton central del raton o con una pulsacion larga en el movil.
 
 Por defecto el enlace se deduce del mismo host cambiando de puerto (5000 y
 5001), que es lo correcto en la red local. Si cada interfaz tiene su propio
@@ -92,8 +95,18 @@ export MEDIBOT_URL_VISION='https://medibot.tudominio.com/'
 
 Las **dos** interfaces tienen su boton. Se recuerda en el navegador
 (`localStorage`) y se aplica **antes** de pintar la pagina, asi que no hay
-fogonazo blanco al cargar de noche. Sin nada guardado se respeta el tema del
-sistema operativo.
+fogonazo blanco al cargar de noche.
+
+En el **Pastillero el tema por defecto es el OSCURO**: entres desde donde
+entres, y aunque el movil o el ordenador esten configurados en claro, abre en
+oscuro. Solo cambia si se pulsa el boton, y entonces esa eleccion se recuerda
+para las siguientes visitas. El boton dice lo que **hace**, no el tema que hay
+puesto: con el oscuro pone *Modo Claro*.
+
+El tema tambien alcanza a los controles que dibuja el sistema y no el CSS (el
+reloj del horario, las casillas de los dias, la barra de desplazamiento):
+llevan `color-scheme`, que sin el dejaba un reloj blanco deslumbrante en medio
+de la pagina oscura.
 
 ### Apagar la deteccion de objetos rojos
 
@@ -657,9 +670,12 @@ MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 python3 Pastillero.py    # Pi
 set MEDIBOT_SERIAL_PORT=COM3 && python Pastillero.py      # Windows
 ```
 
-En la web de Pillbox, la pastilla de estado dice la verdad: "Arduino:
-/dev/ttyUSB0" solo cuando hay un Arduino fisico conectado; si no, muestra
-"sin conexion" y un boton **Reconectar**.
+En la web de Pillbox, la pastilla de estado dice la verdad y en dos palabras:
+**Conectado** (en verde) solo cuando hay un Arduino fisico abierto, y
+**Desconectado** (en rojo) el resto del tiempo, con el boton **Reconectar** al
+lado. El detalle -que puerto es, si el hub esta apagado, si se esta
+reintentando solo- esta en el `title`: se lee pasando el raton por encima, sin
+ocupar la barra ni hacerla bailar de ancho a cada refresco.
 
 ### Datos persistentes
 

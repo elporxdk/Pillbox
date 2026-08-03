@@ -469,15 +469,15 @@ HTML_PAGE = """<!DOCTYPE html>
     /*  El tema se aplica AQUI, antes de que se pinte nada. Si se hiciera al
         final del <body>, la pagina se dibujaria primero en claro y luego
         saltaria a oscuro: el fogonazo blanco que molesta de noche.
-        Sin tema guardado se respeta el del sistema operativo. */
+
+        El PREDETERMINADO es OSCURO: quien no haya elegido nunca -y quien
+        entre desde un movil o un ordenador configurado en claro- ve la
+        pastillera en oscuro. Solo se respeta lo que el usuario haya elegido
+        a mano con el boton, que es lo unico que se guarda. */
     (function () {
       var t = null;
       try { t = localStorage.getItem('pillbox-theme'); } catch (e) {}
-      if (!t) {
-        t = (window.matchMedia &&
-             window.matchMedia('(prefers-color-scheme: dark)').matches)
-            ? 'dark' : 'light';
-      }
+      if (t !== 'light' && t !== 'dark') { t = 'dark'; }
       document.documentElement.setAttribute('data-theme', t);
     })();
   </script>
@@ -488,6 +488,12 @@ HTML_PAGE = """<!DOCTYPE html>
         color tiene un nombre por lo que SIGNIFICA (--peligro, --texto-tenue)
         y el tema oscuro solo redefine esos nombres. */
     :root {
+      /*  color-scheme se lo dice al NAVEGADOR, no al CSS: con el pone en su
+          tono los trozos que dibuja el sistema y que ninguna variable
+          alcanza (el reloj del <input type=time>, las casillas de los dias,
+          la barra de desplazamiento). Sin esto, en oscuro salia un reloj
+          blanco deslumbrante en medio de la pagina. */
+      color-scheme: light;
       --fondo: #f4f7fc;          --tarjeta: #ffffff;
       --panel: #f9fbfd;          --suave: #eef3f9;
       --suave-hover: #dce6f0;    --neutro: #f0f2f6;
@@ -510,6 +516,7 @@ HTML_PAGE = """<!DOCTYPE html>
         fondo negro deslumbrarian. Se usan versiones oscuras del mismo matiz,
         con el texto en el tono claro, que es lo que mantiene el contraste. */
     html[data-theme="dark"] {
+      color-scheme: dark;
       --fondo: #0f1419;          --tarjeta: #171d24;
       --panel: #1c232b;          --suave: #232c36;
       --suave-hover: #2c3742;    --neutro: #232c36;
@@ -621,19 +628,30 @@ HTML_PAGE = """<!DOCTYPE html>
   <div class="header">
     <h1>Pillbox <span id="globalBadge">8</span></h1>
     <div class="flex-wrap">
-      <span class="serial-pill" id="serialPill">Arduino: comprobando...</span>
+      <!--  Solo dice "Conectado" o "Desconectado". El puerto (/dev/ttyUSB0,
+            COM3...) y el motivo de la caida no le dicen nada a quien usa el
+            pastillero, asi que viajan en el title: siguen a un paso, pero no
+            ocupan la barra. Arranca en "Desconectado" -en rojo, como lo pinta
+            .serial-pill- porque hasta que responda /serial/status no hay
+            ningun Arduino confirmado, y dar por buena una conexion que no
+            existe es peor que esperar medio segundo. -->
+      <span class="serial-pill" id="serialPill"
+            title="Comprobando la conexion con el Arduino...">Desconectado</span>
       <span class="serial-pill hidden" id="posPill" title="Posicion de la ruleta">Posicion: -</span>
       <button class="btn-back hidden" id="btnVerificar" onclick="verificarSync()">Verificar</button>
       <button class="btn-back hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
       <button class="btn-back hidden" id="btnBackMain" onclick="goToMain()">Volver al menu</button>
-      <!--  Volver a Medibot. Es un <a> y no un boton con window.location: asi
-            se puede abrir en otra pestaña con el boton central o con una
+      <!--  MEDIBOT. Es un <a> y no un boton con window.location: asi se
+            puede abrir en otra pestaña con el boton central o con una
             pulsacion larga en el movil, que es lo que espera cualquiera.
             Sin emoji: los botones de esta barra son solo texto. -->
       <a class="btn-back" id="linkMedibot" href="#" rel="noopener"
-         title="Volver a la interfaz de cámaras y movimiento">Volver a Medibot</a>
+         title="Ir a la interfaz de camaras y movimiento de Medibot">MEDIBOT</a>
+      <!--  El texto es la ACCION del boton, no el tema puesto: con el tema
+            oscuro (el de arranque) pone "Modo Claro", que es lo que pasa al
+            pulsarlo. Lo repinta pintarBotonTema() al cargar. -->
       <button class="btn-back" id="themeToggle" onclick="alternarTema()"
-              title="Cambiar tema claro/oscuro">Modo Oscuro</button>
+              title="Cambiar tema claro/oscuro">Modo Claro</button>
     </div>
   </div>
 
@@ -961,12 +979,18 @@ HTML_PAGE = """<!DOCTYPE html>
         const pill = document.getElementById('serialPill');
         const btnR = document.getElementById('btnReconectar');
         const btnV = document.getElementById('btnVerificar');
+        //  La pildora solo dice CONECTADO o DESCONECTADO. El detalle (que
+        //  puerto es, si el hub esta apagado, si se esta reintentando) va al
+        //  title: quien lo necesite lo tiene encima al pasar el raton, y la
+        //  barra deja de cambiar de ancho a cada rato.
         if (s.conectado) {
-          pill.textContent = 'Arduino: ' + s.puerto;
+          pill.textContent = 'Conectado';
+          pill.title = 'Arduino conectado en ' + (s.puerto || 'puerto desconocido');
           pill.classList.add('ok');
           btnR.classList.add('hidden');
           btnV.classList.remove('hidden');
         } else {
+          pill.textContent = 'Desconectado';
           pill.classList.remove('ok');
           btnR.classList.remove('hidden');
           btnV.classList.add('hidden');
@@ -976,11 +1000,13 @@ HTML_PAGE = """<!DOCTYPE html>
           const ahora = Date.now();
           if (s.hub !== false && ahora - ultimaAutoReconexion > 6000) {
             ultimaAutoReconexion = ahora;
-            pill.textContent = 'Reconectando...';
+            pill.title = 'Sin conexion con el Arduino: reintentando...';
             fetch('/serial/reconnect', { method: 'POST' })
               .then(r => r.json()).then(() => refreshSerial()).catch(() => {});
           } else {
-            pill.textContent = s.hub === false ? 'Hub serial apagado' : 'Arduino: sin conexion';
+            pill.title = s.hub === false
+              ? 'El hub serial esta apagado'
+              : 'No se encuentra ningun Arduino en el puerto serie';
           }
         }
         updatePos(s.pos);
@@ -996,8 +1022,10 @@ HTML_PAGE = """<!DOCTYPE html>
     };
 
     window.reconectarArduino = function() {
+      //  El texto sigue siendo "Desconectado" -que es la verdad hasta que el
+      //  Arduino conteste-; que se esta reintentando se cuenta en el title.
       const pill = document.getElementById('serialPill');
-      pill.textContent = 'Reconectando...';
+      pill.title = 'Reconectando con el Arduino...';
       fetch('/serial/reconnect', { method: 'POST' })
         .then(r => r.json()).then(() => refreshSerial())
         .catch(() => refreshSerial());
@@ -1029,14 +1057,16 @@ HTML_PAGE = """<!DOCTYPE html>
       }, 20000);
     }
 
-    // ===== Tema claro / oscuro =====
+    // ===== Tema claro / oscuro (arranca en OSCURO) =====
     //  Se aplica ANTES de nada (ver el <script> del <head>) para que no haya
     //  un fogonazo blanco al cargar con el tema oscuro puesto. Aqui solo queda
     //  el cambio manual y poner bien el texto del boton.
     const CLAVE_TEMA = 'pillbox-theme';
+    const TEMA_POR_DEFECTO = 'dark';
 
     function temaActual() {
-      return document.documentElement.getAttribute('data-theme') || 'light';
+      return document.documentElement.getAttribute('data-theme') ||
+             TEMA_POR_DEFECTO;
     }
 
     function pintarBotonTema() {
