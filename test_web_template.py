@@ -259,5 +259,55 @@ class PruebasMovil(unittest.TestCase):
         self.assertIn('rel="icon"', self.html)
 
 
+class PruebasCacheDeLaInterfaz(unittest.TestCase):
+    """Que el navegador no pueda quedarse con una version vieja de la web.
+
+    EL FALLO QUE VIGILAN
+    --------------------
+    Toda la interfaz es UNA pagina con el JavaScript escrito dentro del HTML.
+    Flask no mandaba ninguna cabecera de cache, asi que el navegador podia
+    guardarse el HTML y reutilizarlo durante dias. Al corregir un fallo del
+    JavaScript, el movil seguia ejecutando el guardado: el servidor estaba bien
+    y la pantalla seguia rota.
+
+    Da exactamente el cuadro que se reportaba: el VIDEO se ve (porque
+    /video/<n> es una peticion nueva cada vez y no se cachea) pero los botones
+    y el selector de tema no responden (porque el HTML guardado lleva dentro la
+    version antigua del JavaScript)."""
+
+    def setUp(self):
+        self.src = fuente()
+        self.html = plantilla_evaluada()
+
+    def test_flask_prohibe_cachear(self):
+        self.assertIn("no-store", self.src,
+                      "Sin Cache-Control: no-store, un movil puede quedarse "
+                      "con la interfaz antigua indefinidamente.")
+
+    def test_la_cabecera_se_aplica_a_todas_las_respuestas(self):
+        self.assertIn("@app.after_request", self.src,
+                      "La cabecera debe ponerse en un solo sitio, no ruta a ruta")
+
+    def test_hay_huella_de_la_interfaz(self):
+        """Permite saber que version esta viendo un navegador, sin adivinar."""
+        self.assertIn("BUILD_WEB", self.src)
+        self.assertIn("X-Medibot-Build", self.src)
+
+    def test_la_pagina_compara_su_huella_con_la_del_robot(self):
+        self.assertIn("BUILD_PAGINA", self.html)
+        self.assertIn("comprobarBuild", self.html)
+
+    def test_el_marcador_se_sustituye_al_servir(self):
+        """Si el reemplazo desaparece, BUILD_PAGINA valdria el literal y el
+        aviso saltaria siempre: peor que no tenerlo."""
+        self.assertIn('HTML_TEMPLATE.replace("__BUILD_WEB__", BUILD_WEB)',
+                      self.src)
+        self.assertIn("__BUILD_WEB__", self.html,
+                      "La plantilla debe llevar el marcador que se sustituye")
+
+    def test_la_huella_se_publica_en_la_api(self):
+        self.assertIn('"build_web": BUILD_WEB', self.src)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
