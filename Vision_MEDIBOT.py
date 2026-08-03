@@ -37,6 +37,7 @@ import medibot_serial   # cliente del hub serial compartido (serial_hub.py)
 import medibot_protocolo as protocolo   # LA definicion del protocolo serie
 import medibot_red      # IPs reales de la LAN (para entrar desde otro equipo)
 import medibot_vision   # motor de video: buzon de frames y detectores rapidos
+import medibot_audio    # microfono de la camara (escuchar desde la web)
 
 # Limitar los hilos internos de OpenCV: con un hilo por camara mas la interfaz
 # y el servidor web, dejar que OpenCV use todos los nucleos provocaba peleas
@@ -1868,6 +1869,21 @@ HTML_TEMPLATE = r"""
             border-color: #4FD8D2;
             background: #333333;
         }
+        /*  El enlace al Pastillero comparte estilo con el boton de tema, pero
+            es un <a>: hay que quitarle el subrayado y centrarlo como al resto,
+            porque un <a> no se alinea igual que un <button>. */
+        a.theme-toggle {
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            line-height: 1;
+        }
+        .acciones-cabecera {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;      /* en movil caen a la linea de abajo */
+        }
         .panel-box {
             background: #222222;
             padding: 20px;
@@ -1961,13 +1977,26 @@ HTML_TEMPLATE = r"""
         html[data-theme="light"] .move-status { color: #5a6772; }
 
         /* ===== Joystick translúcido dentro de la cámara + pantalla completa ===== */
-        .fs-btn {
+        /*  Los botones de encima del video van en una FILA FLEX, no cada uno
+            con su 'right' fijo. Con posiciones fijas se solapaban en cuanto se
+            anadio el segundo, y ademas el de pantalla completa cambia de texto
+            ("Pantalla completa" / "Salir"): cualquier separacion calculada a
+            mano se rompe al cambiar de ancho. Asi se colocan solos. */
+        .cam-acciones {
             position: absolute; top: 10px; right: 10px; z-index: 6;
+            display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
+            max-width: calc(100% - 20px);
+        }
+        .fs-btn {
             background: rgba(0, 0, 0, 0.5); color: #fff;
             border: 1px solid rgba(255, 255, 255, 0.35);
             padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.85em;
+            white-space: nowrap;
         }
         .fs-btn:hover { background: rgba(0, 0, 0, 0.75); border-color: #4FD8D2; }
+        /*  Sonando: se ve de un vistazo que el microfono esta abierto. */
+        .fs-btn.sonando { background: rgba(10, 166, 160, 0.85); border-color: #4FD8D2; }
+        .fs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
         .cam-joystick {
             position: absolute; right: 12px; bottom: 12px; z-index: 6;
             display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -2086,7 +2115,15 @@ HTML_TEMPLATE = r"""
                     <span class="brand-tag">VISIÓN ARTIFICIAL</span>
                 </div>
             </div>
-            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">Modo Oscuro</button>
+            <div class="acciones-cabecera">
+                <!--  Enlace al Pastillero. Es un <a> y no un boton con
+                      window.location a proposito: asi se puede abrir en otra
+                      pestaña con el boton central o pulsacion larga, que es lo
+                      que espera cualquiera de un enlace. -->
+                <a class="theme-toggle" id="linkPastillero" href="#" target="_blank" rel="noopener"
+                   title="Abrir la interfaz del pastillero">💊 Pastillero</a>
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">Modo Oscuro</button>
+            </div>
         </div>
         <!-- Sin <h1>MEDIBOT</h1>: la barra de marca de arriba ya lleva el
              logo y el nombre, así que salía dos veces seguidas. -->
@@ -2103,8 +2140,17 @@ HTML_TEMPLATE = r"""
                 <div class="camera-stage" id="cam1-stage">
                     <div class="video-container" id="cam1-view">
                         <img src="/video/0" alt="Cámara 1 en vivo" id="video-stream-1">
-                        <button class="fs-btn" id="fsBtn" onclick="toggleCameraFullscreen()"
-                                title="Pantalla completa">&#9974; <span id="fsBtnTxt">Pantalla completa</span></button>
+                        <div class="cam-acciones">
+                            <!--  Escuchar el microfono de la camara. Tiene que
+                                  arrancarlo el usuario con un clic: los
+                                  navegadores bloquean el audio que empieza
+                                  solo, asi que un autoplay quedaria mudo sin
+                                  decir nada. -->
+                            <button class="fs-btn" id="audioBtn" onclick="alternarAudio()"
+                                    title="Escuchar el micrófono de la cámara">&#128264; <span id="audioBtnTxt">Escuchar</span></button>
+                            <button class="fs-btn" id="fsBtn" onclick="toggleCameraFullscreen()"
+                                    title="Pantalla completa">&#9974; <span id="fsBtnTxt">Pantalla completa</span></button>
+                        </div>
                         <div class="cam-joystick">
                             <div class="joystick-base" id="joyBase">
                                 <div class="joystick-stick" id="joyStick"></div>
@@ -2601,10 +2647,87 @@ HTML_TEMPLATE = r"""
                    'build de la página: ' + BUILD_PAGINA + ' / del robot: ' + servidor);
         }
 
+        // ===== Audio del microfono de la camara =====
+        //  Un solo <audio> creado a mano, sin ponerlo en el HTML: si estuviera
+        //  en la pagina con src="/audio", el navegador abriria el microfono al
+        //  cargar aunque nadie quisiera escuchar, y dejaria un arecord vivo en
+        //  la Raspberry en cada visita.
+        let _audio = null;
+
+        function alternarAudio() {
+            const btn = document.getElementById('audioBtn');
+            const txt = document.getElementById('audioBtnTxt');
+            if (_audio) { pararAudio(); return; }
+
+            _audio = new Audio('/audio?t=' + Date.now());   // sin cache
+            _audio.autoplay = true;
+            _audio.addEventListener('error', () => {
+                //  El navegador no dice POR QUE falla un <audio>, asi que se
+                //  le pregunta al servidor: el sabe si falta el microfono, si
+                //  falta arecord o si el audio esta desactivado.
+                pedirJSON('/api/audio')
+                    .then(d => avisar('No se pudo escuchar: ' +
+                                      (d.motivo || 'el micrófono no responde'), d))
+                    .catch(e => avisar('No se pudo escuchar el micrófono', e));
+                pararAudio();
+            });
+            _audio.play().catch(e => {
+                avisar('El navegador bloqueó el audio; vuelve a pulsar Escuchar', e);
+                pararAudio();
+            });
+            btn.classList.add('sonando');
+            txt.textContent = 'Silenciar';
+            btn.title = 'Dejar de escuchar';
+        }
+
+        function pararAudio() {
+            if (_audio) {
+                //  Vaciar el src ademas de pause(): sin esto la peticion sigue
+                //  abierta y el arecord del robot no se entera de que ya no hay
+                //  nadie escuchando.
+                _audio.pause();
+                _audio.removeAttribute('src');
+                _audio.load();
+                _audio = null;
+            }
+            const btn = document.getElementById('audioBtn');
+            const txt = document.getElementById('audioBtnTxt');
+            if (btn) { btn.classList.remove('sonando'); btn.title = 'Escuchar el micrófono de la cámara'; }
+            if (txt) { txt.textContent = 'Escuchar'; }
+        }
+
+        //  Si el robot dice que no hay audio, el boton se desactiva y explica
+        //  el motivo en su tooltip, en vez de fallar al pulsarlo.
+        function reflejarAudio(info) {
+            const btn = document.getElementById('audioBtn');
+            if (!btn || !info) { return; }
+            btn.disabled = !info.disponible;
+            if (!info.disponible) {
+                btn.title = 'Audio no disponible: ' + (info.motivo || 'sin micrófono');
+                if (_audio) { pararAudio(); }
+            } else if (!btn.classList.contains('sonando')) {
+                btn.title = 'Escuchar el micrófono de la cámara';
+            }
+        }
+
+        // ===== Enlace al Pastillero =====
+        //  El servidor puede fijar la URL (util detras de un tunel, donde cada
+        //  interfaz tiene su propio subdominio y los puertos no valen). Si no
+        //  la fija, se deduce del mismo host cambiando al puerto 5001, que es
+        //  lo correcto en la red local.
+        const URL_PASTILLERO = '__URL_PASTILLERO__';
+        function prepararEnlacePastillero() {
+            const a = document.getElementById('linkPastillero');
+            if (!a) { return; }
+            a.href = URL_PASTILLERO ||
+                     (location.protocol + '//' + location.hostname + ':5001/');
+        }
+
         function fetchData() {
             return pedirJSON('/api/all')
                 .then(data => {
                     comprobarBuild(data.build_web);
+                    reflejarAudio(data.audio);
                     updateCameraStatus(data);
                     if (_apiCaida) { _apiCaida = false; limpiarAviso(); }
                 })
@@ -2856,6 +2979,7 @@ HTML_TEMPLATE = r"""
             // fiarse del 200/255 escrito a mano en el HTML.
             sincronizarVelocidad();
             _pintarBotonFS();
+            prepararEnlacePastillero();
             // La lista de vídeos está visible desde el principio, así que hay
             // que rellenarla; antes se quedaba en "Cargando videos..." para
             // siempre salvo que se pulsara el botón.
@@ -2874,6 +2998,9 @@ HTML_TEMPLATE = r"""
         // Handle page unload
         window.addEventListener('beforeunload', function() {
             stopUpdates();
+            //  Cerrar el audio al salir: si no, la peticion queda abierta y el
+            //  arecord del robot sigue vivo agarrado al microfono.
+            pararAudio();
         });
     </script>
 </body>
@@ -2921,6 +3048,45 @@ def _sin_cache(respuesta):
     return respuesta
 
 
+#  Microfono de la camara. Se crea uno solo: cada peticion a /audio lanza su
+#  propio arecord y lo mata al terminar, asi que el objeto solo guarda la
+#  configuracion, no el proceso compartido.
+microfono = medibot_audio.Microfono()
+
+#  URL de la otra interfaz. Vacia = el navegador la deduce del mismo host con
+#  el puerto 5001, que es lo correcto en la red local. Se fija por entorno
+#  cuando cada interfaz tiene su propio subdominio (p.ej. detras de un tunel
+#  de Cloudflare, donde los puertos no valen).
+URL_PASTILLERO = os.environ.get("MEDIBOT_URL_PASTILLERO", "").strip()
+
+
+@app.route("/audio")
+def audio():
+    """Microfono de la camara, en WAV continuo.
+
+    Se sirve asi porque un <audio src="/audio"> lo reproduce sin JavaScript,
+    sin WebRTC y sin dependencias nuevas: `arecord` ya viene con el sistema.
+    Ver medibot_audio.py para el detalle."""
+    if not microfono.disponible():
+        #  503 y no 404: el recurso existe, es que ahora no se puede servir.
+        #  El navegador solo dice "error" al fallar un <audio>, asi que el
+        #  motivo se consulta aparte en /api/audio.
+        return jsonify({"error": "Audio no disponible",
+                        "motivo": microfono.motivo_no_disponible()}), 503
+
+    respuesta = Response(microfono.trozos(), mimetype="audio/wav")
+    #  Sin esto algunos navegadores esperan a tener el fichero entero antes de
+    #  empezar a sonar, y como no termina nunca, no suena nada.
+    respuesta.headers["Accept-Ranges"] = "none"
+    return respuesta
+
+
+@app.route("/api/audio")
+def api_audio():
+    """Por que se puede (o no) escuchar. Lo consulta el boton para explicarlo."""
+    return jsonify(microfono.estado())
+
+
 @app.route("/")
 def index():
     """Página principal del sistema web.
@@ -2929,7 +3095,10 @@ def index():
     JavaScript esta lleno de llaves y no conviene darle mas trabajo del
     necesario al motor de plantillas). La huella se calcula sobre la plantilla
     CON el marcador dentro, asi que no hay circularidad."""
-    return render_template_string(HTML_TEMPLATE.replace("__BUILD_WEB__", BUILD_WEB))
+    pagina = (HTML_TEMPLATE
+              .replace("__BUILD_WEB__", BUILD_WEB)
+              .replace("__URL_PASTILLERO__", URL_PASTILLERO))
+    return render_template_string(pagina)
 
 @app.route("/video/<int:camera_index>")
 def video(camera_index):
@@ -3115,6 +3284,8 @@ def api_all():
         #  compara con la suya: si no coinciden, el navegador esta enseñando
         #  una copia guardada en cache y lo dice en pantalla.
         "build_web": BUILD_WEB,
+        #  Para que el boton de escuchar sepa si puede, y si no, por que.
+        "audio": microfono.estado(),
         "system_info": {
             "ip_address": get_ip(),
             "port": 5000,

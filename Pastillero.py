@@ -266,9 +266,16 @@ def bucle_horarios():
 app = Flask(__name__)
 
 
+#  URL de la otra interfaz. Vacia = el navegador la deduce del mismo host con
+#  el puerto 5000, que es lo correcto en la red local. Se fija por entorno
+#  cuando cada interfaz tiene su propio subdominio (p.ej. detras de un tunel
+#  de Cloudflare, donde los puertos no valen).
+URL_MEDIBOT = os.environ.get("MEDIBOT_URL_VISION", "").strip()
+
+
 @app.route("/")
 def index():
-    return HTML_PAGE
+    return HTML_PAGE.replace("__URL_MEDIBOT__", URL_MEDIBOT)
 
 
 @app.route("/data")
@@ -455,84 +462,153 @@ HTML_PAGE = """<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pillbox</title>
+  <!--  Icono en linea (una pastilla). Sin esto el navegador pide /favicon.ico,
+        Flask no lo sirve y queda un 404 en la consola en cada carga. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='11' width='24' height='10' rx='5' fill='%231f5a8e'/%3E%3Cpath d='M16 11v10' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E">
+  <script>
+    /*  El tema se aplica AQUI, antes de que se pinte nada. Si se hiciera al
+        final del <body>, la pagina se dibujaria primero en claro y luego
+        saltaria a oscuro: el fogonazo blanco que molesta de noche.
+        Sin tema guardado se respeta el del sistema operativo. */
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('pillbox-theme'); } catch (e) {}
+      if (!t) {
+        t = (window.matchMedia &&
+             window.matchMedia('(prefers-color-scheme: dark)').matches)
+            ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <style>
+    /*  TEMA CLARO (el de siempre) y TEMA OSCURO.
+        Antes los 30 colores estaban escritos a mano por todo el CSS, asi que
+        no habia forma de cambiar de tema sin reescribirlo entero. Ahora cada
+        color tiene un nombre por lo que SIGNIFICA (--peligro, --texto-tenue)
+        y el tema oscuro solo redefine esos nombres. */
+    :root {
+      --fondo: #f4f7fc;          --tarjeta: #ffffff;
+      --panel: #f9fbfd;          --suave: #eef3f9;
+      --suave-hover: #dce6f0;    --neutro: #f0f2f6;
+      --borde: #e9edf4;          --borde-fuerte: #d6dee9;
+      --borde-activo: #b6cae0;
+      --texto-titulo: #0b2b4a;   --texto: #1f3a57;
+      --texto-tenue: #5a728c;    --texto-debil: #8a99ab;
+      --acento: #1f5a8e;         --acento-hover: #164a73;
+      --acento-suave: #dff0fa;
+      --exito: #1f8e6b;          --exito-hover: #167556;
+      --exito-suave: #d4edda;    --exito-texto: #0e6b3e;
+      --peligro: #cf3e4a;        --peligro-hover: #b3323d;
+      --peligro-suave: #fdecea;
+      --aviso: #e6a020;          --aviso-hover: #cc8d1a;
+      --aviso-suave: #fdf0d5;    --aviso-texto: #8a5a00;
+      --sombra: rgba(0,20,40,0.12);
+      --sombra-suave: rgba(0,0,0,.04);
+    }
+    /*  Los tonos "suaves" en oscuro NO son el color claro original: sobre
+        fondo negro deslumbrarian. Se usan versiones oscuras del mismo matiz,
+        con el texto en el tono claro, que es lo que mantiene el contraste. */
+    html[data-theme="dark"] {
+      --fondo: #0f1419;          --tarjeta: #171d24;
+      --panel: #1c232b;          --suave: #232c36;
+      --suave-hover: #2c3742;    --neutro: #232c36;
+      --borde: #2a333d;          --borde-fuerte: #3a4653;
+      --borde-activo: #4e6478;
+      --texto-titulo: #e8eef5;   --texto: #d3dce6;
+      --texto-tenue: #9aabbd;    --texto-debil: #7c8b9c;
+      --acento: #4a9fe0;         --acento-hover: #6bb4ec;
+      --acento-suave: #16354d;
+      --exito: #2fb587;          --exito-hover: #46c79a;
+      --exito-suave: #143529;    --exito-texto: #6fdcb2;
+      --peligro: #e05561;        --peligro-hover: #ea6f79;
+      --peligro-suave: #3a1a1e;
+      --aviso: #f0b04a;          --aviso-hover: #f6c268;
+      --aviso-suave: #3a2c10;    --aviso-texto: #f2c87a;
+      --sombra: rgba(0,0,0,0.55);
+      --sombra-suave: rgba(0,0,0,.25);
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; }
-    body { background: #f4f7fc; min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 20px; }
-    .app { max-width: 1200px; width: 100%; background: white; border-radius: 32px; box-shadow: 0 20px 60px rgba(0,20,40,0.12); padding: 30px 35px 40px; transition: all .3s ease; }
+    body { background: var(--fondo); min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 20px; }
+    .app { max-width: 1200px; width: 100%; background: var(--tarjeta); border-radius: 32px; box-shadow: 0 20px 60px var(--sombra); padding: 30px 35px 40px; transition: all .3s ease; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 10px; }
-    .header h1 { font-size: 26px; font-weight: 600; color: #0b2b4a; letter-spacing: -.3px; display: flex; align-items: center; gap: 8px; }
-    .header h1 span { background: #eef3f9; padding: 4px 14px; border-radius: 40px; font-size: 16px; font-weight: 500; color: #1f5a8e; }
-    .serial-pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px; background: #fdecea; color: #b3323d; }
-    .serial-pill.ok { background: #d4edda; color: #0e6b3e; }
-    .serial-pill.sync { background: #d4edda; color: #0e6b3e; }
-    .serial-pill.desync { background: #fdf0d5; color: #8a5a00; }
-    .serial-pill.neutro { background: #eef3f9; color: #5a728c; }
-    .btn-back { background: #eef3f9; border: none; padding: 8px 18px; border-radius: 30px; font-size: 14px; font-weight: 500; color: #1f5a8e; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: .2s; }
-    .btn-back:hover { background: #dce6f0; }
+    .header h1 { font-size: 26px; font-weight: 600; color: var(--texto-titulo); letter-spacing: -.3px; display: flex; align-items: center; gap: 8px; }
+    .header h1 span { background: var(--suave); padding: 4px 14px; border-radius: 40px; font-size: 16px; font-weight: 500; color: var(--acento); }
+    .serial-pill { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 30px; background: var(--peligro-suave); color: var(--peligro-hover); }
+    .serial-pill.ok { background: var(--exito-suave); color: var(--exito-texto); }
+    .serial-pill.sync { background: var(--exito-suave); color: var(--exito-texto); }
+    .serial-pill.desync { background: var(--aviso-suave); color: var(--aviso-texto); }
+    .serial-pill.neutro { background: var(--suave); color: var(--texto-tenue); }
+    .btn-back { background: var(--suave); border: none; padding: 8px 18px; border-radius: 30px; font-size: 14px; font-weight: 500; color: var(--acento); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: .2s; }
+    .btn-back:hover { background: var(--suave-hover); }
     .btn-back.hidden { display: none; }
+    /*  El enlace a Medibot comparte estilo con los botones, pero es un <a>:
+        hay que quitarle el subrayado, porque si no desentona en la fila. */
+    a.btn-back { text-decoration: none; }
     .compartments-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 22px; margin-top: 10px; }
-    .compartment-card { background: #fff; border-radius: 20px; padding: 18px 16px 16px; box-shadow: 0 4px 16px rgba(0,0,0,.04); border: 1px solid #e9edf4; cursor: pointer; transition: all .2s ease; display: flex; flex-direction: column; min-height: 150px; position: relative; }
-    .compartment-card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px rgba(0,40,80,.08); border-color: #b6cae0; }
-    .compartment-number { font-size: 18px; font-weight: 700; color: #1f3a57; letter-spacing: -.2px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
-    .compartment-number .badge { font-size: 12px; font-weight: 500; background: #dff0fa; color: #1f5a8e; padding: 2px 12px; border-radius: 30px; letter-spacing: .3px; }
-    .compartment-number .badge.completed { background: #d4edda; color: #0e6b3e; }
-    .preview-data { font-size: 14px; color: #1f3a57; line-height: 1.5; margin-top: 4px; flex: 1; }
-    .preview-data .label { color: #6f8aa8; font-weight: 400; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+    .compartment-card { background: var(--tarjeta); border-radius: 20px; padding: 18px 16px 16px; box-shadow: 0 4px 16px var(--sombra-suave); border: 1px solid var(--borde); cursor: pointer; transition: all .2s ease; display: flex; flex-direction: column; min-height: 150px; position: relative; }
+    .compartment-card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px var(--sombra); border-color: var(--borde-activo); }
+    .compartment-number { font-size: 18px; font-weight: 700; color: var(--texto); letter-spacing: -.2px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
+    .compartment-number .badge { font-size: 12px; font-weight: 500; background: var(--acento-suave); color: var(--acento); padding: 2px 12px; border-radius: 30px; letter-spacing: .3px; }
+    .compartment-number .badge.completed { background: var(--exito-suave); color: var(--exito-texto); }
+    .preview-data { font-size: 14px; color: var(--texto); line-height: 1.5; margin-top: 4px; flex: 1; }
+    .preview-data .label { color: var(--texto-tenue); font-weight: 400; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
     .preview-data .value { font-weight: 500; word-break: break-word; }
-    .preview-empty { color: #9bb0c7; font-size: 14px; margin-top: 6px; font-style: italic; }
+    .preview-empty { color: var(--texto-debil); font-size: 14px; margin-top: 6px; font-style: italic; }
     .detail-view { display: none; animation: fadeIn .25s ease; }
     .detail-view.active { display: block; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: translateY(0);} }
     .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
-    .detail-header h2 { font-size: 24px; font-weight: 600; color: #0b2b4a; }
-    .detail-header .sub { font-size: 15px; color: #6f8aa8; }
-    .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 18px 22px; background: #f9fbfd; padding: 24px 26px; border-radius: 24px; border: 1px solid #e9edf4; margin-bottom: 20px; }
+    .detail-header h2 { font-size: 24px; font-weight: 600; color: var(--texto-titulo); }
+    .detail-header .sub { font-size: 15px; color: var(--texto-tenue); }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 18px 22px; background: var(--panel); padding: 24px 26px; border-radius: 24px; border: 1px solid var(--borde); margin-bottom: 20px; }
     .form-group { display: flex; flex-direction: column; gap: 4px; }
-    .form-group label { font-size: 13px; font-weight: 500; color: #1f3a57; }
-    .form-group input { padding: 10px 14px; border: 1px solid #d6dee9; border-radius: 14px; font-size: 15px; background: white; transition: .2s; outline: none; width: 100%; }
-    .form-group input:focus { border-color: #1f5a8e; box-shadow: 0 0 0 3px rgba(31,90,142,.12); }
+    .form-group label { font-size: 13px; font-weight: 500; color: var(--texto); }
+    .form-group input { padding: 10px 14px; border: 1px solid var(--borde-fuerte); border-radius: 14px; font-size: 15px; background: var(--tarjeta); transition: .2s; outline: none; width: 100%; }
+    .form-group input:focus { border-color: var(--acento); box-shadow: 0 0 0 3px rgba(31,90,142,.12); }
     .btn-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; align-items: center; }
-    .btn { border: none; padding: 10px 28px; border-radius: 40px; font-weight: 500; font-size: 15px; cursor: pointer; transition: .2s; display: inline-flex; align-items: center; gap: 6px; background: #eef3f9; color: #1f3a57; }
+    .btn { border: none; padding: 10px 28px; border-radius: 40px; font-weight: 500; font-size: 15px; cursor: pointer; transition: .2s; display: inline-flex; align-items: center; gap: 6px; background: var(--suave); color: var(--texto); }
     .btn:disabled { opacity: .6; cursor: default; }
-    .btn-primary { background: #1f5a8e; color: white; }
-    .btn-primary:hover { background: #164a73; }
-    .btn-success { background: #1f8e6b; color: white; }
-    .btn-success:hover { background: #167556; }
-    .btn-danger { background: #cf3e4a; color: white; }
-    .btn-danger:hover { background: #b3323d; }
-    .btn-warning { background: #e6a020; color: white; }
-    .btn-warning:hover { background: #cc8d1a; }
-    .btn-outline { background: transparent; border: 1.5px solid #cbd7e6; }
-    .btn-outline:hover { background: #eef3f9; }
+    .btn-primary { background: var(--acento); color: var(--tarjeta); }
+    .btn-primary:hover { background: var(--acento-hover); }
+    .btn-success { background: var(--exito); color: var(--tarjeta); }
+    .btn-success:hover { background: var(--exito-hover); }
+    .btn-danger { background: var(--peligro); color: var(--tarjeta); }
+    .btn-danger:hover { background: var(--peligro-hover); }
+    .btn-warning { background: var(--aviso); color: var(--tarjeta); }
+    .btn-warning:hover { background: var(--aviso-hover); }
+    .btn-outline { background: transparent; border: 1.5px solid var(--borde-fuerte); }
+    .btn-outline:hover { background: var(--suave); }
     .btn-mini { padding: 5px 14px; font-size: 13px; border-radius: 30px; }
-    .saved-data { background: #f9fbfd; padding: 24px 26px; border-radius: 24px; border: 1px solid #e9edf4; margin-bottom: 20px; }
-    .saved-data .row { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 8px 0; border-bottom: 1px solid #e9edf4; }
+    .saved-data { background: var(--panel); padding: 24px 26px; border-radius: 24px; border: 1px solid var(--borde); margin-bottom: 20px; }
+    .saved-data .row { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 8px 0; border-bottom: 1px solid var(--borde); }
     .saved-data .row:last-child { border-bottom: none; }
-    .saved-data .field-label { font-weight: 500; color: #1f3a57; min-width: 120px; }
-    .saved-data .field-value { color: #0b2b4a; word-break: break-word; }
-    .status-badge { display: inline-block; padding: 4px 16px; border-radius: 30px; font-size: 13px; font-weight: 500; background: #d4edda; color: #0e6b3e; }
+    .saved-data .field-label { font-weight: 500; color: var(--texto); min-width: 120px; }
+    .saved-data .field-value { color: var(--texto-titulo); word-break: break-word; }
+    .status-badge { display: inline-block; padding: 4px 16px; border-radius: 30px; font-size: 13px; font-weight: 500; background: var(--exito-suave); color: var(--exito-texto); }
     .hidden { display: none !important; }
     .flex-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-    .panel { background: #f9fbfd; border: 1px solid #e9edf4; border-radius: 24px; padding: 22px 26px; margin-top: 22px; }
-    .panel h3 { font-size: 17px; font-weight: 600; color: #0b2b4a; margin-bottom: 12px; }
-    .sched-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 0; border-bottom: 1px solid #e9edf4; font-size: 14px; color: #1f3a57; }
+    .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 24px; padding: 22px 26px; margin-top: 22px; }
+    .panel h3 { font-size: 17px; font-weight: 600; color: var(--texto-titulo); margin-bottom: 12px; }
+    .sched-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--borde); font-size: 14px; color: var(--texto); }
     .sched-row:last-child { border-bottom: none; }
     .sched-row .hora { font-weight: 700; font-size: 16px; min-width: 60px; }
-    .sched-row .dias { color: #1f5a8e; font-weight: 500; min-width: 130px; }
-    .sched-row .estado { font-size: 12px; padding: 2px 12px; border-radius: 30px; background: #d4edda; color: #0e6b3e; }
-    .sched-row .estado.off { background: #f0f2f6; color: #8a99ab; }
+    .sched-row .dias { color: var(--acento); font-weight: 500; min-width: 130px; }
+    .sched-row .estado { font-size: 12px; padding: 2px 12px; border-radius: 30px; background: var(--exito-suave); color: var(--exito-texto); }
+    .sched-row .estado.off { background: var(--neutro); color: var(--texto-debil); }
     .sched-form { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
-    .sched-form input[type=time] { padding: 8px 12px; border: 1px solid #d6dee9; border-radius: 12px; font-size: 15px; }
-    .day-check { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: #1f3a57; background: white; border: 1px solid #d6dee9; border-radius: 10px; padding: 6px 10px; cursor: pointer; user-select: none; }
-    .day-check input { accent-color: #1f5a8e; }
-    .hist-row { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 7px 0; border-bottom: 1px solid #e9edf4; font-size: 13.5px; color: #1f3a57; }
+    .sched-form input[type=time] { padding: 8px 12px; border: 1px solid var(--borde-fuerte); border-radius: 12px; font-size: 15px; }
+    .day-check { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: var(--texto); background: var(--tarjeta); border: 1px solid var(--borde-fuerte); border-radius: 10px; padding: 6px 10px; cursor: pointer; user-select: none; }
+    .day-check input { accent-color: var(--acento); }
+    .hist-row { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 7px 0; border-bottom: 1px solid var(--borde); font-size: 13.5px; color: var(--texto); }
     .hist-row:last-child { border-bottom: none; }
-    .hist-row .ts { color: #6f8aa8; min-width: 145px; }
+    .hist-row .ts { color: var(--texto-tenue); min-width: 145px; }
     .hist-row .tipo { font-weight: 600; min-width: 78px; }
-    .hist-row .tipo.AUTO { color: #1f8e6b; }
-    .hist-row .tipo.MANUAL { color: #1f5a8e; }
-    .hist-row .res { color: #6f8aa8; }
-    .aviso { font-size: 13px; color: #6f8aa8; margin-top: 6px; }
+    .hist-row .tipo.AUTO { color: var(--exito); }
+    .hist-row .tipo.MANUAL { color: var(--acento); }
+    .hist-row .res { color: var(--texto-tenue); }
+    .aviso { font-size: 13px; color: var(--texto-tenue); margin-top: 6px; }
     @media (max-width: 700px) {
       .app { padding: 20px 18px; }
       .compartments-grid { grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: 14px; }
@@ -550,6 +626,13 @@ HTML_PAGE = """<!DOCTYPE html>
       <button class="btn-back hidden" id="btnVerificar" onclick="verificarSync()">Verificar</button>
       <button class="btn-back hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
       <button class="btn-back hidden" id="btnBackMain" onclick="goToMain()">Volver al menu</button>
+      <!--  Enlace a Medibot. Es un <a> y no un boton con window.location: asi
+            se puede abrir en otra pestaña con el boton central o con una
+            pulsacion larga en el movil, que es lo que espera cualquiera. -->
+      <a class="btn-back" id="linkMedibot" href="#" target="_blank" rel="noopener"
+         title="Abrir la interfaz de camaras y movimiento">&#129302; Medibot</a>
+      <button class="btn-back" id="themeToggle" onclick="alternarTema()"
+              title="Cambiar tema claro/oscuro">Modo Oscuro</button>
     </div>
   </div>
 
@@ -945,8 +1028,47 @@ HTML_PAGE = """<!DOCTYPE html>
       }, 20000);
     }
 
+    // ===== Tema claro / oscuro =====
+    //  Se aplica ANTES de nada (ver el <script> del <head>) para que no haya
+    //  un fogonazo blanco al cargar con el tema oscuro puesto. Aqui solo queda
+    //  el cambio manual y poner bien el texto del boton.
+    const CLAVE_TEMA = 'pillbox-theme';
+
+    function temaActual() {
+      return document.documentElement.getAttribute('data-theme') || 'light';
+    }
+
+    function pintarBotonTema() {
+      const b = document.getElementById('themeToggle');
+      if (b) { b.textContent = temaActual() === 'dark' ? 'Modo Claro' : 'Modo Oscuro'; }
+    }
+
+    function alternarTema() {
+      const nuevo = temaActual() === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', nuevo);
+      try { localStorage.setItem(CLAVE_TEMA, nuevo); }
+      catch (e) { console.warn('[pillbox] no se pudo recordar el tema', e); }
+      pintarBotonTema();
+    }
+
+    // ===== Enlace a Medibot =====
+    //  El servidor puede fijar la URL (util detras de un tunel, donde cada
+    //  interfaz tiene su propio subdominio y los puertos no valen). Si no la
+    //  fija, se deduce del mismo host con el puerto 5000, que es lo correcto
+    //  en la red local.
+    const URL_MEDIBOT = '__URL_MEDIBOT__';
+    function prepararEnlaceMedibot() {
+      const a = document.getElementById('linkMedibot');
+      if (!a) { return; }
+      a.href = URL_MEDIBOT ||
+               (location.protocol + '//' + location.hostname + ':5000/');
+    }
+
     window.goToMain = goToMain;
     window.cancelEdit = cancelEdit;
+    window.alternarTema = alternarTema;
+    pintarBotonTema();
+    prepararEnlaceMedibot();
     init();
   })();
 </script>

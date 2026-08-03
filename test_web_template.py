@@ -71,7 +71,13 @@ def bloques_script(html):
 
 
 def html_sin_script(html):
-    return re.sub(r"<script>.*?</script>", "", html, flags=re.S)
+    """Solo el MARCADO: fuera <script> y fuera <style>.
+
+    Sin quitar el CSS, un comentario que mencione '<button>' para explicar una
+    regla se cuenta como si fuera un boton de verdad. Ya paso: la prueba de
+    botones huerfanos fallaba por el comentario que documentaba el estilo."""
+    limpio = re.sub(r"<script>.*?</script>", "", html, flags=re.S)
+    return re.sub(r"<style>.*?</style>", "", limpio, flags=re.S)
 
 
 class PruebasCadenaRaw(unittest.TestCase):
@@ -300,13 +306,191 @@ class PruebasCacheDeLaInterfaz(unittest.TestCase):
     def test_el_marcador_se_sustituye_al_servir(self):
         """Si el reemplazo desaparece, BUILD_PAGINA valdria el literal y el
         aviso saltaria siempre: peor que no tenerlo."""
-        self.assertIn('HTML_TEMPLATE.replace("__BUILD_WEB__", BUILD_WEB)',
-                      self.src)
+        self.assertIn('.replace("__BUILD_WEB__", BUILD_WEB)', self.src)
         self.assertIn("__BUILD_WEB__", self.html,
                       "La plantilla debe llevar el marcador que se sustituye")
 
     def test_la_huella_se_publica_en_la_api(self):
         self.assertIn('"build_web": BUILD_WEB', self.src)
+
+
+# =============================================================================
+def fuente_pastillero():
+    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "Pastillero.py")
+    with open(ruta, encoding="utf-8") as f:
+        return f.read()
+
+
+def plantilla_pastillero():
+    """El HTML del Pastillero como lo recibe el navegador."""
+    src = fuente_pastillero()
+    marca = 'HTML_PAGE = """'
+    i = src.index(marca) + len(marca)
+    j = src.index('"""', i)
+    return eval('"""' + src[i:j] + '"""')       # noqa: S307 - literal del repo
+
+
+class PruebasEnlacesEntreInterfaces(unittest.TestCase):
+    """Ir de una interfaz a la otra sin teclear la IP a mano."""
+
+    def setUp(self):
+        self.vision = plantilla_evaluada()
+        self.vision_src = fuente()
+        self.pill = plantilla_pastillero()
+        self.pill_src = fuente_pastillero()
+
+    def test_medibot_enlaza_al_pastillero(self):
+        self.assertIn('id="linkPastillero"', self.vision)
+
+    def test_el_pastillero_enlaza_a_medibot(self):
+        self.assertIn('id="linkMedibot"', self.pill)
+
+    def test_son_enlaces_de_verdad_y_no_botones(self):
+        """Un <a> se puede abrir en otra pestaña con el boton central o con
+        una pulsacion larga; un boton con window.location, no."""
+        for html, ident in ((self.vision, "linkPastillero"),
+                            (self.pill, "linkMedibot")):
+            with self.subTest(ident=ident):
+                etiqueta = re.search(r'<(\w+)[^>]*id="' + ident + r'"', html)
+                self.assertIsNotNone(etiqueta)
+                self.assertEqual(etiqueta.group(1), "a")
+
+    def test_los_marcadores_se_sustituyen_al_servir(self):
+        """Si el reemplazo desaparece, el enlace apuntaria al literal."""
+        self.assertIn('replace("__URL_PASTILLERO__", URL_PASTILLERO)',
+                      self.vision_src)
+        self.assertIn('replace("__URL_MEDIBOT__", URL_MEDIBOT)', self.pill_src)
+        self.assertIn("__URL_PASTILLERO__", self.vision)
+        self.assertIn("__URL_MEDIBOT__", self.pill)
+
+    def test_sin_configurar_se_deduce_del_mismo_host(self):
+        """En la red local basta con cambiar de puerto; la URL fija solo hace
+        falta detras de un tunel, donde cada interfaz tiene su subdominio."""
+        self.assertIn("location.hostname + ':5001", self.vision)
+        self.assertIn("location.hostname + ':5000", self.pill)
+
+    def test_se_pueden_fijar_por_entorno(self):
+        self.assertIn('MEDIBOT_URL_PASTILLERO', self.vision_src)
+        self.assertIn('MEDIBOT_URL_VISION', self.pill_src)
+
+
+class PruebasTemaPastillero(unittest.TestCase):
+    """El Pastillero tenia los 30 colores escritos a mano: no habia tema."""
+
+    def setUp(self):
+        self.html = plantilla_pastillero()
+        i = self.html.index("<style>")
+        self.css = self.html[i:self.html.index("</style>", i)]
+
+    def test_existe_el_boton(self):
+        self.assertIn('id="themeToggle"', self.html)
+
+    def test_no_queda_ningun_color_escrito_a_mano_en_el_css(self):
+        """Un color fijo no cambia con el tema: en oscuro quedaria ilegible."""
+        fijos = sorted(set(re.findall(r"#[0-9a-fA-F]{3,6}\b", self.css)))
+        #  Los de :root y los del tema oscuro SI son literales: son la
+        #  definicion de la paleta. Se descuentan mirando solo las reglas.
+        sin_paleta = re.sub(r"(:root|html\[data-theme=\"dark\"\])\s*\{[^}]*\}",
+                            "", self.css)
+        fijos = sorted(set(re.findall(r"#[0-9a-fA-F]{3,6}\b", sin_paleta)))
+        self.assertFalse(fijos, f"Colores fijos fuera de la paleta: {fijos}")
+
+    def test_toda_variable_usada_esta_definida(self):
+        usadas = set(re.findall(r"var\((--[\w-]+)\)", self.css))
+        definidas = set(re.findall(r"(--[\w-]+)\s*:", self.css))
+        self.assertFalse(usadas - definidas,
+                         f"Variables sin definir: {sorted(usadas - definidas)}")
+
+    def test_el_tema_oscuro_redefine_TODAS_las_variables(self):
+        """Si falta una, ese trozo se queda con el color claro sobre fondo
+        negro: texto azul marino sobre negro, ilegible."""
+        raiz = self.css[self.css.index(":root {"):]
+        raiz = raiz[:raiz.index("}")]
+        osc = self.css[self.css.index('data-theme="dark"'):]
+        osc = osc[:osc.index("}")]
+        claras = set(re.findall(r"(--[\w-]+)\s*:", raiz))
+        oscuras = set(re.findall(r"(--[\w-]+)\s*:", osc))
+        self.assertFalse(claras - oscuras,
+                         f"Sin equivalente oscuro: {sorted(claras - oscuras)}")
+
+    def test_el_tema_se_aplica_ANTES_de_pintar(self):
+        """Si se aplicara al final, la pagina se dibujaria en claro y saltaria
+        a oscuro: el fogonazo blanco que molesta de noche."""
+        cabeza = self.html[:self.html.index("</head>")]
+        self.assertIn("data-theme", cabeza)
+        self.assertIn("pillbox-theme", cabeza)
+
+    def test_se_recuerda_en_localStorage(self):
+        self.assertIn("CLAVE_TEMA = 'pillbox-theme'", self.html)
+        self.assertIn("localStorage.setItem(CLAVE_TEMA", self.html)
+
+    def test_respeta_el_tema_del_sistema_si_no_hay_nada_guardado(self):
+        self.assertIn("prefers-color-scheme: dark", self.html)
+
+    def test_la_funcion_del_onclick_esta_expuesta(self):
+        """El script va dentro de un IIFE: sin window.x, el onclick no la ve."""
+        self.assertIn('onclick="alternarTema()"', self.html)
+        self.assertIn("window.alternarTema = alternarTema", self.html)
+
+    def test_no_pide_favicon_al_servidor(self):
+        """Flask no sirve /favicon.ico: sin icono en linea queda un 404 en la
+        consola en cada carga."""
+        self.assertIn('rel="icon"', self.html)
+
+
+class PruebasAudioUI(unittest.TestCase):
+    """Escuchar el microfono de la camara desde el navegador."""
+
+    def setUp(self):
+        self.html = plantilla_evaluada()
+        self.src = fuente()
+
+    def test_existe_el_boton_y_su_funcion(self):
+        self.assertIn('id="audioBtn"', self.html)
+        self.assertIn("function alternarAudio", self.html)
+        self.assertIn("function pararAudio", self.html)
+
+    def test_las_rutas_existen_en_flask(self):
+        self.assertIn('@app.route("/audio")', self.src)
+        self.assertIn('@app.route("/api/audio")', self.src)
+
+    def test_no_se_abre_el_microfono_al_cargar_la_pagina(self):
+        """Un <audio src="/audio"> en el HTML dejaria un arecord vivo en la
+        Raspberry en cada visita, aunque nadie quisiera escuchar."""
+        sin_script = html_sin_script(self.html)
+        self.assertNotIn("<audio", sin_script.lower())
+
+    def test_al_parar_se_suelta_la_conexion(self):
+        """Con pause() a secas la peticion sigue abierta y el arecord del
+        robot no se entera de que ya no hay nadie escuchando."""
+        cuerpo = re.search(r"function pararAudio\(\)\s*\{(.*?)\n        \}",
+                           self.html, re.S)
+        self.assertIsNotNone(cuerpo)
+        self.assertIn("removeAttribute('src')", cuerpo.group(1))
+
+    def test_se_corta_el_audio_al_salir_de_la_pagina(self):
+        self.assertIn("pararAudio();", self.html)
+        descarga = re.search(r"beforeunload[^}]*\}", self.html, re.S)
+        self.assertIsNotNone(descarga)
+        self.assertIn("pararAudio", descarga.group(0))
+
+    def test_los_botones_sobre_el_video_no_se_pisan(self):
+        """Audio y pantalla completa tenian los dos 'right: 10px': se
+        solapaban. Van en una fila flex, que los coloca sola."""
+        self.assertIn(".cam-acciones", self.html)
+        fs = re.search(r"\.fs-btn \{([^}]*)\}", self.html)
+        self.assertIsNotNone(fs)
+        self.assertNotIn("position: absolute", fs.group(1),
+                         "Los botones deben posicionarse por el contenedor "
+                         "flex, no cada uno por su cuenta")
+
+    def test_el_estado_del_audio_se_publica_en_la_api(self):
+        self.assertIn('"audio": microfono.estado()', self.src)
+
+    def test_si_no_hay_microfono_el_boton_lo_explica(self):
+        self.assertIn("function reflejarAudio", self.html)
+        self.assertIn("Audio no disponible", self.html)
 
 
 if __name__ == "__main__":
