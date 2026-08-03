@@ -626,11 +626,12 @@ HTML_PAGE = """<!DOCTYPE html>
       <button class="btn-back hidden" id="btnVerificar" onclick="verificarSync()">Verificar</button>
       <button class="btn-back hidden" id="btnReconectar" onclick="reconectarArduino()">Reconectar</button>
       <button class="btn-back hidden" id="btnBackMain" onclick="goToMain()">Volver al menu</button>
-      <!--  Enlace a Medibot. Es un <a> y no un boton con window.location: asi
+      <!--  Volver a Medibot. Es un <a> y no un boton con window.location: asi
             se puede abrir en otra pestaña con el boton central o con una
-            pulsacion larga en el movil, que es lo que espera cualquiera. -->
-      <a class="btn-back" id="linkMedibot" href="#" target="_blank" rel="noopener"
-         title="Abrir la interfaz de camaras y movimiento">&#129302; Medibot</a>
+            pulsacion larga en el movil, que es lo que espera cualquiera.
+            Sin emoji: los botones de esta barra son solo texto. -->
+      <a class="btn-back" id="linkMedibot" href="#" rel="noopener"
+         title="Volver a la interfaz de cámaras y movimiento">Volver a Medibot</a>
       <button class="btn-back" id="themeToggle" onclick="alternarTema()"
               title="Cambiar tema claro/oscuro">Modo Oscuro</button>
     </div>
