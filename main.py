@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+sudo cloudflared service install eyJhIjoiMGM3OTZhOGFkYTgyYTFkMzY4M2I5OTQ3Yjg2MmYyYTkiLCJ0IjoiZDFiMzRkNWItYTQ2Ni00NzU5LThiMDYtYTU0MWYzMWQwOGM5IiwicyI6Ik1tRXhNak0wTWpjdFptRXhNaTAwTlRkaUxXSXdOamt0TkRRek1HRXdZVFpoTTJObCJ9
 MEDIBOT - Lanzador unico
 ========================
 Ejecuta SOLO este archivo y arranca todo el sistema, en orden y coexistiendo:
