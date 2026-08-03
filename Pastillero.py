@@ -27,6 +27,7 @@ Requisitos:  pip install flask pyserial
 Ejecutar:    python3 Pastillero.py   ->   http://<ip>:5001
 """
 
+import hashlib
 import json
 import os
 import threading
@@ -1107,6 +1108,45 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>"""
 
 
+#  HUELLA de la interfaz: cambia en cuanto cambia una sola letra del HTML.
+#  Sirve para saber, sin adivinar, que version esta viendo un navegador:
+#      curl -sI http://<ip>:5001/ | grep Pillbox-Build
+#  Si el navegador enseña una huella distinta a la del servidor, esta viendo
+#  una copia guardada en cache y no la que sirve la Pi.
+BUILD_WEB = hashlib.sha256(HTML_PAGE.encode("utf-8")).hexdigest()[:8]
+
+
+@app.after_request
+def _sin_cache(respuesta):
+    """Prohibe guardar en cache la interfaz y las respuestas de la API.
+
+    EL FALLO QUE ARREGLA
+    --------------------
+    La web es UNA sola pagina con el JavaScript escrito DENTRO del HTML. Flask
+    no mandaba ninguna cabecera de cache, asi que el navegador era libre de
+    guardarse esa pagina y reutilizarla durante horas o dias. Al actualizar el
+    codigo en la Pi, el navegador seguia ejecutando el HTML viejo: el servidor
+    esta bien y la interfaz sale exactamente igual que antes.
+
+    Se ve clarisimo en el Pastillero, porque los datos SI se refrescan (/data
+    y /serial/status son peticiones nuevas que no se cachean) mientras que los
+    textos, los colores y el tema se quedan como estaban: lo que cambia viene
+    del servidor, lo que no cambia viene de la copia guardada.
+
+    Un Ctrl+F5 lo arregla a mano, pero hay que repetirlo en cada dispositivo y
+    en un movil casi nadie sabe hacerlo. Con no-store el navegador no puede
+    quedarse una copia vieja.
+
+    Vision_MEDIBOT.py ya llevaba esta cabecera desde que le paso lo mismo; el
+    Pastillero se habia quedado sin ella.
+    """
+    respuesta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    respuesta.headers["Pragma"] = "no-cache"          # proxies y HTTP/1.0
+    respuesta.headers["Expires"] = "0"
+    respuesta.headers["X-Pillbox-Build"] = BUILD_WEB
+    return respuesta
+
+
 def _puerto_web_ocupado():
     """True si YA hay algo escuchando en el puerto web (doble arranque)."""
     import socket
@@ -1147,6 +1187,10 @@ def iniciar_servidor_web():
         raise SystemExit(1)
 
     print(f"Pillbox arrancando (datos en {DATA_FILE})")
+    #  La huella de la interfaz, para poder comprobar si el navegador esta
+    #  viendo ESTA version o una guardada en cache (F12 > Red > cabecera
+    #  X-Pillbox-Build, o curl -sI http://<ip>:5001/).
+    print(f"Version de la interfaz: {BUILD_WEB}")
     print(f"Escuchando en {WEB_HOST}:{WEB_PORT} (todas las interfaces).")
     print("Entra desde ESTE equipo o desde el movil/otro PC de la misma red:")
     print(medibot_red.texto_urls(WEB_PORT))

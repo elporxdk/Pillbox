@@ -592,6 +592,50 @@ class PruebasTemaPastillero(unittest.TestCase):
         self.assertIn("color-scheme: light", self.css)
 
 
+class PruebasCacheDelPastillero(unittest.TestCase):
+    """Que el navegador no pueda servir una interfaz vieja del Pastillero.
+
+    EL FALLO QUE VIGILAN
+    --------------------
+    Es el mismo que ya le paso a Vision, y el Pastillero se habia quedado sin
+    el arreglo: toda la interfaz es UNA pagina con el JavaScript escrito
+    dentro del HTML, y sin cabeceras de cache el navegador puede guardarsela
+    durante dias. Se actualiza el codigo en la Pi, se reinicia, y la pantalla
+    sale EXACTAMENTE igual que antes.
+
+    Enganya especialmente aqui porque los datos si se refrescan: /data y
+    /serial/status son peticiones nuevas que nadie cachea, asi que los
+    compartimientos y el estado del Arduino se ven al dia mientras los textos,
+    los colores y el tema siguen siendo los viejos."""
+
+    def setUp(self):
+        self.src = fuente_pastillero()
+
+    def test_prohibe_cachear(self):
+        self.assertIn("no-store", self.src,
+                      "Sin Cache-Control: no-store, un navegador puede "
+                      "quedarse con la interfaz antigua indefinidamente.")
+
+    def test_la_cabecera_se_aplica_a_todas_las_respuestas(self):
+        """En un solo sitio, no ruta a ruta: si no, la que se olvide vuelve a
+        poder cachearse."""
+        self.assertIn("@app.after_request", self.src)
+
+    def test_hay_huella_de_la_interfaz(self):
+        """Permite saber que version esta viendo un navegador, sin adivinar."""
+        self.assertIn("BUILD_WEB", self.src)
+        self.assertIn("X-Pillbox-Build", self.src)
+
+    def test_la_huella_sale_del_HTML_de_verdad(self):
+        """Si fuera un numero escrito a mano habria que acordarse de subirlo, y
+        justamente se olvida cuando mas falta hace."""
+        self.assertIn("hashlib.sha256(HTML_PAGE", self.src)
+
+    def test_la_huella_se_anuncia_al_arrancar(self):
+        """Para poder compararla con la que enseña el navegador."""
+        self.assertIn("Version de la interfaz", self.src)
+
+
 class PruebasConexionArduinoPastillero(unittest.TestCase):
     """La pildora de arriba solo dice si hay Arduino o no.
 
