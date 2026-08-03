@@ -156,17 +156,86 @@ class PruebasDryRun(unittest.TestCase):
                 os.environ["CF_API_TOKEN"] = previo
 
     def test_sin_token_del_tunel_sale_con_error_claro(self):
+        """Sin terminal (cron, CI) no se puede preguntar: hay que decirlo."""
         import os
         previo = os.environ.pop("CF_TUNNEL_TOKEN", None)
         try:
             err = io.StringIO()
             with redirect_stderr(err), redirect_stdout(io.StringIO()):
                 codigo = ct.main(["--dominio", "ejemplo.com", "--dry-run"])
-            self.assertEqual(codigo, 2)
+            self.assertNotEqual(codigo, 0)
             self.assertIn("CF_TUNNEL_TOKEN", err.getvalue())
         finally:
             if previo is not None:
                 os.environ["CF_TUNNEL_TOKEN"] = previo
+
+
+class PruebasCredenciales(unittest.TestCase):
+    """Que un token no acabe nunca en el historial ni en el repositorio."""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.os = os
+        self.dir = tempfile.mkdtemp()
+        self.previo = os.environ.pop("CF_API_TOKEN", None)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.dir, ignore_errors=True)
+        if self.previo is not None:
+            self.os.environ["CF_API_TOKEN"] = self.previo
+
+    def _fichero(self, contenido, modo=0o600):
+        ruta = self.os.path.join(self.dir, "cf_api_token")
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write(contenido)
+        self.os.chmod(ruta, modo)
+        return ruta
+
+    def test_la_variable_de_entorno_tiene_prioridad(self):
+        self.os.environ["CF_API_TOKEN"] = "desde-entorno"
+        try:
+            ruta = self._fichero("desde-fichero")
+            self.assertEqual(ct.leer_token("CF_API_TOKEN", "x", ruta),
+                             "desde-entorno")
+        finally:
+            self.os.environ.pop("CF_API_TOKEN", None)
+
+    def test_lee_del_fichero_si_no_hay_variable(self):
+        ruta = self._fichero("  desde-fichero\n")
+        self.assertEqual(ct.leer_token("CF_API_TOKEN", "x", ruta),
+                         "desde-fichero")
+
+    def test_avisa_si_el_fichero_lo_puede_leer_cualquiera(self):
+        """Guardarlo aparte no sirve de nada si es legible por todos."""
+        ruta = self._fichero("secreto", modo=0o644)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            ct.leer_token("CF_API_TOKEN", "x", ruta)
+        self.assertIn("chmod 600", err.getvalue())
+
+    def test_sin_terminal_no_se_cuelga_esperando(self):
+        """En cron o CI no hay quien teclee: debe fallar, no bloquearse."""
+        with self.assertRaises(ct.ErrorCloudflare) as e:
+            ct.leer_token("CF_API_TOKEN", "x", self.os.path.join(self.dir, "no"))
+        self.assertIn("CF_API_TOKEN", str(e.exception))
+
+    def test_avisa_si_el_fichero_esta_dentro_del_repositorio(self):
+        """Ahi un 'git push' lo publicaria en GitHub para siempre."""
+        dentro = self.os.path.join(self.os.path.dirname(
+            self.os.path.abspath(ct.__file__)), "cf_token.txt")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            self.assertTrue(ct.avisar_si_esta_en_el_repo(dentro))
+        self.assertIn("PELIGRO", err.getvalue())
+
+    def test_no_avisa_si_esta_fuera_del_repositorio(self):
+        self.assertFalse(ct.avisar_si_esta_en_el_repo(
+            self.os.path.expanduser("~/.medibot/cf_api_token")))
+
+    def test_el_sitio_por_defecto_esta_fuera_del_repositorio(self):
+        self.assertFalse(ct.avisar_si_esta_en_el_repo(ct.FICHERO_TOKEN))
 
 
 if __name__ == "__main__":

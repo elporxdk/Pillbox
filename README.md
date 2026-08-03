@@ -102,16 +102,34 @@ sudo cloudflared service install eyJhIjoi...
 del propio token del tunel, asi que solo hay que anadir un API token:
 
 ```bash
-export CF_TUNNEL_TOKEN='eyJhIjoi...'      # el mismo del paso 2
-export CF_API_TOKEN='...'                 # OTRA credencial (ver abajo)
-
 python3 cloudflare_tunel.py --dominio tudominio.com --dry-run   # ensayo
 python3 cloudflare_tunel.py --dominio tudominio.com             # aplicar
 python3 cloudflare_tunel.py --dominio tudominio.com --verificar # comprobar
 ```
 
-El API token se crea en <https://dash.cloudflare.com/profile/api-tokens> con
+Los dos tokens se piden **por teclado y ocultos** si no estan puestos. El API
+token se crea en <https://dash.cloudflare.com/profile/api-tokens> con
 **Account > Cloudflare Tunnel > Edit** y **Zone > DNS > Edit**.
+
+> **No uses `export CF_API_TOKEN=...`.** Deja la credencial escrita en
+> `~/.bash_history` en claro, y la lee cualquiera que entre luego a la Pi con
+> un simple `history`. Si no quieres teclearla cada vez, guardala **fuera del
+> repositorio**:
+>
+> ```bash
+> mkdir -p ~/.medibot && chmod 700 ~/.medibot
+> printf '%s' 'TU_API_TOKEN' > ~/.medibot/cf_api_token
+> chmod 600 ~/.medibot/cf_api_token
+> ```
+>
+> Nunca dentro de la carpeta del proyecto: el primer `git push` lo publicaria
+> en GitHub, y **en el historial de git se queda aunque despues borres el
+> fichero**. El script avisa si detecta el token dentro del repo, y
+> `.gitignore` cubre los nombres habituales, pero la regla de oro es que las
+> credenciales viven fuera.
+>
+> Un token es **desechable**: si crees que se ha visto (un pantallazo, un
+> chat, un log), borralo en el panel y crea otro. Cuesta treinta segundos.
 
 Deja publicado:
 

@@ -27,12 +27,22 @@ QUE NECESITAS
 
 USO
 ---
-    export CF_API_TOKEN='...'                 # el API token
-    export CF_TUNNEL_TOKEN='eyJhIjoi...'      # el token del tunel
-
     python3 cloudflare_tunel.py --dominio tudominio.com --dry-run   # ensayo
     python3 cloudflare_tunel.py --dominio tudominio.com             # de verdad
     python3 cloudflare_tunel.py --dominio tudominio.com --verificar # comprobar
+
+Los dos tokens se piden POR TECLADO, ocultos, si no estan puestos. No hace
+falta exportarlos: `export CF_API_TOKEN=...` deja la credencial escrita en
+~/.bash_history en claro, y ahi la lee cualquiera que entre luego a la Pi.
+
+Si prefieres no teclearlo cada vez, guardalo FUERA del repositorio:
+
+    mkdir -p ~/.medibot && chmod 700 ~/.medibot
+    printf '%s' 'TU_API_TOKEN' > ~/.medibot/cf_api_token
+    chmod 600 ~/.medibot/cf_api_token
+
+NUNCA dentro de la carpeta del proyecto: el primer `git push` lo publicaria en
+GitHub, y en el historial de git se queda aunque luego borres el fichero.
 
 Sin --dry-run pide confirmacion antes de tocar nada.
 
@@ -76,8 +86,68 @@ SERVICIOS = {
 PROHIBIDOS = {5055: "hub serial (control directo del Arduino, sin autenticacion)"}
 
 
+#  Donde se guarda el API token si eliges no teclearlo cada vez. FUERA del
+#  repositorio a proposito: un token dentro de la carpeta del proyecto acaba
+#  en GitHub al primer 'git push', y en el historial de git se queda para
+#  siempre aunque luego se borre el fichero.
+FICHERO_TOKEN = os.path.expanduser("~/.medibot/cf_api_token")
+
+
 class ErrorCloudflare(RuntimeError):
     pass
+
+
+# --------------------------------------------------------- credenciales ----
+def leer_token(nombre_variable, descripcion, fichero=None):
+    """Consigue una credencial SIN que acabe en un sitio publico.
+
+    Se busca en tres sitios, en este orden:
+      1. La variable de entorno (comoda para automatizar).
+      2. Un fichero fuera del repositorio, solo legible por su dueno.
+      3. Preguntando por teclado, con la escritura oculta.
+
+    POR QUE EXISTE LA TERCERA OPCION: `export CF_API_TOKEN=...` deja el token
+    escrito en ~/.bash_history en claro. Quien entre luego a esa Raspberry lo
+    lee con un `history`. Tecleandolo aqui no queda rastro en ninguna parte."""
+    valor = os.environ.get(nombre_variable, "").strip()
+    if valor:
+        return valor
+
+    if fichero and os.path.isfile(fichero):
+        #  Si lo puede leer todo el mundo, no sirve de nada guardarlo aparte.
+        modo = os.stat(fichero).st_mode & 0o777
+        if modo & 0o077:
+            print(f"AVISO: {fichero} lo puede leer alguien mas (permisos "
+                  f"{modo:o}). Arreglalo con:  chmod 600 {fichero}",
+                  file=sys.stderr)
+        with open(fichero, encoding="utf-8") as f:
+            valor = f.read().strip()
+        if valor:
+            return valor
+
+    if not sys.stdin.isatty():
+        raise ErrorCloudflare(
+            f"Falta {nombre_variable} ({descripcion}) y no hay terminal para "
+            f"preguntarlo. Define la variable o crea {fichero or 'el fichero'}.")
+
+    import getpass
+    print(f"\n{descripcion}")
+    print("  (no se vera lo que escribes, y no queda en el historial)")
+    valor = getpass.getpass(f"  {nombre_variable}: ").strip()
+    if not valor:
+        raise ErrorCloudflare(f"No se ha introducido {nombre_variable}.")
+    return valor
+
+
+def avisar_si_esta_en_el_repo(ruta):
+    """Un fichero de credenciales dentro del repo es un accidente esperando."""
+    repo = os.path.dirname(os.path.abspath(__file__))
+    if os.path.abspath(ruta).startswith(repo + os.sep):
+        print("PELIGRO: el fichero del token esta DENTRO del repositorio "
+              f"({ruta}).\n  Un 'git push' lo publicaria. Muevelo a "
+              f"{FICHERO_TOKEN}", file=sys.stderr)
+        return True
+    return False
 
 
 # ---------------------------------------------------------------- token ----
@@ -255,6 +325,9 @@ def main(argv=None):
                    help="solo comprueba el estado, no configura")
     p.add_argument("--si", action="store_true",
                    help="no preguntar antes de aplicar los cambios")
+    p.add_argument("--fichero-token", default=FICHERO_TOKEN,
+                   help=f"de donde leer el API token (def. {FICHERO_TOKEN}). "
+                        "Debe estar FUERA del repositorio y con chmod 600")
     args = p.parse_args(argv)
 
     dominio = normalizar_dominio(args.dominio)
@@ -262,24 +335,27 @@ def main(argv=None):
     if args.verificar:
         return 0 if verificar(dominio, SERVICIOS) else 1
 
-    tunnel_token = os.environ.get("CF_TUNNEL_TOKEN", "").strip()
-    api_token = os.environ.get("CF_API_TOKEN", "").strip()
-    if not tunnel_token:
-        print("Falta CF_TUNNEL_TOKEN (el token del tunel, 'eyJhIjoi...').\n"
-              "  export CF_TUNNEL_TOKEN='eyJhIjoi...'", file=sys.stderr)
-        return 2
-    if not api_token and not args.dry_run:
-        print("Falta CF_API_TOKEN (el API token de Cloudflare, es OTRO).\n"
-              "  Crealo en https://dash.cloudflare.com/profile/api-tokens\n"
-              "  con 'Cloudflare Tunnel: Edit' y 'DNS: Edit'.\n"
-              "  export CF_API_TOKEN='...'", file=sys.stderr)
-        return 2
+    avisar_si_esta_en_el_repo(args.fichero_token)
 
     try:
+        tunnel_token = leer_token(
+            "CF_TUNNEL_TOKEN",
+            "Token del TUNEL (el 'eyJhIjoi...' de `cloudflared service install`)")
         cuenta, tunel = datos_del_token(tunnel_token)
         reglas = construir_ingreso(dominio, SERVICIOS)
+        api_token = None
+        if not args.dry_run:
+            api_token = leer_token(
+                "CF_API_TOKEN",
+                "API TOKEN de Cloudflare (es OTRA credencial distinta; se crea "
+                "en https://dash.cloudflare.com/profile/api-tokens con "
+                "'Cloudflare Tunnel: Edit' y 'DNS: Edit')",
+                fichero=args.fichero_token)
     except ErrorCloudflare as e:
         print("ERROR:", e, file=sys.stderr)
+        return 1
+    except (EOFError, KeyboardInterrupt):
+        print("\nCancelado.")
         return 1
 
     print("Tunel de Cloudflare para Medibot")
