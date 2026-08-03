@@ -72,6 +72,60 @@ Detalles importantes:
 `medibot_red.py` es el modulo que enumera las interfaces de red reales; lo
 usan Pillbox, Vision y `main.py`, asi que los tres coinciden siempre.
 
+### Ir de una interfaz a la otra
+
+Medibot lleva un boton **💊 Pastillero** y el Pastillero uno **🤖 Medibot**, los
+dos arriba a la derecha. Se abren en otra pestaña, asi que no se pierde lo que
+estabas haciendo.
+
+Por defecto el enlace se deduce del mismo host cambiando de puerto (5000 y
+5001), que es lo correcto en la red local. Si cada interfaz tiene su propio
+subdominio (detras de un tunel, donde los puertos no valen), se fijan a mano:
+
+```bash
+export MEDIBOT_URL_PASTILLERO='https://pastillero.tudominio.com/'
+export MEDIBOT_URL_VISION='https://medibot.tudominio.com/'
+```
+
+### Tema claro / oscuro
+
+Las **dos** interfaces tienen su boton. Se recuerda en el navegador
+(`localStorage`) y se aplica **antes** de pintar la pagina, asi que no hay
+fogonazo blanco al cargar de noche. Sin nada guardado se respeta el tema del
+sistema operativo.
+
+### Escuchar el microfono de la camara
+
+La C270 lleva microfono. Viene **desactivado** por defecto: es audio del
+entorno y no se abre sin que lo pidas.
+
+```bash
+sudo apt install alsa-utils          # si no esta ya
+arecord -l                           # ver que microfonos hay
+MEDIBOT_AUDIO=1 python3 main.py
+```
+
+En la web, el boton **🔈 Escuchar** encima del video. Lo tiene que pulsar una
+persona: los navegadores bloquean el audio que empieza solo, asi que un
+autoplay quedaria mudo sin avisar. Si no hay microfono, el boton sale
+desactivado y **dice por que** al pasar el raton.
+
+| Variable | Def. | Para que |
+|---|---|---|
+| `MEDIBOT_AUDIO` | `0` | `1` lo activa |
+| `MEDIBOT_AUDIO_DISPOSITIVO` | autodetectar | p.ej. `plughw:1,0` |
+| `MEDIBOT_AUDIO_HZ` | `16000` | frecuencia de muestreo |
+| `MEDIBOT_AUDIO_CANALES` | `1` | la C270 es mono |
+
+Se manda **WAV en directo** (`arecord` -> HTTP). Se eligio asi porque
+`alsa-utils` ya viene con Raspberry Pi OS: nada que compilar, ni pyaudio ni
+WebRTC. La autodeteccion prefiere un dispositivo USB, porque la tarjeta 0 de
+una Pi suele ser la salida HDMI y esa no graba.
+
+Rutas: `/audio` (el sonido) y `/api/audio` (por que se puede o no escuchar).
+**Ojo con publicarlo por internet:** es un microfono abierto de la habitacion
+donde este el robot. Ponle Cloudflare Access delante, como el resto.
+
 ### Entrar desde fuera de casa: tunel de Cloudflare
 
 Un tunel **no abre puertos**. `cloudflared` abre una conexion *saliente* desde
