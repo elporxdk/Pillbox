@@ -72,6 +72,96 @@ Detalles importantes:
 `medibot_red.py` es el modulo que enumera las interfaces de red reales; lo
 usan Pillbox, Vision y `main.py`, asi que los tres coinciden siempre.
 
+### Entrar desde fuera de casa: tunel de Cloudflare
+
+Un tunel **no abre puertos**. `cloudflared` abre una conexion *saliente* desde
+la Pi hacia Cloudflare y el trafico baja por ahi, asi que no hace falta IP
+publica, ni tocar el router, ni IP fija: funciona detras del CGNAT de
+cualquier operador. El DNS apunta al tunel, nunca a tu IP.
+
+**1. Instalar `cloudflared` en la Pi** (`uname -m` dice la arquitectura):
+
+```bash
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 -o cloudflared
+sudo install -m 755 cloudflared /usr/local/bin/cloudflared
+```
+
+**2. Crear el tunel** en Zero Trust > Networks > Tunnels > Create a tunnel.
+Te da un token; lo pegas en la Pi:
+
+```bash
+sudo cloudflared service install eyJhIjoi...
+```
+
+> El **token** y el **ID del tunel** no son lo mismo. El ID es un UUID publico;
+> el token es una credencial (base64 de un JSON con la cuenta, el ID y **el
+> secreto**). Tratalo como una contrasena; si se escapa, *Refresh token* en el
+> panel.
+
+**3. Publicar los subdominios** con el script del repo. Saca la cuenta y el ID
+del propio token del tunel, asi que solo hay que anadir un API token:
+
+```bash
+python3 cloudflare_tunel.py --dominio tudominio.com --dry-run   # ensayo
+python3 cloudflare_tunel.py --dominio tudominio.com             # aplicar
+python3 cloudflare_tunel.py --dominio tudominio.com --verificar # comprobar
+```
+
+Los dos tokens se piden **por teclado y ocultos** si no estan puestos. El API
+token se crea en <https://dash.cloudflare.com/profile/api-tokens> con
+**Account > Cloudflare Tunnel > Edit** y **Zone > DNS > Edit**.
+
+> **No uses `export CF_API_TOKEN=...`.** Deja la credencial escrita en
+> `~/.bash_history` en claro, y la lee cualquiera que entre luego a la Pi con
+> un simple `history`. Si no quieres teclearla cada vez, guardala **fuera del
+> repositorio**:
+>
+> ```bash
+> mkdir -p ~/.medibot && chmod 700 ~/.medibot
+> printf '%s' 'TU_API_TOKEN' > ~/.medibot/cf_api_token
+> chmod 600 ~/.medibot/cf_api_token
+> ```
+>
+> Nunca dentro de la carpeta del proyecto: el primer `git push` lo publicaria
+> en GitHub, y **en el historial de git se queda aunque despues borres el
+> fichero**. El script avisa si detecta el token dentro del repo, y
+> `.gitignore` cubre los nombres habituales, pero la regla de oro es que las
+> credenciales viven fuera.
+>
+> Un token es **desechable**: si crees que se ha visto (un pantallazo, un
+> chat, un log), borralo en el panel y crea otro. Cuesta treinta segundos.
+
+Deja publicado:
+
+| URL | Va a |
+|---|---|
+| `https://medibot.tudominio.com` | `localhost:5000` (camaras y movimiento) |
+| `https://pastillero.tudominio.com` | `localhost:5001` (dispensador) |
+
+**El puerto 5055 no se publica nunca.** Es el hub serial, la linea directa con
+el Arduino y sin autenticacion ninguna; esta atado a `127.0.0.1` a proposito y
+el script se niega a enrutarlo. Para publicar otra cosa, edita el diccionario
+`SERVICIOS` del script.
+
+**4. Protegerlo — no es opcional.** Al terminar el paso 3 esas URLs las abre
+cualquiera, y detras hay un robot que se conduce a distancia y reparte
+pastillas. En Zero Trust > Access > Applications > Add an application >
+Self-hosted, una por subdominio, con politica *Allow* por email. Gratis hasta
+50 usuarios.
+
+**Que esperar del video.** El MJPEG es una respuesta HTTP que no termina
+nunca: por el proxy de Cloudflare funciona, pero suma latencia y el plan
+gratuito desaconseja en sus condiciones servir video continuo. Si va a
+tirones, baja el perfil web (`MEDIBOT_WEB_W=480 MEDIBOT_WEB_QUALITY=50
+MEDIBOT_WEB_FPS=10`) o deja el video solo en la LAN y publica unicamente el
+control.
+
+Comprobar desde fuera (con datos moviles, no por el wifi de casa):
+
+```bash
+curl -I https://medibot.tudominio.com     # debe traer X-Medibot-Build
+```
+
 ### Rendimiento de la vision (por que iba a 9-14 FPS)
 
 `medibot_vision.py` concentra el motor de video. Medido sobre 640x480 en un
