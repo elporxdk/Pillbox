@@ -1,4 +1,5 @@
 import cv2
+import hashlib
 import os
 import shutil
 import numpy as np
@@ -2576,9 +2577,28 @@ HTML_TEMPLATE = r"""
         //  no en cada sondeo: con /api/all cada segundo, avisar siempre sería
         //  una barra parpadeando sin parar.
         let _apiCaida = false;
+
+        //  Huella de la interfaz con la que se sirvio ESTA pagina. El servidor
+        //  la sustituye al renderizar. Si /api/all devuelve otra distinta, el
+        //  navegador esta enseñando una copia guardada en cache: el codigo del
+        //  robot esta actualizado y esta pantalla no. Es justo lo que hacia que
+        //  un fallo ya corregido siguiera pareciendo "los botones no responden".
+        const BUILD_PAGINA = '__BUILD_WEB__';
+        let _avisadoDesfase = false;
+        function comprobarBuild(servidor) {
+            if (!servidor || servidor === BUILD_PAGINA || _avisadoDesfase) { return; }
+            _avisadoDesfase = true;
+            const barra = document.getElementById('avisoBarra');
+            if (barra) { barra.classList.add('fatal'); }
+            avisar('Esta página es una copia antigua guardada por el navegador. ' +
+                   'Recarga con Ctrl+F5 (o borra los datos del sitio en el móvil).',
+                   'build de la página: ' + BUILD_PAGINA + ' / del robot: ' + servidor);
+        }
+
         function fetchData() {
             return pedirJSON('/api/all')
                 .then(data => {
+                    comprobarBuild(data.build_web);
                     updateCameraStatus(data);
                     if (_apiCaida) { _apiCaida = false; limpiarAviso(); }
                 })
@@ -2854,10 +2874,56 @@ HTML_TEMPLATE = r"""
 </html>
 """
 
+#  Huella de la interfaz. Sirve para saber, SIN adivinar, que version de la web
+#  esta viendo un navegador: sale en la cabecera X-Medibot-Build y en /api/all.
+#      curl -I http://<ip>:5000/     ->  X-Medibot-Build: a1b2c3d4
+#  Si el movil enseña una huella distinta a la del servidor, esta viendo una
+#  copia guardada en cache, no la que sirve el robot.
+BUILD_WEB = hashlib.sha256(HTML_TEMPLATE.encode("utf-8")).hexdigest()[:8]
+
+
+@app.after_request
+def _sin_cache(respuesta):
+    """Prohibe guardar en cache la interfaz y las respuestas de la API.
+
+    EL FALLO QUE ARREGLA
+    --------------------
+    La web es UNA sola pagina con el JavaScript escrito dentro del propio HTML.
+    Flask no mandaba ninguna cabecera de cache, asi que el navegador era libre
+    de guardarse el HTML y reutilizarlo durante horas o dias. Cuando se corrige
+    un fallo del JavaScript, el movil sigue ejecutando el guardado: el codigo
+    del servidor esta bien y la interfaz sigue rota.
+
+    Da exactamente el cuadro que se veia:
+      * el video SI se ve, porque /video/<n> es una peticion nueva cada vez y
+        no se cachea nunca;
+      * los botones y el selector de tema NO responden, porque el HTML
+        guardado lleva dentro la version antigua del JavaScript.
+
+    Un Ctrl+F5 lo arreglaba a mano, pero en un movil casi nadie sabe hacerlo y
+    habia que repetirlo en cada dispositivo. Con no-store el navegador no puede
+    quedarse con una copia vieja.
+
+    No afecta al rendimiento del video: el MJPEG ya era una respuesta continua
+    que no se guardaba, y las respuestas de la API son estado en vivo que nunca
+    debe servirse de una copia.
+    """
+    respuesta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    respuesta.headers["Pragma"] = "no-cache"          # proxies y HTTP/1.0
+    respuesta.headers["Expires"] = "0"
+    respuesta.headers["X-Medibot-Build"] = BUILD_WEB
+    return respuesta
+
+
 @app.route("/")
 def index():
-    """Página principal del sistema web"""
-    return render_template_string(HTML_TEMPLATE)
+    """Página principal del sistema web.
+
+    Se sustituye __BUILD_WEB__ por la huella de la plantilla (no con Jinja: el
+    JavaScript esta lleno de llaves y no conviene darle mas trabajo del
+    necesario al motor de plantillas). La huella se calcula sobre la plantilla
+    CON el marcador dentro, asi que no hay circularidad."""
+    return render_template_string(HTML_TEMPLATE.replace("__BUILD_WEB__", BUILD_WEB))
 
 @app.route("/video/<int:camera_index>")
 def video(camera_index):
@@ -3039,6 +3105,10 @@ def api_all():
         # Detalle para diagnosticar una imagen fea: que se pidio, que quedo y
         # que rechazo el driver.
         "controles_camara": camera_optimizer.estado(),
+        #  Huella de la interfaz que sirve el robot AHORA. El JavaScript la
+        #  compara con la suya: si no coinciden, el navegador esta enseñando
+        #  una copia guardada en cache y lo dice en pantalla.
+        "build_web": BUILD_WEB,
         "system_info": {
             "ip_address": get_ip(),
             "port": 5000,
