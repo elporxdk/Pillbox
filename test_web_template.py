@@ -393,9 +393,16 @@ class PruebasEnlacesEntreInterfaces(unittest.TestCase):
                 self.assertFalse(emojis.findall(m.group(1)),
                                  f"#{ident} lleva emoji: {m.group(1).strip()!r}")
 
-    def test_el_pastillero_dice_VOLVER_a_medibot(self):
+    def test_el_enlace_del_pastillero_se_llama_MEDIBOT(self):
+        """Se pidio que pusiera MEDIBOT, tal cual.
+
+        Antes decia "Volver a Medibot", que da por hecho que se ha llegado
+        DESDE Medibot; a la pastillera se entra igual de a menudo por su
+        propia direccion, y entonces ese "volver" no lleva a ningun sitio del
+        que se venga."""
         m = re.search(r'<a[^>]*id="linkMedibot"[^>]*>(.*?)</a>', self.pill, re.S)
-        self.assertIn("Volver", m.group(1))
+        self.assertIsNotNone(m, "No se encontro #linkMedibot")
+        self.assertEqual(m.group(1).strip(), "MEDIBOT")
 
 
 class PruebasDeteccionRojo(unittest.TestCase):
@@ -542,8 +549,114 @@ class PruebasTemaPastillero(unittest.TestCase):
         self.assertIn("CLAVE_TEMA = 'pillbox-theme'", self.html)
         self.assertIn("localStorage.setItem(CLAVE_TEMA", self.html)
 
-    def test_respeta_el_tema_del_sistema_si_no_hay_nada_guardado(self):
-        self.assertIn("prefers-color-scheme: dark", self.html)
+    def _script_de_la_cabeza(self):
+        cabeza = self.html[:self.html.index("</head>")]
+        m = re.search(r"<script>(.*?)</script>", cabeza, re.S)
+        self.assertIsNotNone(m, "La cabeza ya no aplica el tema")
+        return m.group(1)
+
+    def test_sin_nada_guardado_arranca_en_OSCURO(self):
+        """El tema por defecto es el oscuro, se pidio asi.
+
+        Antes se seguia al sistema operativo: en un movil o un portatil en
+        modo claro -que es como vienen de fabrica- la pastillera abria en
+        blanco, que es justo lo que no se queria."""
+        cabeza = self._script_de_la_cabeza()
+        self.assertNotIn("prefers-color-scheme", cabeza,
+                         "El tema del sistema ya no decide: manda el oscuro.")
+        self.assertIn("= 'dark'", cabeza,
+                      "Sin tema guardado hay que caer en 'dark'.")
+
+    def test_un_valor_raro_guardado_no_deja_la_pagina_sin_tema(self):
+        """localStorage es texto libre: lo puede dejar sucio una version
+        antigua o el propio usuario desde la consola. Con un 'if (!t)' un
+        valor como 'auto' pasaba tal cual a data-theme y no casaba con
+        ninguna paleta: la pagina se quedaba a medias."""
+        cabeza = self._script_de_la_cabeza()
+        self.assertIn("t !== 'light'", cabeza)
+        self.assertIn("t !== 'dark'", cabeza)
+
+    def test_el_boton_arranca_ofreciendo_el_modo_CLARO(self):
+        """El boton dice lo que HACE. Si arranca en oscuro y el boton pone
+        'Modo Oscuro', parece que el tema esta al reves."""
+        m = re.search(r'<button[^>]*id="themeToggle"[^>]*>(.*?)</button>',
+                      self.html, re.S)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1).strip(), "Modo Claro")
+
+    def test_los_controles_del_sistema_siguen_al_tema(self):
+        """El reloj del <input type=time> y las casillas de los dias los pinta
+        el navegador, no el CSS: sin color-scheme salia un reloj blanco en
+        medio de la pagina oscura."""
+        self.assertIn("color-scheme: dark", self.css)
+        self.assertIn("color-scheme: light", self.css)
+
+
+class PruebasConexionArduinoPastillero(unittest.TestCase):
+    """La pildora de arriba solo dice si hay Arduino o no.
+
+    Antes mostraba el puerto ('Arduino: /dev/ttyUSB0'), 'Hub serial apagado'
+    o 'Reconectando...': cuatro textos distintos de anchos distintos que
+    hacian bailar la barra, y ninguno contestaba de un vistazo la unica
+    pregunta que importa. El detalle no se pierde, se mueve al title."""
+
+    def setUp(self):
+        self.html = plantilla_pastillero()
+        #  El script del cuerpo: el primero DESPUES de </head>. Buscarlo por el
+        #  final no vale, porque la palabra <script> tambien sale dentro de un
+        #  comentario del propio codigo.
+        self.js = self.html[self.html.index("<script>",
+                                            self.html.index("</head>")):]
+
+    def _pildora(self):
+        m = re.search(r'<span[^>]*id="serialPill"[^>]*>(.*?)</span>',
+                      self.html, re.S)
+        self.assertIsNotNone(m, "No se encontro #serialPill")
+        return m
+
+    def test_arranca_diciendo_desconectado(self):
+        """Y no 'comprobando...': hasta que /serial/status conteste no hay
+        ningun Arduino confirmado, y .serial-pill ya lo pinta en rojo."""
+        self.assertEqual(self._pildora().group(1).strip(), "Desconectado")
+
+    def _js_de_la_pildora(self):
+        """Solo los trozos que tocan #serialPill.
+
+        La pildora de POSICION se maneja aparte y con una variable que se
+        llama igual ('pill'), asi que hay que separarlas: sus textos
+        ('Sincronizado: comp 3'...) son de las opciones que se pidio
+        mantener, no sobran."""
+        trozos = re.split(r"\n    (?=function |window\.|let |const )", self.js)
+        propios = [t for t in trozos if "serialPill" in t]
+        self.assertTrue(propios, "Nadie toca #serialPill")
+        return "\n".join(propios)
+
+    def test_solo_se_le_escriben_esas_dos_palabras(self):
+        textos = set(re.findall(r"pill\.textContent\s*=\s*'([^']*)'",
+                                self._js_de_la_pildora()))
+        self.assertTrue(textos, "Nadie escribe en la pildora")
+        self.assertEqual(textos, {"Conectado", "Desconectado"},
+                         f"Textos de mas en la pildora: {sorted(textos)}")
+
+    def test_el_detalle_no_se_pierde_va_al_title(self):
+        """Saber que puerto es o si el hub esta caido sigue haciendo falta
+        para diagnosticar; deja de ocupar la barra, nada mas."""
+        self.assertIn("s.puerto", self.js, "Ya no se dice cual es el puerto")
+        self.assertIn("hub serial esta apagado", self.js)
+        self.assertIn("pill.title", self.js)
+        self.assertIn('title="Comprobando la conexion', self.html,
+                      "Antes de la primera respuesta hay que decir que se "
+                      "esta comprobando, aunque sea en el title.")
+
+    def test_siguen_estando_los_botones_de_siempre(self):
+        """Se pidio cambiar el texto SIN quitar nada de lo que ya habia."""
+        for ident in ("btnReconectar", "btnVerificar", "posPill"):
+            with self.subTest(id=ident):
+                self.assertIn(f'id="{ident}"', self.html)
+
+    def test_sigue_reconectando_sola(self):
+        self.assertIn("ultimaAutoReconexion", self.js)
+        self.assertIn("/serial/reconnect", self.js)
 
     def test_la_funcion_del_onclick_esta_expuesta(self):
         """El script va dentro de un IIFE: sin window.x, el onclick no la ve."""
