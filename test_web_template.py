@@ -374,6 +374,123 @@ class PruebasEnlacesEntreInterfaces(unittest.TestCase):
         self.assertIn('MEDIBOT_URL_PASTILLERO', self.vision_src)
         self.assertIn('MEDIBOT_URL_VISION', self.pill_src)
 
+    def test_los_botones_de_la_barra_NO_llevan_emojis(self):
+        """Se pidieron minimalistas, solo texto.
+
+        Ademas de la estetica hay una razon practica: cada sistema dibuja los
+        emojis a su manera (el robot y la pastilla salen distintos en Android,
+        en Windows y en iOS) y no heredan el color del tema, asi que en modo
+        oscuro se quedan con su color de siempre y desentonan."""
+        emojis = re.compile(
+            "[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF]")
+        for html, ident, nombre in (
+                (self.vision, "linkPastillero", "Medibot"),
+                (self.pill, "linkMedibot", "Pastillero")):
+            with self.subTest(interfaz=nombre):
+                m = re.search(r'<a[^>]*id="' + ident + r'"[^>]*>(.*?)</a>',
+                              html, re.S)
+                self.assertIsNotNone(m, f"No se encontro #{ident}")
+                self.assertFalse(emojis.findall(m.group(1)),
+                                 f"#{ident} lleva emoji: {m.group(1).strip()!r}")
+
+    def test_el_pastillero_dice_VOLVER_a_medibot(self):
+        m = re.search(r'<a[^>]*id="linkMedibot"[^>]*>(.*?)</a>', self.pill, re.S)
+        self.assertIn("Volver", m.group(1))
+
+
+class PruebasDeteccionRojo(unittest.TestCase):
+    """Poder apagar la busqueda de objetos rojos sin reiniciar el programa."""
+
+    def setUp(self):
+        self.html = plantilla_evaluada()
+        self.src = fuente()
+
+    def test_existe_el_boton_y_la_ruta(self):
+        self.assertIn('id="rojoBtn"', self.html)
+        self.assertIn("function alternarDeteccionRojo", self.html)
+        self.assertIn('@app.route("/toggle_deteccion_rojo"', self.src)
+
+    def test_la_ruta_es_POST(self):
+        """Cambia el estado del robot: con GET lo dispararia un prefetch del
+        navegador o cualquier rastreador que siguiera el enlace."""
+        m = re.search(r'@app\.route\("/toggle_deteccion_rojo"([^)]*)\)', self.src)
+        self.assertIsNotNone(m)
+        self.assertIn('methods=["POST"]', m.group(1))
+
+    def test_se_puede_pedir_un_valor_concreto_y_no_solo_alternar(self):
+        """Alternar a ciegas descuadra la interfaz si se pulsa dos veces
+        rapido o si hay dos navegadores abiertos."""
+        self.assertIn('"activo" in datos', self.src)
+
+    def test_devuelve_el_estado_resultante(self):
+        self.assertIn('"deteccion_rojo": DETECCION_ROJO', self.src)
+
+    def test_el_estado_se_publica_en_la_api(self):
+        """Sin esto, un segundo navegador mostraria un estado inventado."""
+        cuerpo = re.search(r"def api_all\(\).*?\n@app\.route", self.src, re.S)
+        self.assertIsNotNone(cuerpo)
+        self.assertIn('"deteccion_rojo"', cuerpo.group(0))
+
+    def test_al_apagarla_se_limpia_el_rastro_del_seguimiento(self):
+        """Si no, el ultimo objeto detectado se queda dibujado para siempre."""
+        cuerpo = re.search(
+            r"def toggle_deteccion_rojo\(\):(.*?)\n@app\.route", self.src, re.S)
+        self.assertIsNotNone(cuerpo)
+        self.assertIn("object_history.clear()", cuerpo.group(1))
+
+
+class PruebasBotonAudioSoloIcono(unittest.TestCase):
+    """El boton de audio se pidio como icono, sin texto."""
+
+    def setUp(self):
+        self.html = plantilla_evaluada()
+
+    def _boton(self):
+        m = re.search(r'<button[^>]*id="audioBtn".*?</button>', self.html, re.S)
+        self.assertIsNotNone(m, "No se encontro #audioBtn")
+        return m.group(0)
+
+    def test_no_tiene_texto_visible(self):
+        boton = self._boton()
+        sin_marcado = re.sub(r"<[^>]+>", "", boton)
+        sin_comentarios = re.sub(r"<!--.*?-->", "", sin_marcado, flags=re.S)
+        self.assertEqual(sin_comentarios.strip(), "",
+                         f"El boton de audio deberia ser solo icono: "
+                         f"{sin_comentarios.strip()!r}")
+
+    def test_el_icono_es_un_SVG_y_no_un_emoji(self):
+        """Un emoji lo dibuja cada sistema a su manera y no sigue al tema; un
+        SVG con currentColor hereda el color del boton."""
+        boton = self._boton()
+        self.assertIn("<svg", boton)
+        self.assertIn("currentColor", boton)
+        emojis = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF]")
+        self.assertFalse(emojis.findall(boton), "El boton de audio lleva emoji")
+
+    def test_el_icono_refleja_el_estado(self):
+        """Sin texto, el icono es lo unico que dice si esta sonando."""
+        self.assertIn('id="audioOndas"', self.html)
+        self.assertIn('id="audioCruz"', self.html)
+        self.assertIn("function pintarIconoAudio", self.html)
+
+    def test_arranca_con_el_icono_MUDO(self):
+        """Al cargar la pagina el audio no suena: si saliera con las ondas,
+        pareceria que ya se esta escuchando."""
+        ondas = re.search(r'<g id="audioOndas"([^>]*)>', self.html)
+        cruz = re.search(r'<g id="audioCruz"([^>]*)>', self.html)
+        self.assertIsNotNone(ondas)
+        self.assertIsNotNone(cruz)
+        self.assertIn("display:none", ondas.group(1).replace(" ", ""),
+                      "Las ondas deben estar ocultas al cargar")
+        self.assertNotIn("display:none", cruz.group(1).replace(" ", ""),
+                         "La cruz debe verse al cargar (el audio esta parado)")
+
+    def test_sigue_siendo_accesible_sin_texto(self):
+        """Un boton sin texto necesita nombre para un lector de pantalla."""
+        boton = self._boton()
+        self.assertIn("aria-label", boton)
+        self.assertIn("title=", boton)
+
 
 class PruebasTemaPastillero(unittest.TestCase):
     """El Pastillero tenia los 30 colores escritos a mano: no habia tema."""

@@ -74,9 +74,10 @@ usan Pillbox, Vision y `main.py`, asi que los tres coinciden siempre.
 
 ### Ir de una interfaz a la otra
 
-Medibot lleva un boton **💊 Pastillero** y el Pastillero uno **🤖 Medibot**, los
-dos arriba a la derecha. Se abren en otra pestaña, asi que no se pierde lo que
-estabas haciendo.
+Medibot lleva un boton **Pastillero** y el Pastillero uno **Volver a Medibot**,
+los dos arriba a la derecha. Solo texto, sin iconos: cada sistema dibuja los
+emojis a su manera y ademas no siguen al tema, asi que en modo oscuro se
+quedaban con su color de siempre.
 
 Por defecto el enlace se deduce del mismo host cambiando de puerto (5000 y
 5001), que es lo correcto en la red local. Si cada interfaz tiene su propio
@@ -94,6 +95,24 @@ Las **dos** interfaces tienen su boton. Se recuerda en el navegador
 fogonazo blanco al cargar de noche. Sin nada guardado se respeta el tema del
 sistema operativo.
 
+### Apagar la deteccion de objetos rojos
+
+Boton **Color rojo** entre los controles de Medibot. Apagarla ahorra ~1,3 ms
+por fotograma y por camara: se salta la conversion a HSV, dos morfologias y un
+`findContours` que en un montaje que no sigue objetos de color son trabajo
+tirado. En una Raspberry esos milisegundos se notan.
+
+El cambio es **inmediato**, sin reiniciar. `MEDIBOT_DETECT_ROJO=0` sigue
+valiendo para arrancar ya con la deteccion apagada.
+
+Tambien por API, util para automatizarlo:
+
+```bash
+curl -X POST http://<ip>:5000/toggle_deteccion_rojo                       # alterna
+curl -X POST -H 'Content-Type: application/json' \
+     -d '{"activo": false}' http://<ip>:5000/toggle_deteccion_rojo        # apagar
+```
+
 ### Escuchar el microfono de la camara
 
 La C270 lleva microfono. Viene **desactivado** por defecto: es audio del
@@ -105,10 +124,11 @@ arecord -l                           # ver que microfonos hay
 MEDIBOT_AUDIO=1 python3 main.py
 ```
 
-En la web, el boton **🔈 Escuchar** encima del video. Lo tiene que pulsar una
-persona: los navegadores bloquean el audio que empieza solo, asi que un
-autoplay quedaria mudo sin avisar. Si no hay microfono, el boton sale
-desactivado y **dice por que** al pasar el raton.
+En la web, el boton del **altavoz** encima del video: solo el icono, sin texto.
+El propio icono dice el estado — con ondas suena, con una cruz esta parado. Lo
+tiene que pulsar una persona: los navegadores bloquean el audio que empieza
+solo, asi que un autoplay quedaria mudo sin avisar. Si no hay microfono, el
+boton sale desactivado y **dice por que** al pasar el raton.
 
 | Variable | Def. | Para que |
 |---|---|---|
@@ -267,7 +287,7 @@ banda; y la columna `manda` señala la etapa que limita.
 | `MEDIBOT_WEB_QUALITY` | `70` | calidad JPEG (1..100) |
 | `MEDIBOT_WEB_FPS` | `15` | tope de FPS enviados al navegador |
 | `MEDIBOT_GUI_W` / `MEDIBOT_GUI_H` | `400` / `300` | panel de la ventana Tkinter |
-| `MEDIBOT_DETECT_ROJO` | `1` | `0` ahorra ~1,3 ms por fotograma |
+| `MEDIBOT_DETECT_ROJO` | `1` | estado inicial; se cambia en caliente con el boton **Color rojo** |
 | `MEDIBOT_OVERLAY` | `1` | `0` quita los textos dibujados sobre el video |
 | `MEDIBOT_LBPH_UMBRAL` | `80` | umbral del reconocimiento facial (ver abajo) |
 

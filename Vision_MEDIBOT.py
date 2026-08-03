@@ -215,6 +215,11 @@ info_camaras = {0: None, 1: None}
 #  se pida expresamente.
 #    MEDIBOT_DETECT_ROJO=0  -> ahorra ~1,3 ms/frame (cvtColor HSV + morfologia)
 #    MEDIBOT_OVERLAY=0      -> ahorra los textos dibujados sobre el video
+#  DETECCION_ROJO se puede cambiar EN CALIENTE desde la web (boton "Color
+#  rojo" y ruta /toggle_deteccion_rojo). La variable de entorno solo fija con
+#  que valor arranca. Antes solo se podia apagar reiniciando el programa con
+#  MEDIBOT_DETECT_ROJO=0, que en una Raspberry a la que se entra por SSH es
+#  bastante incomodo cuando lo que quieres es ver el efecto al momento.
 DETECCION_ROJO = medibot_vision.leer_booleano("MEDIBOT_DETECT_ROJO", True)
 OVERLAYS_ACTIVOS = medibot_vision.leer_booleano("MEDIBOT_OVERLAY", True)
 # ================================================
@@ -1997,6 +2002,12 @@ HTML_TEMPLATE = r"""
         /*  Sonando: se ve de un vistazo que el microfono esta abierto. */
         .fs-btn.sonando { background: rgba(10, 166, 160, 0.85); border-color: #4FD8D2; }
         .fs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        /*  Boton de solo icono: cuadrado y sin hueco para texto. El SVG usa
+            currentColor, asi que sigue al tema sin reglas aparte. */
+        .fs-btn.icono {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 6px; width: 32px; height: 32px; line-height: 0;
+        }
         .cam-joystick {
             position: absolute; right: 12px; bottom: 12px; z-index: 6;
             display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -2116,12 +2127,13 @@ HTML_TEMPLATE = r"""
                 </div>
             </div>
             <div class="acciones-cabecera">
-                <!--  Enlace al Pastillero. Es un <a> y no un boton con
+                <!--  Ir al Pastillero. Es un <a> y no un boton con
                       window.location a proposito: asi se puede abrir en otra
                       pestaña con el boton central o pulsacion larga, que es lo
-                      que espera cualquiera de un enlace. -->
-                <a class="theme-toggle" id="linkPastillero" href="#" target="_blank" rel="noopener"
-                   title="Abrir la interfaz del pastillero">💊 Pastillero</a>
+                      que espera cualquiera de un enlace.
+                      Sin emoji: los botones de esta barra son solo texto. -->
+                <a class="theme-toggle" id="linkPastillero" href="#" rel="noopener"
+                   title="Ir a la interfaz del pastillero">Pastillero</a>
                 <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">Modo Oscuro</button>
             </div>
         </div>
@@ -2141,13 +2153,32 @@ HTML_TEMPLATE = r"""
                     <div class="video-container" id="cam1-view">
                         <img src="/video/0" alt="Cámara 1 en vivo" id="video-stream-1">
                         <div class="cam-acciones">
-                            <!--  Escuchar el microfono de la camara. Tiene que
-                                  arrancarlo el usuario con un clic: los
-                                  navegadores bloquean el audio que empieza
-                                  solo, asi que un autoplay quedaria mudo sin
-                                  decir nada. -->
-                            <button class="fs-btn" id="audioBtn" onclick="alternarAudio()"
-                                    title="Escuchar el micrófono de la cámara">&#128264; <span id="audioBtnTxt">Escuchar</span></button>
+                            <!--  Escuchar el microfono de la camara: SOLO EL
+                                  ICONO, sin texto. Es un SVG en linea y no un
+                                  emoji, porque cada sistema dibuja los emojis
+                                  a su manera (en Android y en Windows el
+                                  altavoz sale distinto y de otro color) y
+                                  ademas no heredan el color del tema.
+                                  El icono cambia entre "mudo" y "sonando", asi
+                                  que se ve el estado sin necesidad de texto.
+                                  Tiene que arrancarlo el usuario con un clic:
+                                  los navegadores bloquean el audio que empieza
+                                  solo, y un autoplay quedaria mudo sin avisar. -->
+                            <button class="fs-btn icono" id="audioBtn" onclick="alternarAudio()"
+                                    title="Escuchar el micrófono de la cámara"
+                                    aria-label="Escuchar el micrófono de la cámara">
+                                <svg id="audioIcono" viewBox="0 0 24 24" width="17" height="17"
+                                     fill="none" stroke="currentColor" stroke-width="2"
+                                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                    <!--  Arranca MUDO (con la cruz), porque al
+                                          cargar la pagina el audio no suena.
+                                          Empezar con las ondas daria a entender
+                                          que ya se esta escuchando. -->
+                                    <g id="audioOndas" style="display:none"><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 5.5a9 9 0 0 1 0 13"></path></g>
+                                    <g id="audioCruz"><line x1="22" y1="9" x2="16" y2="15"></line><line x1="16" y1="9" x2="22" y2="15"></line></g>
+                                </svg>
+                            </button>
                             <button class="fs-btn" id="fsBtn" onclick="toggleCameraFullscreen()"
                                     title="Pantalla completa">&#9974; <span id="fsBtnTxt">Pantalla completa</span></button>
                         </div>
@@ -2237,6 +2268,12 @@ HTML_TEMPLATE = r"""
             </button>
             <button class="control-button" onclick="toggleRecognition()" id="recognitionBtn">
                 Reconocimiento: OFF
+            </button>
+            <!--  Apagar la busqueda de objetos rojos ahorra ~1,3 ms por
+                  fotograma y por camara. Antes solo se podia con
+                  MEDIBOT_DETECT_ROJO=0 y reiniciando el programa. -->
+            <button class="control-button" onclick="alternarDeteccionRojo()" id="rojoBtn">
+                Color rojo: ON
             </button>
             <button class="control-button" onclick="showTab('videos')">
                 Ver Videos Grabados
@@ -2654,9 +2691,18 @@ HTML_TEMPLATE = r"""
         //  la Raspberry en cada visita.
         let _audio = null;
 
+        //  El boton no lleva texto: el estado se ve en el propio icono. Con
+        //  ondas = sonando; con una cruz = mudo. Se cambia enseñando u
+        //  ocultando dos grupos del SVG, sin recrear el dibujo.
+        function pintarIconoAudio(sonando) {
+            const ondas = document.getElementById('audioOndas');
+            const cruz = document.getElementById('audioCruz');
+            if (ondas) { ondas.style.display = sonando ? '' : 'none'; }
+            if (cruz) { cruz.style.display = sonando ? 'none' : ''; }
+        }
+
         function alternarAudio() {
             const btn = document.getElementById('audioBtn');
-            const txt = document.getElementById('audioBtnTxt');
             if (_audio) { pararAudio(); return; }
 
             _audio = new Audio('/audio?t=' + Date.now());   // sin cache
@@ -2676,8 +2722,9 @@ HTML_TEMPLATE = r"""
                 pararAudio();
             });
             btn.classList.add('sonando');
-            txt.textContent = 'Silenciar';
             btn.title = 'Dejar de escuchar';
+            btn.setAttribute('aria-label', 'Dejar de escuchar');
+            pintarIconoAudio(true);
         }
 
         function pararAudio() {
@@ -2691,9 +2738,12 @@ HTML_TEMPLATE = r"""
                 _audio = null;
             }
             const btn = document.getElementById('audioBtn');
-            const txt = document.getElementById('audioBtnTxt');
-            if (btn) { btn.classList.remove('sonando'); btn.title = 'Escuchar el micrófono de la cámara'; }
-            if (txt) { txt.textContent = 'Escuchar'; }
+            if (btn) {
+                btn.classList.remove('sonando');
+                btn.title = 'Escuchar el micrófono de la cámara';
+                btn.setAttribute('aria-label', 'Escuchar el micrófono de la cámara');
+            }
+            pintarIconoAudio(false);
         }
 
         //  Si el robot dice que no hay audio, el boton se desactiva y explica
@@ -2708,6 +2758,22 @@ HTML_TEMPLATE = r"""
             } else if (!btn.classList.contains('sonando')) {
                 btn.title = 'Escuchar el micrófono de la cámara';
             }
+        }
+
+        // ===== Deteccion de objetos rojos =====
+        //  Se puede apagar en caliente: ahorra la conversion a HSV, dos
+        //  morfologias y findContours en cada fotograma de cada camara.
+        function alternarDeteccionRojo() {
+            enviarJSON('/toggle_deteccion_rojo', {})
+                .then(d => { reflejarDeteccionRojo(d.deteccion_rojo); avisar(d.message); })
+                .catch(e => avisar('No se pudo cambiar la detección de color', e));
+        }
+
+        function reflejarDeteccionRojo(activo) {
+            const b = document.getElementById('rojoBtn');
+            if (!b) { return; }
+            b.textContent = activo ? 'Color rojo: ON' : 'Color rojo: OFF';
+            b.classList.toggle('active', !!activo);
         }
 
         // ===== Enlace al Pastillero =====
@@ -2728,6 +2794,7 @@ HTML_TEMPLATE = r"""
                 .then(data => {
                     comprobarBuild(data.build_web);
                     reflejarAudio(data.audio);
+                    reflejarDeteccionRojo(data.deteccion_rojo);
                     updateCameraStatus(data);
                     if (_apiCaida) { _apiCaida = false; limpiarAviso(); }
                 })
@@ -3087,6 +3154,34 @@ def api_audio():
     return jsonify(microfono.estado())
 
 
+@app.route("/toggle_deteccion_rojo", methods=["POST"])
+def toggle_deteccion_rojo():
+    """Enciende o apaga la busqueda de objetos rojos, sin reiniciar.
+
+    Apagarla ahorra ~1,3 ms por fotograma y por camara (la conversion a HSV,
+    dos morfologias y findContours). En un montaje que no sigue objetos de
+    color es trabajo tirado, y en una Raspberry esos milisegundos se notan.
+
+    Se puede pedir un valor concreto con {"activo": true|false}; sin cuerpo,
+    alterna. Devolver siempre el estado resultante evita que la interfaz tenga
+    que adivinarlo."""
+    global DETECCION_ROJO
+    datos = request.get_json(silent=True) or {}
+    if "activo" in datos:
+        DETECCION_ROJO = bool(datos["activo"])
+    else:
+        DETECCION_ROJO = not DETECCION_ROJO
+    if not DETECCION_ROJO:
+        #  Sin esto, el ultimo objeto detectado se queda en el historial y el
+        #  seguimiento sigue dibujando un rastro de algo que ya no se busca.
+        object_tracker.object_history.clear()
+    return jsonify({
+        "deteccion_rojo": DETECCION_ROJO,
+        "message": ("Detección de color rojo activada" if DETECCION_ROJO
+                    else "Detección de color rojo desactivada (ahorra ~1,3 ms/fotograma)"),
+    })
+
+
 @app.route("/")
 def index():
     """Página principal del sistema web.
@@ -3286,6 +3381,8 @@ def api_all():
         "build_web": BUILD_WEB,
         #  Para que el boton de escuchar sepa si puede, y si no, por que.
         "audio": microfono.estado(),
+        #  Estado real de la deteccion de rojo (se puede cambiar en caliente).
+        "deteccion_rojo": DETECCION_ROJO,
         "system_info": {
             "ip_address": get_ip(),
             "port": 5000,
