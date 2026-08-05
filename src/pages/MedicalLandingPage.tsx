@@ -1,0 +1,1033 @@
+import React, { useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkles, ChevronRight, Activity, Users, Star, CheckCircle2, Menu, X, Phone, Mail, MapPin, ArrowRight,} from "lucide-react";
+import elianPhoto from "../media/ElianTorres.jpg";
+import diegoPhoto from "../media/DiegoYanes.jpg";
+
+gsap.registerPlugin(ScrollTrigger);
+
+/**
+ * Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales con
+ * separación entre ellos — representa conceptualmente las ruedas del
+ * chasis y la ruleta dispensadora de cápsulas de medicamento. NO son
+ * pétalos: son subdivisiones geométricas rectas de una corona circular.
+ */
+function MedibotMark({
+  className = "w-9 h-9",
+  wheelClassName = "",
+}: {
+  className?: string;
+  wheelClassName?: string;
+}) {
+  const SEGMENTS = 8;
+  const GAP_DEG = 8; // separación visual entre sectores
+  const CX = 50;
+  const CY = 50;
+  const OUTER_R = 46;
+  const INNER_R = 20;
+
+  const toRad = (deg: number) => ((deg - 90) * Math.PI) / 180;
+  const point = (r: number, deg: number) => [
+    CX + r * Math.cos(toRad(deg)),
+    CY + r * Math.sin(toRad(deg)),
+  ];
+
+  const sectorPaths = Array.from({ length: SEGMENTS }).map((_, i) => {
+    const sweep = 360 / SEGMENTS;
+    const start = i * sweep + GAP_DEG / 2;
+    const end = (i + 1) * sweep - GAP_DEG / 2;
+
+    const [x1, y1] = point(OUTER_R, start);
+    const [x2, y2] = point(OUTER_R, end);
+    const [x3, y3] = point(INNER_R, end);
+    const [x4, y4] = point(INNER_R, start);
+
+    return `M ${x1} ${y1} A ${OUTER_R} ${OUTER_R} 0 0 1 ${x2} ${y2} L ${x3} ${y3} A ${INNER_R} ${INNER_R} 0 0 0 ${x4} ${y4} Z`;
+  });
+
+  return (
+    <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
+      <g className={wheelClassName} style={{ transformOrigin: "50% 50%" }}>
+        {sectorPaths.map((d, i) => (
+          <path key={i} d={d} fill="#5EE1E6" />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function MedibotLogo({
+  markClassName = "w-10 h-10",
+  showWordmark = true,
+  wordmarkClassName = "text-xl",
+  markWheelClassName = "",
+}: {
+  markClassName?: string;
+  showWordmark?: boolean;
+  wordmarkClassName?: string;
+  markWheelClassName?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <MedibotMark className={markClassName} wheelClassName={markWheelClassName} />
+      {showWordmark && (
+        <span className={`font-extrabold tracking-tight ${wordmarkClassName}`}>
+          <span className="text-[#5EE1E6]">MEDI</span>
+          <span className="text-[#0A3D5C]">BOT</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * =====================================================================
+ *  MEDIBOT — Landing Page Médica (rediseño)
+ * =====================================================================
+ *  Dependencias necesarias:
+ *    npm install gsap lucide-react
+ *
+ *  Paleta principal:
+ *    - Azul profundo   #0B4F6C / #0A3D5C  (confianza, clínico)
+ *    - Azul cian vivo   #01BAEF / #14B8D4 (tecnología, IA)
+ *    - Verde menta      #34D399 / #10B981 (salud, bienestar)
+ *    - Fondo claro      #F4FAFB / #FFFFFF
+ *
+ *  El template por defecto de Vite trae en App.css/index.css reglas como:
+ *      #root { max-width: 1280px; margin: 0 auto; padding: 2rem; text-align: center; }
+ *      body { display: flex; place-items: center; }
+ *  Esto limita el ancho del contenedor raíz y deja ver el fondo del body
+ *  a los lados (las franjas negras). 
+ *  Componentes shadcn/ui recomendados (opcionales, no obligatorios):
+ *    - Button      → npx shadcn@latest add button
+ *    - Card        → npx shadcn@latest add card
+ *    - Badge       → npx shadcn@latest add badge
+ *    - Accordion   → npx shadcn@latest add accordion (para el FAQ)
+ * =====================================================================
+ */
+
+const NAV_LINKS = [
+  { label: "Inicio", href: "#inicio" },
+  { label: "Quiénes somos", href: "#nosotros" },
+  { label: "Beneficios", href: "#beneficios" },
+  { label: "Cómo funciona", href: "#como-funciona" },
+  { label: "Testimonios", href: "#testimonios" },
+  { label: "Tecnología", href: "/tecnologia" },
+  { label: "Contacto", href: "#contacto" },
+];
+//cambiar acá por si se le van a poner más fotos respectivametne 
+const TEAM = [
+  { name: "Julio Alexander Sura Pineda", code: "20251031" },
+  { name: "Elian Alexander Torres Lemus", code: "20250166", photo: elianPhoto },
+  { name: "Carlos Andrés Vindel García", code: "20250471" },
+  { name: "Diego Alejandro Yanes Gómez", code: "20250870", photo: diegoPhoto },
+];
+//Porcentaje mayor de contenido, si se quiere cambiar el contenido solo se reescribe acá siempre que este dentro de los ""
+const OBJETIVOS_ESPECIFICOS = [
+  "Diseñar un sistema de control de temperatura de precisión con celda Peltier y sensores térmicos, para que los medicamentos termolábiles mantengan su cadena de frío durante el traslado interno.",
+  "Implementar una arquitectura de control telemétrico entre una interfaz web y el módulo ESP32, permitiendo operar el robot a distancia y reducir la exposición del personal en zonas de riesgo biológico.",
+  "Integrar un sistema de tracción omnidireccional en el chasis, con motores DC y controladores de potencia, para desplazarse con fluidez en pasillos estrechos y concurridos.",
+  "Establecer un protocolo de asistencia por voz y monitoreo visual en tiempo real, humanizando la interacción tecnológica y asegurando una entrega efectiva sin errores.",
+];
+
+const FEATURES = [
+  {
+    icon: Bot,
+    title: "Control remoto vía interfaz web",
+    desc: "Una Raspberry Pi 4 actúa como cerebro central: el operador visualiza el entorno en tiempo real, envía comandos de movimiento y se comunica por voz desde cualquier dispositivo en la red hospitalaria.",
+  },
+  {
+    icon: Activity,
+    title: "Tracción omnidireccional",
+    desc: "Chasis con ruedas mecanum y motores DC con encoder (1:90), controlados por un ESP32, que permiten avanzar, retroceder y desplazarse lateral o diagonalmente sin maniobras complejas.",
+  },
+  {
+    icon: HeartPulse,
+    title: "Control térmico activo",
+    desc: "Celda Peltier con disipador, ventilador y bomba de agua, más un termistor NTC, mantienen el compartimento de medicamentos dentro del rango térmico requerido durante todo el traslado.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Reducción de exposición biológica",
+    desc: "Al teleoperar el transporte de insumos, el personal de salud reduce su movilización en zonas críticas y el contacto manual directo con los empaques de medicamentos.",
+  },
+  {
+    icon: Clock,
+    title: "Registro de trazabilidad",
+    desc: "Un módulo RTC DS3231 registra con precisión la hora y fecha de cada entrega, dejando constancia del traslado realizado para fines de control hospitalario.",
+  },
+  {
+    icon: Stethoscope,
+    title: "Supervisión visual y por voz",
+    desc: "Cámara web HD con streaming en tiempo real y módulo de audio bidireccional para verificar la entrega y comunicarse con el paciente sin necesidad de presencia física.",
+  },
+];
+
+const STEPS = [
+  {
+    number: "01",
+    title: "Subsistema de control y comunicación",
+    desc: "La Raspberry Pi 4 ejecuta el servidor web de control remoto. El operador se conecta desde la red hospitalaria y visualiza el streaming de video en tiempo real.",
+  },
+  {
+    number: "02",
+    title: "Subsistema de tracción",
+    desc: "El ESP32 traduce los comandos recibidos en señales PWM para los motores, moviendo el chasis mecanum por pasillos estrechos sin necesidad de giros complejos.",
+  },
+  {
+    number: "03",
+    title: "Subsistema de control térmico",
+    desc: "La celda Peltier y el termistor NTC mantienen el compartimento de medicamentos en el rango térmico requerido mientras dura el traslado.",
+  },
+  {
+    number: "04",
+    title: "Entrega y trazabilidad",
+    desc: "El robot llega al punto de atención, el personal retira el medicamento y el RTC DS3231 deja registrado el momento exacto de la entrega.",
+  },
+];
+
+const STATS = [
+  { value: "3", label: "Subsistemas integrados" },
+  { value: "4", label: "Estudiantes desarrolladores" },
+  { value: "13–25°C", label: "Rango térmico controlado" },
+  { value: "5", label: "Fases de construcción" },
+];
+
+const TESTIMONIALS = [
+  {
+    name: "Dra. María González",
+    role: "Jefa de Enfermería",
+    text: "MEDIBOT ha transformado nuestra logística hospitalaria. El control térmico asegura la integridad de los medicamentos y reduce significativamente el riesgo de contaminación.",
+  },
+  {
+    name: "Dr. Carlos Martínez",
+    role: "Director Médico",
+    text: "La teleoperación nos permite mantener la distancia de seguridad necesaria sin comprometer la eficiencia en la entrega de insumos críticos.",
+  },
+  {
+    name: "Lic. Ana Rodríguez",
+    role: "Coordinadora de Farmacia",
+    text: "El sistema de trazabilidad y el control de temperatura en tiempo real nos da la confianza que necesitamos para medicamentos termolábiles.",
+  },
+];
+
+const FAQS = [
+  {
+    q: "¿MEDIBOT reemplaza al personal de salud?",
+    a: "No. MEDIBOT es una herramienta de apoyo teleoperada que complementa el trabajo del personal, reduciendo su exposición en zonas de alto riesgo biológico durante el transporte de medicamentos e insumos.",
+  },
+  {
+    q: "¿Qué problema resuelve exactamente?",
+    a: "Ataca las Infecciones Asociadas a la Atención Médica (IAAS), causadas en parte por el tránsito constante de personal y la manipulación manual de medicamentos, incluyendo aquellos sensibles a la temperatura.",
+  },
+  {
+    q: "¿Qué lo diferencia de otras soluciones como RFID o gabinetes automatizados?",
+    a: "MEDIBOT integra en un solo dispositivo movilidad teleoperada, control térmico activo para medicamentos termolábiles y supervisión en tiempo real por cámara y audio — algo que ninguna solución actual combina.",
+  },
+  {
+    q: "¿En qué etapa se encuentra el proyecto?",
+    a: "MEDIBOT es un prototipo académico desarrollado para la feria de innovación CREA-J 2026, actualmente en fase de construcción e integración de sus tres subsistemas antes de las pruebas finales en entorno hospitalario simulado.",
+  },
+];
+
+export default function MedicalLandingPage() {
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [showSplash, setShowSplash] = React.useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const splashRef = useRef<HTMLDivElement>(null);
+  const splashLogoRef = useRef<HTMLDivElement>(null);
+
+  // ================= SPLASH SCREEN (círculo giratorio de MEDIBOT) =================
+  useEffect(() => {
+    const tl = gsap.timeline();
+
+    // Entrada: el círculo aparece con un pequeño rebote
+    tl.fromTo(
+      splashLogoRef.current,
+      { scale: 0.6, opacity: 0 },
+      { scale: 1, opacity: 1, duration: 0.6, ease: "back.out(1.7)" }
+    );
+
+    // Giro continuo mientras se muestra el splash
+    tl.to(
+      ".splash-wheel",
+      { rotate: 360, duration: 1.8, ease: "power1.inOut", repeat: 1 },
+      "-=0.1"
+    );
+
+    // Salida: el círculo escala y el overlay se desvanece, revelando la página
+    tl.to(splashLogoRef.current, {
+      scale: 1.15,
+      opacity: 0,
+      duration: 0.45,
+      ease: "power2.in",
+    });
+    tl.to(
+      splashRef.current,
+      {
+        opacity: 0,
+        duration: 0.5,
+        ease: "power2.inOut",
+        onComplete: () => setShowSplash(false),
+      },
+      "-=0.15"
+    );
+
+    return () => {
+      tl.kill();
+    };
+  }, []);
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      // Hero entrance
+      gsap.from(".hero-badge", { y: -20, opacity: 0, duration: 0.6, delay: 2, ease: "power3.out" });
+      gsap.from(".hero-title", { y: 40, opacity: 0, duration: 0.8, delay: 2.1, ease: "power3.out" });
+      gsap.from(".hero-desc", { y: 30, opacity: 0, duration: 0.8, delay: 2.25, ease: "power3.out" });
+      gsap.from(".hero-cta", { y: 30, opacity: 0, duration: 0.8, delay: 2.4, ease: "power3.out" });
+      gsap.from(".hero-visual", {
+        x: 60,
+        opacity: 0,
+        duration: 1,
+        delay: 2.3,
+        ease: "power3.out",
+      });
+
+      // Logo del navbar: giro lento e infinito, sutil, como sello de marca viva
+      gsap.to(".navbar-wheel", {
+        rotate: 360,
+        duration: 14,
+        repeat: -1,
+        ease: "none",
+        transformOrigin: "50% 50%",
+      });
+
+      // Floating pulse decoration
+      gsap.to(".floating-icon", {
+        y: -14,
+        duration: 2.2,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut",
+        stagger: 0.3,
+      });
+
+      // Feature cards on scroll
+      gsap.utils.toArray<HTMLElement>(".feature-card").forEach((card, i) => {
+        gsap.from(card, {
+          y: 50,
+          opacity: 0,
+          duration: 0.7,
+          delay: i * 0.05,
+          ease: "power2.out",
+          scrollTrigger: {
+            trigger: card,
+            start: "top 85%",
+          },
+        });
+      });
+
+      // Steps
+      gsap.utils.toArray<HTMLElement>(".step-item").forEach((el, i) => {
+        gsap.from(el, {
+          x: i % 2 === 0 ? -40 : 40,
+          opacity: 0,
+          duration: 0.7,
+          ease: "power2.out",
+          scrollTrigger: {
+            trigger: el,
+            start: "top 85%",
+          },
+        });
+      });
+
+      // Stats counter animation
+      gsap.utils.toArray<HTMLElement>(".stat-item").forEach((el, i) => {
+        gsap.from(el, {
+          y: 30,
+          opacity: 0,
+          duration: 0.6,
+          delay: i * 0.1,
+          ease: "power2.out",
+          scrollTrigger: {
+            trigger: el,
+            start: "top 90%",
+          },
+        });
+      });
+
+      // Testimonials
+      gsap.utils.toArray<HTMLElement>(".testimonial-card").forEach((el, i) => {
+        gsap.from(el, {
+          y: 40,
+          opacity: 0,
+          duration: 0.7,
+          delay: i * 0.08,
+          ease: "power2.out",
+          scrollTrigger: {
+            trigger: el,
+            start: "top 88%",
+          },
+        });
+      });
+
+      // Botón "Descubre la solución": pulso de anillo + glow respirando
+      gsap.to(".solucion-pulse", {
+        scale: 1.12,
+        opacity: 0,
+        duration: 1.6,
+        repeat: -1,
+        ease: "power1.out",
+      });
+      gsap.from(".solucion-btn", {
+        opacity: 0,
+        y: 20,
+        scale: 0.9,
+        duration: 0.7,
+        ease: "back.out(1.6)",
+        scrollTrigger: {
+          trigger: ".solucion-btn",
+          start: "top 90%",
+        },
+      });
+
+      // Section titles fade-up
+      gsap.utils.toArray<HTMLElement>(".section-title").forEach((el) => {
+        gsap.from(el, {
+          y: 24,
+          opacity: 0,
+          duration: 0.6,
+          ease: "power2.out",
+          scrollTrigger: {
+            trigger: el,
+            start: "top 88%",
+          },
+        });
+      });
+    }, rootRef);
+
+    return () => ctx.revert();
+  }, []);
+
+  return (
+    <div ref={rootRef} className="min-h-screen bg-[#F4FAFB] text-[#0A3D5C] font-sans overflow-x-hidden">
+      {/* ================= SPLASH SCREEN ================= */}
+      {showSplash && (
+        <div
+          ref={splashRef}
+          className="fixed inset-0 z-[100] bg-[#DFF9FA] flex flex-col items-center justify-center gap-6"
+        >
+          <div ref={splashLogoRef}>
+            <MedibotMark className="w-40 h-40" wheelClassName="splash-wheel" />
+          </div>
+          <div className="text-4xl sm:text-5xl font-extrabold tracking-tight">
+            <span className="text-[#5EE1E6]">MEDI</span>
+            <span className="text-[#0A3D5C]">BOT</span>
+          </div>
+        </div>
+      )}
+
+      {/* ================= NAVBAR ================= */}
+      <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-white/80 border-b border-[#0A3D5C]/5">
+        <div className="max-w-7xl mx-auto px-6 lg:px-10 h-20 flex items-center justify-between">
+          <a href="#inicio" className="group">
+            <div className="group-hover:scale-105 transition-transform">
+              <MedibotLogo markClassName="w-10 h-10" wordmarkClassName="text-xl" markWheelClassName="navbar-wheel" />
+            </div>
+          </a>
+
+          <nav className="hidden lg:flex items-center gap-8">
+            {NAV_LINKS.map((link) =>
+              link.href.startsWith('/') ? (
+                <Link
+                  key={link.href}
+                  to={link.href}
+                  className="text-sm font-medium text-[#0A3D5C]/70 hover:text-[#0A3D5C] transition-colors relative group"
+                >
+                  {link.label}
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#01BAEF] group-hover:w-full transition-all duration-300" />
+                </Link>
+              ) : (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  className="text-sm font-medium text-[#0A3D5C]/70 hover:text-[#0A3D5C] transition-colors relative group"
+                >
+                  {link.label}
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#01BAEF] group-hover:w-full transition-all duration-300" />
+                </a>
+              )
+            )}
+          </nav>
+
+          <div className="hidden lg:flex items-center gap-3">
+            <Link
+              to="/auth"
+              className="text-sm font-semibold px-5 py-2.5 rounded-full text-[#0A3D5C] hover:bg-[#0A3D5C]/5 transition-colors"
+            >
+              Iniciar sesión
+            </Link>
+            <Link
+              to="/auth"
+              className="text-sm font-semibold px-5 py-2.5 rounded-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center gap-2"
+            >
+              Comenzar gratis <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          <button
+            className="lg:hidden w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#0A3D5C]/5"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="Abrir menú"
+          >
+            {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
+
+        {menuOpen && (
+          <div className="lg:hidden bg-white border-t border-[#0A3D5C]/5 px-6 py-4 flex flex-col gap-4">
+            {NAV_LINKS.map((link) => (
+              link.href.startsWith('/') ? (
+                <Link
+                  key={link.href}
+                  to={link.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="text-sm font-medium text-[#0A3D5C]/70"
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="text-sm font-medium text-[#0A3D5C]/70"
+                >
+                  {link.label}
+                </a>
+              )
+            ))}
+            <Link
+              to="/auth"
+              onClick={() => setMenuOpen(false)}
+              className="mt-2 text-sm font-semibold px-5 py-3 rounded-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white text-center"
+            >
+              Comenzar gratis
+            </Link>
+          </div>
+        )}
+      </header>
+
+      {/* ================= HERO ================= */}
+      <section
+        id="inicio"
+        className="relative pt-40 pb-24 lg:pt-48 lg:pb-32 px-6 lg:px-10 overflow-hidden"
+      >
+        {/* Background decoration */}
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute top-10 right-0 w-[500px] h-[500px] bg-[#01BAEF]/15 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-[#34D399]/15 rounded-full blur-3xl" />
+        </div>
+
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
+          <div>
+            <div className="hero-badge inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#01BAEF]/10 border border-[#01BAEF]/20 text-[#0B4F6C] text-sm font-semibold mb-6">
+              <Sparkles className="w-4 h-4 text-[#01BAEF]" />
+              Prototipo CREA-J 2026 · Colegio Don Bosco
+            </div>
+
+            <h1 className="hero-title text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.1] tracking-tight mb-6">
+              Transporte hospitalario
+              <span className="block bg-gradient-to-r from-[#01BAEF] via-[#0B4F6C] to-[#34D399] bg-clip-text text-transparent">
+                seguro y teleoperado
+              </span>
+            </h1>
+
+            <p className="hero-desc text-lg text-[#0A3D5C]/70 max-w-xl mb-10 leading-relaxed">
+              MEDIBOT es un robot móvil teleoperado con control térmico activo
+              que transporta medicamentos e insumos entre la farmacia y las
+              áreas de atención al paciente, reduciendo la exposición del
+              personal de salud a infecciones asociadas a la atención médica
+              (IAAS).
+            </p>
+
+            <div className="hero-cta flex flex-col sm:flex-row gap-4">
+              <a
+                href="#nosotros"
+                className="group px-7 py-4 rounded-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white font-semibold shadow-xl shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
+              >
+                Conoce el proyecto
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </a>
+              <a
+                href="#como-funciona"
+                className="px-7 py-4 rounded-full bg-white border border-[#0A3D5C]/10 font-semibold text-[#0A3D5C] hover:bg-[#0A3D5C]/5 transition-colors flex items-center justify-center gap-2"
+              >
+                <MessageCircle className="w-5 h-5 text-[#01BAEF]" />
+                Ver cómo funciona
+              </a>
+            </div>
+
+            <div className="flex items-center gap-6 mt-10">
+              <div className="flex -space-x-3">
+                {TEAM.map((member) => (
+                  <div
+                    key={member.code}
+                    title={member.name}
+                    className="w-10 h-10 rounded-full border-2 border-white bg-gradient-to-br from-[#01BAEF] to-[#34D399] flex items-center justify-center text-white text-xs font-bold overflow-hidden"
+                  >
+                    {member.photo ? (
+                      <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <>
+                        {member.name.split(" ")[0][0]}
+                        {member.name.split(" ")[2]?.[0] ?? ""}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="text-sm text-[#0A3D5C]/70">
+                <span className="font-bold text-[#0A3D5C]">4 estudiantes</span>{" "}
+                de Electrónica desarrollando MEDIBOT
+              </div>
+            </div>
+          </div>
+
+          {/* Hero visual: panel de operación remota */}
+          <div className="hero-visual relative">
+            <div className="relative bg-white rounded-3xl shadow-2xl shadow-[#0A3D5C]/10 p-6 border border-[#0A3D5C]/5">
+              <div className="flex items-center gap-3 pb-4 border-b border-[#0A3D5C]/5">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#01BAEF] to-[#0B4F6C] flex items-center justify-center">
+                  <Bot className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Panel de operación MEDIBOT</p>
+                  <p className="text-xs text-[#34D399] flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#34D399] inline-block animate-pulse" />
+                    Conectado a la red hospitalaria
+                  </p>
+                </div>
+              </div>
+
+              <div className="py-5 space-y-3">
+                <div className="rounded-2xl bg-[#0A3D5C] aspect-video flex items-center justify-center relative overflow-hidden">
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-500/90 text-white text-[10px] font-bold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                    EN VIVO
+                  </div>
+                  <span className="text-white/30 text-xs">Streaming de cámara HD</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-[#F4FAFB] rounded-xl px-4 py-3">
+                    <p className="text-[11px] text-[#0A3D5C]/50 mb-1">Temp. compartimento</p>
+                    <p className="text-lg font-bold text-[#01BAEF]">18.4 °C</p>
+                  </div>
+                  <div className="bg-[#F4FAFB] rounded-xl px-4 py-3">
+                    <p className="text-[11px] text-[#0A3D5C]/50 mb-1">Estado del robot</p>
+                    <p className="text-sm font-bold text-[#34D399]">En tránsito</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-3 border-t border-[#0A3D5C]/5">
+                <div className="flex-1 bg-[#F4FAFB] rounded-full px-4 py-2.5 text-sm text-[#0A3D5C]/40">
+                  Destino: Sala de aislamiento 3
+                </div>
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#01BAEF] to-[#0B4F6C] flex items-center justify-center">
+                  <ChevronRight className="w-4 h-4 text-white" />
+                </div>
+              </div>
+            </div>
+
+            {/* Floating badges */}
+            <div className="floating-icon absolute -top-6 -left-6 bg-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-2 border border-[#0A3D5C]/5">
+              <div className="w-9 h-9 rounded-full bg-[#34D399]/15 flex items-center justify-center">
+                <HeartPulse className="w-4 h-4 text-[#34D399]" />
+              </div>
+              <div>
+                <p className="text-xs text-[#0A3D5C]/50">Rango térmico</p>
+                <p className="text-sm font-bold">13–25 °C</p>
+              </div>
+            </div>
+
+            <div className="floating-icon absolute -bottom-6 -right-4 bg-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-2 border border-[#0A3D5C]/5">
+              <div className="w-9 h-9 rounded-full bg-[#01BAEF]/15 flex items-center justify-center">
+                <ShieldCheck className="w-4 h-4 text-[#01BAEF]" />
+              </div>
+              <div>
+                <p className="text-xs text-[#0A3D5C]/50">Registro</p>
+                <p className="text-sm font-bold">RTC DS3231</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ================= STATS ================= */}
+      <section className="px-6 lg:px-10 py-16 bg-gradient-to-r from-[#0B4F6C] to-[#0A3D5C]">
+        <div className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-8">
+          {STATS.map((stat) => (
+            <div key={stat.label} className="stat-item text-center">
+              <p className="text-3xl lg:text-4xl font-extrabold text-white mb-1">
+                {stat.value}
+              </p>
+              <p className="text-sm text-white/60 font-medium">{stat.label}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ================= QUIÉNES SOMOS ================= */}
+      <section id="nosotros" className="relative px-6 lg:px-10 py-24 lg:py-32 bg-white overflow-hidden">
+        <div className="absolute -top-24 -left-24 w-80 h-80 bg-[#5EE1E6]/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-[#34D399]/10 rounded-full blur-3xl" />
+
+        <div className="max-w-5xl mx-auto relative">
+          <div className="text-center max-w-3xl mx-auto mb-14 section-title">
+            <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#5EE1E6]/10 border border-[#5EE1E6]/30 text-[#0B4F6C] text-sm font-semibold mb-5">
+              <Users className="w-4 h-4 text-[#01BAEF]" />
+              ¿Quiénes somos?
+            </span>
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-6 text-[#0A3D5C]">
+              Un equipo joven, con una misión clínica muy real
+            </h2>
+            <p className="text-[#0A3D5C]/70 text-lg leading-relaxed">
+              Somos un equipo de estudiantes de electrónica de segundo año del{" "}
+              <span className="font-semibold text-[#0A3D5C]">Colegio Don Bosco</span>,
+              participantes de distintas ferias, comprometidos con el
+              desarrollo de <span className="font-semibold text-[#0A3D5C]">MEDIBOT</span>,
+              un prototipo robótico asistencial teleoperado con control
+              térmico activo. MEDIBOT busca apoyar al personal de salud en el
+              transporte seguro de medicamentos e insumos, reduciendo la
+              exposición a infecciones asociadas a la atención médica y
+              mejorando la atención en entornos hospitalarios.
+            </p>
+          </div>
+
+          {/* Integrantes del equipo */}
+          <div className="feature-card grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
+            {TEAM.map((member) => (
+              <div
+                key={member.code}
+                className="bg-[#F4FAFB] rounded-2xl p-5 border border-[#0A3D5C]/5 text-center hover:border-[#01BAEF]/30 hover:-translate-y-1 transition-all"
+              >
+                <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-[#01BAEF] to-[#34D399] flex items-center justify-center text-white font-bold text-lg mb-3 overflow-hidden">
+                  {member.photo ? (
+                    <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <>
+                      {member.name.split(" ")[0][0]}
+                      {member.name.split(" ")[2]?.[0] ?? ""}
+                    </>
+                  )}
+                </div>
+                <p className="font-semibold text-sm leading-tight">{member.name}</p>
+                <p className="text-xs text-[#0A3D5C]/50 mt-1">Código {member.code}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Objetivo general y específicos */}
+          <div className="feature-card grid lg:grid-cols-2 gap-6 mb-12">
+            <div className="bg-white rounded-3xl p-8 border border-[#0A3D5C]/10">
+              <span className="inline-block text-xs font-bold tracking-widest uppercase text-[#01BAEF] mb-3">
+                Objetivo general
+              </span>
+              <p className="text-[#0A3D5C]/70 leading-relaxed">
+                Desarrollar un prototipo robótico asistencial de
+                bioseguridad, integrando tecnologías de procesamiento
+                Raspberry Pi 4, microcontroladores ESP32 y sistemas de
+                refrigeración por efecto Peltier, para mitigar la
+                propagación de infecciones asociadas a la atención médica
+                (IAAS) y garantizar el transporte seguro de medicamentos en
+                el sistema hospitalario nacional.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-3xl p-8 border border-[#0A3D5C]/10">
+              <span className="inline-block text-xs font-bold tracking-widest uppercase text-[#34D399] mb-3">
+                Objetivos específicos
+              </span>
+              <ul className="space-y-3">
+                {OBJETIVOS_ESPECIFICOS.map((obj, i) => (
+                  <li key={i} className="flex gap-3 text-sm text-[#0A3D5C]/70 leading-relaxed">
+                    <CheckCircle2 className="w-4 h-4 text-[#34D399] shrink-0 mt-0.5" />
+                    {obj}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* Planteamiento del problema */}
+          <div className="feature-card grid lg:grid-cols-[auto,1fr] gap-6 items-start bg-gradient-to-br from-[#0B4F6C] to-[#0A3D5C] rounded-3xl p-8 lg:p-10 shadow-2xl shadow-[#0A3D5C]/20">
+            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+              <Activity className="w-7 h-7 text-[#5EE1E6]" />
+            </div>
+            <div>
+              <span className="inline-block text-xs font-bold tracking-widest uppercase text-[#5EE1E6] mb-2">
+                Planteamiento del problema
+              </span>
+              <p className="text-white/80 leading-relaxed">
+                Las Infecciones Asociadas a la Atención Médica (IAAS)
+                continúan siendo un problema importante en los hospitales de
+                El Salvador debido al constante tránsito del personal
+                sanitario y a la manipulación manual de medicamentos e
+                insumos. Esta situación incrementa el riesgo de contaminación
+                cruzada, afecta la seguridad de los pacientes y aumenta la
+                carga laboral del personal de salud. Además, el transporte de
+                medicamentos sensibles a la temperatura depende de procesos
+                manuales que pueden comprometer su correcta conservación.
+              </p>
+            </div>
+          </div>
+
+          {/* CTA animado hacia la solución */}
+          <div className="flex justify-center mt-12">
+            <Link
+              to="/tecnologia"
+              className="solucion-btn group relative inline-flex items-center gap-3 px-9 py-4 rounded-full font-bold text-white overflow-hidden"
+            >
+              <span className="absolute inset-0 bg-gradient-to-r from-[#01BAEF] via-[#0B4F6C] to-[#34D399] bg-[length:200%_100%] animate-[gradientMove_3s_ease_infinite]" />
+              <span className="absolute inset-0 rounded-full ring-2 ring-[#5EE1E6]/50 solucion-pulse" />
+              <span className="relative z-10 flex items-center gap-2">
+                Descubre la solución MEDIBOT
+                <ArrowRight className="w-5 h-5 group-hover:translate-x-1.5 transition-transform" />
+              </span>
+            </Link>
+          </div>
+        </div>
+
+        <style>{`
+          @keyframes gradientMove {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        `}</style>
+      </section>
+
+      {/* ================= FEATURES / SOLUCIÓN ================= */}
+      <section id="beneficios" className="px-6 lg:px-10 py-24 lg:py-32">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-16 section-title">
+            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+              Beneficios
+            </span>
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+              Todo lo que necesitas para cuidar tu salud
+            </h2>
+            <p className="text-[#0A3D5C]/60 text-lg">
+              Una plataforma diseñada para acompañarte en cada paso, con la
+              tecnología de la inteligencia artificial y la calidez de un
+              buen consejo médico.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {FEATURES.map((f) => (
+              <div
+                key={f.title}
+                className="feature-card group bg-white rounded-3xl p-8 border border-[#0A3D5C]/5 hover:border-[#01BAEF]/30 hover:shadow-2xl hover:shadow-[#01BAEF]/10 transition-all duration-300 hover:-translate-y-1"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#01BAEF]/10 to-[#34D399]/10 flex items-center justify-center mb-5 group-hover:from-[#01BAEF] group-hover:to-[#0B4F6C] transition-all duration-300">
+                  <f.icon className="w-7 h-7 text-[#01BAEF] group-hover:text-white transition-colors duration-300" />
+                </div>
+                <h3 className="text-lg font-bold mb-2">{f.title}</h3>
+                <p className="text-[#0A3D5C]/60 text-sm leading-relaxed">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ================= HOW IT WORKS ================= */}
+      <section id="como-funciona" className="px-6 lg:px-10 py-24 lg:py-32 bg-white">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-20 section-title">
+            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+              Proceso
+            </span>
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+              Cómo funciona Medibot
+            </h2>
+            <p className="text-[#0A3D5C]/60 text-lg">
+              Cuatro pasos simples entre tú y la orientación médica que
+              necesitas.
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-4 gap-8">
+            {STEPS.map((step) => (
+              <div key={step.number} className="step-item relative">
+                <div className="text-6xl font-extrabold text-[#01BAEF]/10 mb-2">
+                  {step.number}
+                </div>
+                <h3 className="text-lg font-bold mb-2 -mt-8 relative z-10">
+                  {step.title}
+                </h3>
+                <p className="text-[#0A3D5C]/60 text-sm leading-relaxed">
+                  {step.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ================= TESTIMONIALS ================= */}
+      <section id="testimonios" className="px-6 lg:px-10 py-24 lg:py-32">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-16 section-title">
+            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+              Testimonios
+            </span>
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+              Personas reales, resultados reales
+            </h2>
+          </div>
+
+          <div className="grid lg:grid-cols-3 gap-6">
+            {TESTIMONIALS.map((t) => (
+              <div
+                key={t.name}
+                className="testimonial-card bg-white rounded-3xl p-8 border border-[#0A3D5C]/5 shadow-sm hover:shadow-xl transition-shadow"
+              >
+                <div className="flex gap-1 mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 fill-[#01BAEF] text-[#01BAEF]" />
+                  ))}
+                </div>
+                <p className="text-[#0A3D5C]/70 text-sm leading-relaxed mb-6">
+                  “{t.text}”
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#01BAEF] to-[#34D399]" />
+                  <div>
+                    <p className="font-semibold text-sm">{t.name}</p>
+                    <p className="text-xs text-[#0A3D5C]/50">{t.role}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ================= FAQ ================= */}
+      <section className="px-6 lg:px-10 py-24 lg:py-32 bg-white">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-16 section-title">
+            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+              Preguntas frecuentes
+            </span>
+            <h2 className="text-3xl lg:text-4xl font-extrabold text-[#0A3D5C]">
+              Resolvemos tus dudas
+            </h2>
+          </div>
+
+          <div className="space-y-4">
+            {FAQS.map((faq) => (
+              <details
+                key={faq.q}
+                className="group bg-[#F4FAFB] rounded-2xl px-6 py-5 [&_summary::-webkit-details-marker]:hidden cursor-pointer"
+              >
+                <summary className="flex items-center justify-between font-semibold text-[#0A3D5C]">
+                  {faq.q}
+                  <ChevronRight className="w-5 h-5 text-[#01BAEF] group-open:rotate-90 transition-transform" />
+                </summary>
+                <p className="text-[#0A3D5C]/60 text-sm mt-3 leading-relaxed">
+                  {faq.a}
+                </p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ================= CTA ================= */}
+      <section className="px-6 lg:px-10 py-24">
+        <div className="max-w-6xl mx-auto relative rounded-[2.5rem] overflow-hidden bg-gradient-to-br from-[#0B4F6C] via-[#0A3D5C] to-[#01BAEF] px-10 py-20 text-center">
+          <div className="absolute top-0 right-0 w-72 h-72 bg-[#34D399]/20 rounded-full blur-3xl" />
+          <div className="relative z-10">
+            <Users className="w-10 h-10 text-white/80 mx-auto mb-6" />
+            <h2 className="text-3xl lg:text-4xl font-extrabold text-white mb-4">
+              Empieza a cuidar tu salud hoy mismo
+            </h2>
+            <p className="text-white/70 max-w-xl mx-auto mb-8">
+              Únete a miles de personas que ya confían en Medibot para tomar
+              mejores decisiones sobre su bienestar.
+            </p>
+            <button className="px-8 py-4 rounded-full bg-white text-[#0A3D5C] font-bold shadow-2xl hover:-translate-y-0.5 transition-transform inline-flex items-center gap-2">
+              Crear cuenta gratis
+              <ArrowRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ================= FOOTER ================= */}
+      <footer id="contacto" className="px-6 lg:px-10 py-16 bg-[#0A3D5C] text-white/70">
+        <div className="max-w-7xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
+          <div>
+            <div className="mb-4 [&_span]:text-white [&_span_span:first-child]:!text-[#5EE1E6]">
+              <MedibotLogo markClassName="w-9 h-9" wordmarkClassName="text-lg" />
+            </div>
+            <p className="text-sm leading-relaxed">
+              Orientación médica inteligente, disponible siempre que la
+              necesites.
+            </p>
+          </div>
+
+          <div>
+            <h4 className="text-white font-semibold mb-4">Navegación</h4>
+            <ul className="space-y-2 text-sm">
+              {NAV_LINKS.map((l) => (
+                <li key={l.href}>
+                  <a href={l.href} className="hover:text-white transition-colors">
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="text-white font-semibold mb-4">Legal</h4>
+            <ul className="space-y-2 text-sm">
+              <li><a href="#" className="hover:text-white transition-colors">Términos de uso</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Privacidad</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Aviso médico</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="text-white font-semibold mb-4">Contacto</h4>
+            <ul className="space-y-3 text-sm">
+              <li className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-[#01BAEF]" /> contacto@medibot.site
+              </li>
+              <li className="flex items-center gap-2">
+                <Phone className="w-4 h-4 text-[#01BAEF]" /> +52 55 0000 0000
+              </li>
+              <li className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-[#01BAEF]" /> San Salvador, El Salvador
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto border-t border-white/10 mt-12 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
+          <p>© {new Date().getFullYear()} Medibot. Todos los derechos reservados.</p>
+          <p className="flex items-center gap-1">
+            <CheckCircle2 className="w-4 h-4 text-[#34D399]" /> Plataforma verificada
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
