@@ -272,103 +272,63 @@ export default function MedicalLandingPage() {
   const rootRef = useRef<HTMLDivElement>(null);
   const splashRef = useRef<HTMLDivElement>(null);
   const splashLogoRef = useRef<HTMLDivElement>(null);
-  const modelRef = useRef<HTMLElement>(null);
-
-  // ================= GIRO VERTICAL DEL MODELO 3D =================
-  // `auto-rotate` de model-viewer solo sabe girar en horizontal: mueve la camara
-  // en torno al eje Y, como un torno. Para que el robot vuelque en vertical hay
-  // que rotar el modelo, no la camara, animando su `orientation`.
-  useEffect(() => {
-    const el = modelRef.current as (HTMLElement & {
-      loaded?: boolean;
-      cameraOrbit?: string;
-      getCameraOrbit?: () => { theta: number; phi: number; radius: number };
-    }) | null;
-    if (!el) return;
-
-    // Un giro constante puede marear o molestar; si el sistema pide menos
-    // movimiento, el modelo se queda quieto en su pose inicial.
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-
-    const GRADOS_POR_SEGUNDO = 18;
-    let raf = 0;
-    let cancelado = false;
-
-    const arrancar = () => {
-      if (cancelado) return;
-
-      // Fijar el radio ANTES de empezar a girar. Al volcar el modelo cambia su
-      // caja contenedora, y con el radio en `auto` model-viewer reencuadra en
-      // cada frame: la camara daria saltos. Se toma el radio que calculo el
-      // encuadre automatico y se le deja margen para que no recorte al girar.
-      const orbita = el.getCameraOrbit?.();
-      if (orbita) {
-        const aGrados = (rad: number) => ((rad * 180) / Math.PI).toFixed(2);
-        el.cameraOrbit = `${aGrados(orbita.theta)}deg ${aGrados(orbita.phi)}deg ${(
-          orbita.radius * 1.2
-        ).toFixed(3)}m`;
-      }
-
-      const inicio = performance.now();
-      const tick = (ahora: number) => {
-        if (cancelado) return;
-        // Basado en tiempo y no en frames, para que gire a la misma velocidad
-        // en un movil a 30 fps que en un portatil a 120.
-        const grados = (((ahora - inicio) / 1000) * GRADOS_POR_SEGUNDO) % 360;
-        el.setAttribute("orientation", `0deg ${grados.toFixed(2)}deg 0deg`);
-        raf = requestAnimationFrame(tick);
-      };
-      raf = requestAnimationFrame(tick);
-    };
-
-    if (el.loaded) arrancar();
-    else el.addEventListener("load", arrancar, { once: true });
-
-    return () => {
-      cancelado = true;
-      cancelAnimationFrame(raf);
-      el.removeEventListener("load", arrancar);
-    };
-  }, []);
+  // NOTA sobre el giro del modelo 3D: se probo voltearlo en vertical animando su
+  // `orientation` en un requestAnimationFrame. Funciona en escritorio, pero en
+  // movil lo rompe: escribir ese atributo en cada frame obliga a model-viewer a
+  // recalcular el grafo de escena y la caja contenedora 60 veces por segundo con
+  // una malla de 17,6 MiB detras. El hilo principal se ahoga, GSAP se queda sin
+  // frames y el splash no llegaba a cerrarse nunca -- la pagina se quedaba
+  // atrapada en la pantalla de bienvenida. Se vuelve a `auto-rotate`, que gira en
+  // horizontal pero lo hace dentro del bucle de render propio de model-viewer,
+  // sin tocar el DOM.
 
   // ================= SPLASH SCREEN (círculo giratorio de MEDIBOT) =================
+  //
+  //  El cierre lo manda un setTimeout, NO el onComplete de GSAP. Es deliberado:
+  //  GSAP avanza con requestAnimationFrame, y el rAF se estrangula en cuanto el
+  //  navegador decide ahorrar -- modo de bajo consumo del movil, bateria baja,
+  //  pestana en segundo plano, o simplemente un dispositivo lento cargando los
+  //  17,6 MiB del modelo 3D. Cuando eso pasa, la animacion no termina, el
+  //  onComplete no se dispara y el visitante se queda mirando el logo para
+  //  siempre sin poder entrar. Un setTimeout no se estrangula asi, de modo que
+  //  la pagina SIEMPRE se acaba revelando; GSAP solo pone el acabado visual, y
+  //  si va a tirones o no llega a correr, no atrapa a nadie.
+  const DURACION_SPLASH_MS = 2600;
+
   useEffect(() => {
-    const tl = gsap.timeline();
+    const cerrar = window.setTimeout(() => setShowSplash(false), DURACION_SPLASH_MS);
 
-    // Entrada: el círculo aparece con un pequeño rebote
-    tl.fromTo(
-      splashLogoRef.current,
-      { scale: 0.6, opacity: 0 },
-      { scale: 1, opacity: 1, duration: 0.6, ease: "back.out(1.7)" }
-    );
+    const ctx = gsap.context(() => {
+      // Entrada suave: solo aparece. Antes entraba con un rebote
+      // (`back.out(1.7)`) que daba un tiron brusco al arrancar.
+      gsap.fromTo(
+        splashLogoRef.current,
+        { opacity: 0 },
+        { opacity: 1, duration: 0.5, ease: "power1.out" }
+      );
 
-    // Giro continuo mientras se muestra el splash
-    tl.to(
-      ".splash-wheel",
-      { rotate: 360, duration: 1.8, ease: "power1.inOut", repeat: 1 },
-      "-=0.1"
-    );
+      // Giro lento y continuo, con ease lineal para que no acelere ni frene:
+      // la rueda gira sola, sin sacudidas, mientras dura el splash.
+      gsap.to(".splash-wheel", {
+        rotate: 360,
+        duration: 9,
+        repeat: -1,
+        ease: "none",
+        transformOrigin: "50% 50%",
+      });
 
-    // Salida: el círculo escala y el overlay se desvanece, revelando la página
-    tl.to(splashLogoRef.current, {
-      scale: 1.15,
-      opacity: 0,
-      duration: 0.45,
-      ease: "power2.in",
-    });
-    tl.to(
-      splashRef.current,
-      {
+      // Salida: solo se desvanece el overlay. El logo ya no escala.
+      gsap.to(splashRef.current, {
         opacity: 0,
-        duration: 0.5,
+        duration: 0.55,
         ease: "power2.inOut",
-        onComplete: () => setShowSplash(false),
-      },
-      "-=0.15"
-    );
+        delay: (DURACION_SPLASH_MS - 550) / 1000,
+      });
+    });
 
     return () => {
-      tl.kill();
+      window.clearTimeout(cerrar);
+      ctx.revert();
     };
   }, []);
 
@@ -706,7 +666,6 @@ export default function MedicalLandingPage() {
 
               <div className="py-5">
                 <model-viewer
-                  ref={modelRef}
                   src="/Medibot3D.glb"
                   /* Fallback 2D: se ve mientras el modelo carga (son 17,6 MiB) y
                    * se queda si el 3D no puede arrancar -- sin WebGL, GPU
@@ -714,9 +673,7 @@ export default function MedicalLandingPage() {
                    * esos casos solo quedaba un hueco blanco. */
                   poster="/Medibot3D-poster.webp"
                   alt="Robot MEDIBOT: chasis negro con ruedas mecanum, tapa azul con la ruleta dispensadora de capsulas y compartimento termico interior"
-                  /* Sin `auto-rotate`: ese solo gira en horizontal y competiria
-                   * con el volteo vertical, que se anima desde el efecto de
-                   * arriba tocando la `orientation` del modelo. */
+                  auto-rotate
                   camera-controls
                   touch-action="pan-y"
                   /* El radio se deja en `auto` a proposito. Estaba fijado en
