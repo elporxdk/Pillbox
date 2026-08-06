@@ -15,6 +15,7 @@ import "@google/model-viewer";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
+import { ESTADISTICAS_PROYECTO } from "@/data/proyecto";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
 // no lo conoce hasta que se declara. React 19 dejo de exponer un namespace JSX
@@ -156,12 +157,6 @@ const STEPS = [
   },
 ];
 
-const STATS = [
-  { value: "3", label: "Subsistemas integrados" },
-  { value: "4", label: "Estudiantes desarrolladores" },
-  { value: "13–25°C", label: "Rango térmico controlado" },
-  { value: "5", label: "Fases de construcción" },
-];
 
 const TESTIMONIALS = [
   {
@@ -645,7 +640,7 @@ export default function MedicalLandingPage() {
       {/* ================= STATS ================= */}
       <section className="px-6 lg:px-10 py-16 bg-gradient-to-r from-deep to-shade">
         <div className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-8">
-          {STATS.map((stat) => (
+          {ESTADISTICAS_PROYECTO.map((stat) => (
             <div key={stat.label} className="stat-item text-center">
               <p className="text-3xl lg:text-4xl font-extrabold text-white mb-1">
                 {stat.value}

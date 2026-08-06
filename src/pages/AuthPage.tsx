@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo } from "@/components/MedibotLogo";
+import { ProjectDataPanel, ProjectDataStrip } from "@/components/ProjectDataPanel";
   //Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales 
 //Función principal de la página de autenticación (login/registro) trabaja con funciones propias de supabase y su SDK 
 export default function AuthPage() {
@@ -27,57 +28,66 @@ export default function AuthPage() {
         Volver al inicio
       </Link>
 
-      <div className="w-full max-w-md relative z-10">
-        <div className="flex items-center justify-center mb-8">
-          <MedibotLogo markClassName="w-11 h-11" wordmarkClassName="text-2xl" />
+      {/* Dos columnas desde `lg`: el incentivo a la izquierda y el formulario a
+          la derecha. Por debajo, una sola columna con la tira de cifras encima
+          del formulario, para no dejarlo fuera de pantalla. */}
+      <div className="relative z-10 grid w-full max-w-5xl items-center gap-12 lg:grid-cols-2">
+        <ProjectDataPanel />
+
+        <div className="w-full max-w-md mx-auto lg:mx-0">
+          <div className="flex items-center justify-center mb-8">
+            <MedibotLogo markClassName="w-11 h-11" wordmarkClassName="text-2xl" />
+          </div>
+
+          <ProjectDataStrip />
+
+          <Card className="border-ink/10 shadow-xl shadow-shade/5 rounded-3xl">
+            <CardHeader className="pb-4">
+              <div className="flex bg-surface rounded-xl p-1">
+                <button
+                  onClick={() => setTab("login")}
+                  className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${
+                    tab === "login"
+                      ? "bg-card shadow-sm text-ink"
+                      : "text-ink/60 hover:text-ink"
+                  }`}
+                >
+                  Iniciar sesión
+                </button>
+                <button
+                  onClick={() => setTab("register")}
+                  className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${
+                    tab === "register"
+                      ? "bg-card shadow-sm text-ink"
+                      : "text-ink/60 hover:text-ink"
+                  }`}
+                >
+                  Crear cuenta
+                </button>
+              </div>
+            </CardHeader>
+
+            <CardContent className="pt-6 px-6">
+              {tab === "login" ? (
+                <LoginForm />
+              ) : (
+                <RegisterForm onSwitchToLogin={() => setTab("login")} />
+              )}
+            </CardContent>
+          </Card>
+
+          <p className="text-center text-xs text-ink/40 mt-6">
+            Al continuar aceptas nuestros{" "}
+            <a href="#" className="underline hover:text-ink/60">
+              Términos de uso
+            </a>{" "}
+            y{" "}
+            <a href="#" className="underline hover:text-ink/60">
+              Aviso de privacidad
+            </a>
+            .
+          </p>
         </div>
-
-        <Card className="border-ink/10 shadow-xl shadow-shade/5 rounded-3xl">
-          <CardHeader className="pb-4">
-            <div className="flex bg-surface rounded-xl p-1">
-              <button
-                onClick={() => setTab("login")}
-                className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${
-                  tab === "login"
-                    ? "bg-card shadow-sm text-ink"
-                    : "text-ink/60 hover:text-ink"
-                }`}
-              >
-                Iniciar sesión
-              </button>
-              <button
-                onClick={() => setTab("register")}
-                className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${
-                  tab === "register"
-                    ? "bg-card shadow-sm text-ink"
-                    : "text-ink/60 hover:text-ink"
-                }`}
-              >
-                Crear cuenta
-              </button>
-            </div>
-          </CardHeader>
-
-          <CardContent className="pt-6 px-6">
-            {tab === "login" ? (
-              <LoginForm />
-            ) : (
-              <RegisterForm onSwitchToLogin={() => setTab("login")} />
-            )}
-          </CardContent>
-        </Card>
-
-        <p className="text-center text-xs text-ink/40 mt-6">
-          Al continuar aceptas nuestros{" "}
-          <a href="#" className="underline hover:text-ink/60">
-            Términos de uso
-          </a>{" "}
-          y{" "}
-          <a href="#" className="underline hover:text-ink/60">
-            Aviso de privacidad
-          </a>
-          .
-        </p>
       </div>
     </div>
   );
