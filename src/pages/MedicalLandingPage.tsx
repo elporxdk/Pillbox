@@ -59,7 +59,7 @@ gsap.registerPlugin(ScrollTrigger);
  *
  *  Paleta principal:
  *    - Azul profundo   #0B4F6C / #0A3D5C  (confianza, clínico)
- *    - Azul cian vivo   #01BAEF / #14B8D4 (tecnología, IA)
+ *    - Azul cian vivo   #01BAEF / #14B8D4 (tecnología)
  *    - Verde menta      #34D399 / #10B981 (salud, bienestar)
  *    - Fondo claro      #F4FAFB / #FFFFFF
  *
@@ -95,21 +95,21 @@ const TEAM = [
 //Porcentaje mayor de contenido, si se quiere cambiar el contenido solo se reescribe acá siempre que este dentro de los ""
 const OBJETIVOS_ESPECIFICOS = [
   "Diseñar un sistema de control de temperatura de precisión con celda Peltier y sensores térmicos, para que los medicamentos termolábiles mantengan su cadena de frío durante el traslado interno.",
-  "Implementar una arquitectura de control telemétrico entre una interfaz web y el módulo ESP32, permitiendo operar el robot a distancia y reducir la exposición del personal en zonas de riesgo biológico.",
+  "Implementar el control telemétrico entre la interfaz web de la Raspberry Pi y el Arduino que gobierna el chasis, para conducir el robot a distancia y mantener al personal fuera de las zonas de riesgo biológico.",
   "Integrar un sistema de tracción omnidireccional en el chasis, con motores DC y controladores de potencia, para desplazarse con fluidez en pasillos estrechos y concurridos.",
-  "Establecer un protocolo de asistencia por voz y monitoreo visual en tiempo real, humanizando la interacción tecnológica y asegurando una entrega efectiva sin errores.",
+  "Establecer un canal de voz y vídeo entre operador y paciente, para que la entrega se confirme sin errores y el trato no se vuelva impersonal.",
 ];
 
 const FEATURES = [
   {
     icon: Bot,
     title: "Control remoto vía interfaz web",
-    desc: "Una Raspberry Pi 4 actúa como cerebro central: el operador visualiza el entorno en tiempo real, envía comandos de movimiento y se comunica por voz desde cualquier dispositivo en la red hospitalaria.",
+    desc: "La Raspberry Pi 4 es el cerebro: sirve la interfaz desde la que el operador ve el entorno, dirige el movimiento y habla por el altavoz, desde cualquier equipo de la red hospitalaria.",
   },
   {
     icon: Activity,
     title: "Tracción omnidireccional",
-    desc: "Chasis con ruedas mecanum y motores DC con encoder (1:90), controlados por un ESP32, que permiten avanzar, retroceder y desplazarse lateral o diagonalmente sin maniobras complejas.",
+    desc: "Ruedas mecanum y motores DC (1:90) accionados por un Arduino con placa de encoders, que recibe las órdenes de la Raspberry Pi. Permite avanzar, retroceder y moverse en lateral o diagonal sin maniobras.",
   },
   {
     icon: HeartPulse,
@@ -119,7 +119,7 @@ const FEATURES = [
   {
     icon: ShieldCheck,
     title: "Reducción de exposición biológica",
-    desc: "Al teleoperar el transporte de insumos, el personal de salud reduce su movilización en zonas críticas y el contacto manual directo con los empaques de medicamentos.",
+    desc: "Conducir el robot a distancia evita que el personal recorra las zonas críticas y toque los empaques con la mano.",
   },
   {
     icon: Clock,
@@ -129,7 +129,7 @@ const FEATURES = [
   {
     icon: Stethoscope,
     title: "Supervisión visual y por voz",
-    desc: "Cámara web HD con streaming en tiempo real y módulo de audio bidireccional para verificar la entrega y comunicarse con el paciente sin necesidad de presencia física.",
+    desc: "Cámara HD y audio de doble vía para confirmar la entrega y hablar con el paciente sin acercarse.",
   },
 ];
 
@@ -137,12 +137,12 @@ const STEPS = [
   {
     number: "01",
     title: "Subsistema de control y comunicación",
-    desc: "La Raspberry Pi 4 ejecuta el servidor web de control remoto. El operador se conecta desde la red hospitalaria y visualiza el streaming de video en tiempo real.",
+    desc: "La Raspberry Pi 4 levanta el servidor de control. El operador entra desde la red hospitalaria y recibe el vídeo de la cámara.",
   },
   {
     number: "02",
     title: "Subsistema de tracción",
-    desc: "El ESP32 traduce los comandos recibidos en señales PWM para los motores, moviendo el chasis mecanum por pasillos estrechos sin necesidad de giros complejos.",
+    desc: "El Arduino recibe la orden de la Raspberry Pi y la convierte en señales para la placa de encoders, que reparte el giro entre las cuatro ruedas.",
   },
   {
     number: "03",
@@ -192,7 +192,7 @@ const FAQS = [
   },
   {
     q: "¿Qué lo diferencia de otras soluciones como RFID o gabinetes automatizados?",
-    a: "MEDIBOT integra en un solo dispositivo movilidad teleoperada, control térmico activo para medicamentos termolábiles y supervisión en tiempo real por cámara y audio — algo que ninguna solución actual combina.",
+    a: "Ninguna de esas soluciones se mueve. MEDIBOT reúne en un mismo dispositivo el desplazamiento a distancia, el compartimento con temperatura controlada y la supervisión por cámara y audio.",
   },
   {
     q: "¿En qué etapa se encuentra el proyecto?",
@@ -539,11 +539,11 @@ export default function MedicalLandingPage() {
             </h1>
 
             <p className="hero-desc text-lg text-ink/70 max-w-xl mb-10 leading-relaxed">
-              MEDIBOT es un robot móvil teleoperado con control térmico activo
-              que transporta medicamentos e insumos entre la farmacia y las
-              áreas de atención al paciente, reduciendo la exposición del
-              personal de salud a infecciones asociadas a la atención médica
-              (IAAS).
+              Un robot móvil que lleva medicamentos e insumos de la farmacia a
+              las áreas de atención, con el compartimento a temperatura
+              controlada y sin que nadie tenga que acompañarlo por el pasillo.
+              Menos tránsito de personal significa menos infecciones asociadas a
+              la atención médica (IAAS).
             </p>
 
             <div className="hero-cta flex flex-col sm:flex-row gap-4">
@@ -675,11 +675,10 @@ export default function MedicalLandingPage() {
               <span className="font-semibold text-ink">Colegio Don Bosco</span>,
               participantes de distintas ferias, comprometidos con el
               desarrollo de <span className="font-semibold text-ink">MEDIBOT</span>,
-              un prototipo robótico asistencial teleoperado con control
-              térmico activo. MEDIBOT busca apoyar al personal de salud en el
-              transporte seguro de medicamentos e insumos, reduciendo la
-              exposición a infecciones asociadas a la atención médica y
-              mejorando la atención en entornos hospitalarios.
+              un prototipo de robótica asistencial. La idea es quitarle al
+              personal de salud los recorridos de reparto por las zonas de mayor
+              riesgo, sin que el medicamento pierda su cadena de frío por el
+              camino.
             </p>
           </div>
 
@@ -715,8 +714,8 @@ export default function MedicalLandingPage() {
               <p className="text-ink/70 leading-relaxed">
                 Desarrollar un prototipo robótico asistencial de
                 bioseguridad, integrando tecnologías de procesamiento
-                Raspberry Pi 4, microcontroladores ESP32 y sistemas de
-                refrigeración por efecto Peltier, para mitigar la
+                Raspberry Pi 4, un microcontrolador Arduino y refrigeración
+                por efecto Peltier, para mitigar la
                 propagación de infecciones asociadas a la atención médica
                 (IAAS) y garantizar el transporte seguro de medicamentos en
                 el sistema hospitalario nacional.
@@ -799,12 +798,12 @@ export default function MedicalLandingPage() {
               Beneficios
             </span>
             <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
-              Todo lo que necesitas para cuidar tu salud
+              Lo que resuelve en cada traslado
             </h2>
             <p className="text-ink/60 text-lg">
-              Una plataforma diseñada para acompañarte en cada paso, con la
-              tecnología de la inteligencia artificial y la calidez de un
-              buen consejo médico.
+              Tres subsistemas —tracción, control térmico y supervisión— que
+              trabajan juntos para que el medicamento llegue en condiciones y
+              sin que nadie lo acompañe por el pasillo.
             </p>
           </div>
 
