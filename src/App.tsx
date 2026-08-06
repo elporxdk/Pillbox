@@ -6,6 +6,7 @@ import MedicalLandingPage from "@/pages/MedicalLandingPage";
 import AuthPage from "@/pages/AuthPage";
 import TechnicalPage from "@/pages/TechnicalPage";
 import DashboardPage from "@/pages/DashboardPage";
+import NotFoundPage from "@/pages/NotFoundPage";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </BrowserRouter>
       <Toaster position="top-center" richColors />

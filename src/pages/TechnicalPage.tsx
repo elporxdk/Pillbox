@@ -14,6 +14,10 @@ import {
   CircuitBoard,
   ChevronLeft,
   ChevronRight,
+  Mail,
+  Phone,
+  MapPin,
+  CheckCircle2,
 } from "lucide-react";
 import hardware1 from "../media/hardware1.png";
 import hardware2 from "../media/hardware2.png";
@@ -94,7 +98,12 @@ function MedibotLogo({
 
 const NAV_LINKS = [
   { label: "Inicio", href: "/" },
+  { label: "Quiénes somos", href: "/#nosotros" },
+  { label: "Beneficios", href: "/#beneficios" },
+  { label: "Cómo funciona", href: "/#como-funciona" },
+  { label: "Testimonios", href: "/#testimonios" },
   { label: "Tecnología", href: "/tecnologia" },
+  { label: "Contacto", href: "/#contacto" },
 ];
 
 const HARDWARE_ITEMS = [
@@ -434,18 +443,61 @@ export default function TechnicalPage() {
       </section>
 
       {/* ================= FOOTER ================= */}
-      <footer className="px-6 lg:px-10 py-12 bg-[#0A3D5C] text-white">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <MedibotLogo
-              markClassName="w-8 h-8"
-              wordmarkClassName="text-lg"
-              markWheelClassName="opacity-80"
-            />
-            <p className="text-sm text-white/60">
-              © 2024 MEDIBOT. Desarrollado por estudiantes de Electrónica.
+      <footer id="contacto" className="px-6 lg:px-10 py-16 bg-[#0A3D5C] text-white/70">
+        <div className="max-w-7xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
+          <div>
+            <div className="mb-4 [&_span]:text-white [&_span_span:first-child]:!text-[#5EE1E6]">
+              <MedibotLogo markClassName="w-9 h-9" wordmarkClassName="text-lg" />
+            </div>
+            <p className="text-sm leading-relaxed">
+              Orientación médica inteligente, disponible siempre que la
+              necesites.
             </p>
           </div>
+
+          <div>
+            <h4 className="text-white font-semibold mb-4">Navegación</h4>
+            <ul className="space-y-2 text-sm">
+              {NAV_LINKS.map((l) => (
+                <li key={l.href}>
+                  <a href={l.href} className="hover:text-white transition-colors">
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="text-white font-semibold mb-4">Legal</h4>
+            <ul className="space-y-2 text-sm">
+              <li><a href="#" className="hover:text-white transition-colors">Términos de uso</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Privacidad</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Aviso médico</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="text-white font-semibold mb-4">Contacto</h4>
+            <ul className="space-y-3 text-sm">
+              <li className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-[#01BAEF]" /> contacto@medibot.site
+              </li>
+              <li className="flex items-center gap-2">
+                <Phone className="w-4 h-4 text-[#01BAEF]" /> +52 55 0000 0000
+              </li>
+              <li className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-[#01BAEF]" /> San Salvador, El Salvador
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto border-t border-white/10 mt-12 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
+          <p>© {new Date().getFullYear()} Medibot. Todos los derechos reservados.</p>
+          <p className="flex items-center gap-1">
+            <CheckCircle2 className="w-4 h-4 text-[#34D399]" /> Plataforma verificada
+          </p>
         </div>
       </footer>
     </div>

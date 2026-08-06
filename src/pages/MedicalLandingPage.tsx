@@ -5,6 +5,16 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkles, ChevronRight, Activity, Users, Star, CheckCircle2, Menu, X, Phone, Mail, MapPin, ArrowRight,} from "lucide-react";
 import elianPhoto from "../media/ElianTorres.jpg";
 import diegoPhoto from "../media/DiegoYanes.jpg";
+import carlosPhoto from "../media/CarlosVindel.png";
+import "@google/model-viewer";
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'model-viewer': any;
+    }
+  }
+}
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -121,7 +131,7 @@ const NAV_LINKS = [
 const TEAM = [
   { name: "Julio Alexander Sura Pineda", code: "20251031" },
   { name: "Elian Alexander Torres Lemus", code: "20250166", photo: elianPhoto },
-  { name: "Carlos Andrés Vindel García", code: "20250471" },
+  { name: "Carlos Andrés Vindel García", code: "20250471", photo: carlosPhoto },
   { name: "Diego Alejandro Yanes Gómez", code: "20250870", photo: diegoPhoto },
 ];
 //Porcentaje mayor de contenido, si se quiere cambiar el contenido solo se reescribe acá siempre que este dentro de los ""
@@ -596,7 +606,7 @@ export default function MedicalLandingPage() {
             </div>
           </div>
 
-          {/* Hero visual: panel de operación remota */}
+          {/* Hero visual: modelo 3D MEDIBOT */}
           <div className="hero-visual relative">
             <div className="relative bg-white rounded-3xl shadow-2xl shadow-[#0A3D5C]/10 p-6 border border-[#0A3D5C]/5">
               <div className="flex items-center gap-3 pb-4 border-b border-[#0A3D5C]/5">
@@ -604,63 +614,34 @@ export default function MedicalLandingPage() {
                   <Bot className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <p className="font-semibold text-sm">Panel de operación MEDIBOT</p>
+                  <p className="font-semibold text-sm">Modelo 3D MEDIBOT</p>
                   <p className="text-xs text-[#34D399] flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#34D399] inline-block animate-pulse" />
-                    Conectado a la red hospitalaria
+                    Vista interactiva
                   </p>
                 </div>
               </div>
 
-              <div className="py-5 space-y-3">
-                <div className="rounded-2xl bg-[#0A3D5C] aspect-video flex items-center justify-center relative overflow-hidden">
-                  <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-500/90 text-white text-[10px] font-bold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                    EN VIVO
-                  </div>
-                  <span className="text-white/30 text-xs">Streaming de cámara HD</span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-[#F4FAFB] rounded-xl px-4 py-3">
-                    <p className="text-[11px] text-[#0A3D5C]/50 mb-1">Temp. compartimento</p>
-                    <p className="text-lg font-bold text-[#01BAEF]">18.4 °C</p>
-                  </div>
-                  <div className="bg-[#F4FAFB] rounded-xl px-4 py-3">
-                    <p className="text-[11px] text-[#0A3D5C]/50 mb-1">Estado del robot</p>
-                    <p className="text-sm font-bold text-[#34D399]">En tránsito</p>
-                  </div>
-                </div>
+              <div className="py-5">
+                <model-viewer
+                  src="/Medibot3D.gltf"
+                  alt="Modelo 3D de MEDIBOT"
+                  auto-rotate
+                  camera-controls
+                  touch-action="pan-y"
+                  camera-orbit="90deg 75deg 0.5m"
+                  style={{ width: '100%', height: '450px', borderRadius: '16px' }}
+                  interaction-prompt="none"
+                ></model-viewer>
               </div>
 
               <div className="flex items-center gap-2 pt-3 border-t border-[#0A3D5C]/5">
                 <div className="flex-1 bg-[#F4FAFB] rounded-full px-4 py-2.5 text-sm text-[#0A3D5C]/40">
-                  Destino: Sala de aislamiento 3
+                  Arrastra para rotar • Usa scroll para zoom
                 </div>
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#01BAEF] to-[#0B4F6C] flex items-center justify-center">
-                  <ChevronRight className="w-4 h-4 text-white" />
+                  <Sparkles className="w-4 h-4 text-white" />
                 </div>
-              </div>
-            </div>
-
-            {/* Floating badges */}
-            <div className="floating-icon absolute -top-6 -left-6 bg-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-2 border border-[#0A3D5C]/5">
-              <div className="w-9 h-9 rounded-full bg-[#34D399]/15 flex items-center justify-center">
-                <HeartPulse className="w-4 h-4 text-[#34D399]" />
-              </div>
-              <div>
-                <p className="text-xs text-[#0A3D5C]/50">Rango térmico</p>
-                <p className="text-sm font-bold">13–25 °C</p>
-              </div>
-            </div>
-
-            <div className="floating-icon absolute -bottom-6 -right-4 bg-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-2 border border-[#0A3D5C]/5">
-              <div className="w-9 h-9 rounded-full bg-[#01BAEF]/15 flex items-center justify-center">
-                <ShieldCheck className="w-4 h-4 text-[#01BAEF]" />
-              </div>
-              <div>
-                <p className="text-xs text-[#0A3D5C]/50">Registro</p>
-                <p className="text-sm font-bold">RTC DS3231</p>
               </div>
             </div>
           </div>
@@ -790,6 +771,11 @@ export default function MedicalLandingPage() {
           <div className="flex justify-center mt-12">
             <Link
               to="/tecnologia"
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.href = '/tecnologia';
+                window.scrollTo(0, 0);
+              }}
               className="solucion-btn group relative inline-flex items-center gap-3 px-9 py-4 rounded-full font-bold text-white overflow-hidden"
             >
               <span className="absolute inset-0 bg-gradient-to-r from-[#01BAEF] via-[#0B4F6C] to-[#34D399] bg-[length:200%_100%] animate-[gradientMove_3s_ease_infinite]" />
@@ -951,21 +937,23 @@ export default function MedicalLandingPage() {
 
       {/* ================= CTA ================= */}
       <section className="px-6 lg:px-10 py-24">
-        <div className="max-w-6xl mx-auto relative rounded-[2.5rem] overflow-hidden bg-gradient-to-br from-[#0B4F6C] via-[#0A3D5C] to-[#01BAEF] px-10 py-20 text-center">
+        <div className="max-w-4xl mx-auto relative rounded-[2.5rem] overflow-hidden bg-gradient-to-br from-[#0B4F6C] via-[#0A3D5C] to-[#01BAEF] px-10 py-20 text-center">
           <div className="absolute top-0 right-0 w-72 h-72 bg-[#34D399]/20 rounded-full blur-3xl" />
-          <div className="relative z-10">
+          <div className="relative z-10 flex flex-col items-center justify-center">
             <Users className="w-10 h-10 text-white/80 mx-auto mb-6" />
-            <h2 className="text-3xl lg:text-4xl font-extrabold text-white mb-4">
+            <h2 className="text-3xl lg:text-4xl font-extrabold text-white mb-4 text-center">
               Empieza a cuidar tu salud hoy mismo
             </h2>
-            <p className="text-white/70 max-w-xl mx-auto mb-8">
-              Únete a miles de personas que ya confían en Medibot para tomar
-              mejores decisiones sobre su bienestar.
+            <p className="text-white/80 max-w-2xl mx-auto mb-8 text-center text-lg leading-relaxed">
+              Únete a miles de personas que ya confían en Medibot para tomar mejores decisiones sobre su bienestar.
             </p>
-            <button className="px-8 py-4 rounded-full bg-white text-[#0A3D5C] font-bold shadow-2xl hover:-translate-y-0.5 transition-transform inline-flex items-center gap-2">
+            <Link
+              to="/auth"
+              className="px-8 py-4 rounded-full bg-white text-[#0A3D5C] font-bold shadow-2xl hover:-translate-y-0.5 transition-transform inline-flex items-center gap-2"
+            >
               Crear cuenta gratis
               <ArrowRight className="w-5 h-5" />
-            </button>
+            </Link>
           </div>
         </div>
       </section>
