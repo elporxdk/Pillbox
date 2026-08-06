@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@gsap/react": "^2.1.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "gsap": "^3.15.0",
+    "lucide-react": "^1.28.0",
+    "tailwindcss": "^4.3.3"
+  }
+}

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
@@ -116,3 +117,730 @@ npx shadcn@latest add card
 ### Lucide
 -----> Componente para iconos
 -----> npm install lucide-react
+=======
+this is a repository made for different proyects
+made by my team, incluiding proyects are: Pillbox and Medibot
+
+
+
+made by 2027 ECA/CDB.
+
+---
+
+#MEDIBOT
+```
+Vision (Medibot) ---+
+                    +--- TCP local ---> serial_hub.py --- USB/COM ---> Arduino
+Pillbox ------------+
+```
+
+- **`serial_hub.py`**: el UNICO programa que abre el puerto serie. Recibe las
+  ordenes de Vision y Pillbox por TCP (127.0.0.1:5055), las escribe al Arduino
+  en orden y devuelve las respuestas. Si el Arduino no esta (o se desconecta),
+  reintenta conectarse cada 2 segundos automaticamente.
+- **`medibot_serial.py`**: el "cartero" que usan Vision y Pillbox para hablar
+  con el hub. Lo autolanza si no esta corriendo. No hay que arrancarlo a mano.
+- **`medibot_red.py`**: averigua las IPs reales de la Pi para saber con que
+  direccion se entra desde el movil (ver "Entrar desde el movil" mas abajo).
+
+### Uso normal (Raspberry Pi) — UN SOLO COMANDO
+
+```bash
+pip install flask pyserial
+python3 main.py
+```
+
+`main.py` arranca todo en orden y coexistiendo: apaga cualquier hub viejo en
+memoria y levanta uno con el codigo actual, lanza Pillbox
+(http://<ip>:5001) y abre Medibot/Vision. Al cerrar Medibot, detiene el
+chasis (seguridad) y cierra Pillbox. Si falta un archivo o una libreria, lo
+dice con un mensaje claro y como instalarlo.
+
+Tambien se puede arrancar cada pieza por separado si hace falta:
+
+```bash
+python3 Pastillero.py        # solo Pillbox (el hub arranca solo)
+python3 Vision_MEDIBOT.py    # solo Medibot (usa el mismo hub)
+```
+
+### Entrar desde el movil u otro PC (no solo desde la Pi)
+
+Los dos servidores escuchan en `0.0.0.0`, es decir en **todas** las
+interfaces, asi que cualquier dispositivo de la misma red puede entrar:
+
+| Interfaz | Puerto |
+|---|---|
+| Pillbox  | `5001` |
+| Medibot / Vision | `5000` |
+
+Al arrancar, ambos **imprimen todas las direcciones validas** y las muestran
+tambien en la ventana de Medibot. Solo hay que abrir en el movil la que
+corresponda a tu red, por ejemplo `http://192.168.1.50:5001`.
+
+Detalles importantes:
+
+- **`127.0.0.1` (localhost) NO sirve desde otro dispositivo**: significa "esta
+  misma maquina". Si solo aparece esa direccion, la Pi no esta conectada a
+  ninguna red.
+- **Si la Pi tiene cable y WiFi a la vez** se listan las dos direcciones. El
+  movil solo alcanza la de **su** red: prueba la otra si una no responde.
+- Al arrancar se **comprueba de verdad** que el servidor responde por la IP de
+  red (no solo por localhost) y se avisa si no. Si avisa aun estando en red,
+  lo normal es un **cortafuegos** en la Pi o que el router tenga *aislamiento
+  de clientes* (AP isolation) activado.
+
+`medibot_red.py` es el modulo que enumera las interfaces de red reales; lo
+usan Pillbox, Vision y `main.py`, asi que los tres coinciden siempre.
+
+### Ir de una interfaz a la otra
+
+Medibot lleva un boton **Pastillero** y el Pastillero uno **MEDIBOT**, los dos
+arriba a la derecha. Solo texto, sin iconos: cada sistema dibuja los emojis a
+su manera y ademas no siguen al tema, asi que en modo oscuro se quedaban con
+su color de siempre.
+
+Son enlaces de verdad (`<a>`), no botones: se pueden abrir en otra pestaña con
+el boton central del raton o con una pulsacion larga en el movil.
+
+Por defecto el enlace se deduce del mismo host cambiando de puerto (5000 y
+5001), que es lo correcto en la red local. Si cada interfaz tiene su propio
+subdominio (detras de un tunel, donde los puertos no valen), se fijan a mano:
+
+```bash
+export MEDIBOT_URL_PASTILLERO='https://pastillero.tudominio.com/'
+export MEDIBOT_URL_VISION='https://medibot.tudominio.com/'
+```
+
+### Tema claro / oscuro
+
+Las **dos** interfaces tienen su boton. Se recuerda en el navegador
+(`localStorage`) y se aplica **antes** de pintar la pagina, asi que no hay
+fogonazo blanco al cargar de noche.
+
+En el **Pastillero el tema por defecto es el OSCURO**: entres desde donde
+entres, y aunque el movil o el ordenador esten configurados en claro, abre en
+oscuro. Solo cambia si se pulsa el boton, y entonces esa eleccion se recuerda
+para las siguientes visitas. El boton dice lo que **hace**, no el tema que hay
+puesto: con el oscuro pone *Modo Claro*.
+
+El tema tambien alcanza a los controles que dibuja el sistema y no el CSS (el
+reloj del horario, las casillas de los dias, la barra de desplazamiento):
+llevan `color-scheme`, que sin el dejaba un reloj blanco deslumbrante en medio
+de la pagina oscura.
+
+### He actualizado el codigo y la interfaz sale IGUAL que antes
+
+Casi siempre es una de estas dos, y se distinguen en un segundo. Las dos
+interfaces son **una sola pagina con el JavaScript escrito dentro del HTML**,
+asi que hasta que no llega el HTML nuevo no cambia nada de lo que se ve.
+
+**1. El codigo nuevo no esta en la Pi.** Aprobar un cambio en GitHub no toca
+la Raspberry: hay que traerlo.
+
+```bash
+cd ~/Proyects        # donde este el repo en la Pi
+git pull origin main
+```
+
+Para salir de dudas antes de reiniciar nada, se le pregunta al fichero:
+
+```bash
+grep -c "MEDIBOT</a>" Pastillero.py    # 1 = actualizado, 0 = version vieja
+```
+
+**2. El navegador esta sirviendo una copia guardada.** Se nota en que los
+**datos** si se refrescan (los compartimientos, el estado del Arduino) pero
+los **textos, colores y el tema** siguen como estaban: lo que cambia viene del
+servidor, lo que no cambia viene de la cache.
+
+Ambos servidores mandan ya `Cache-Control: no-store`, asi que no deberia
+volver a pasar; si se arrastra una copia de antes de ese arreglo, un
+**Ctrl+Shift+R** (o abrir en una ventana privada) la tira.
+
+Para comprobarlo sin adivinar, cada interfaz publica la **huella** de su HTML,
+que cambia en cuanto cambia una letra:
+
+```bash
+python3 Pastillero.py                       # imprime "Version de la interfaz: ac596cd2"
+curl -sI http://<ip>:5001/ | grep -i build  # X-Pillbox-Build: ac596cd2
+curl -sI http://<ip>:5000/ | grep -i build  # X-Medibot-Build: ...
+```
+
+Si la huella que enseña el navegador (F12 > Red > la peticion de la pagina) no
+es la que imprime el servidor al arrancar, se esta viendo una copia vieja.
+
+### Apagar la deteccion de objetos rojos
+
+Boton **Color rojo** entre los controles de Medibot. Apagarla ahorra ~1,3 ms
+por fotograma y por camara: se salta la conversion a HSV, dos morfologias y un
+`findContours` que en un montaje que no sigue objetos de color son trabajo
+tirado. En una Raspberry esos milisegundos se notan.
+
+El cambio es **inmediato**, sin reiniciar. `MEDIBOT_DETECT_ROJO=0` sigue
+valiendo para arrancar ya con la deteccion apagada.
+
+Tambien por API, util para automatizarlo:
+
+```bash
+curl -X POST http://<ip>:5000/toggle_deteccion_rojo                       # alterna
+curl -X POST -H 'Content-Type: application/json' \
+     -d '{"activo": false}' http://<ip>:5000/toggle_deteccion_rojo        # apagar
+```
+
+### Escuchar el microfono de la camara
+
+La C270 lleva microfono. Viene **desactivado** por defecto: es audio del
+entorno y no se abre sin que lo pidas.
+
+```bash
+sudo apt install alsa-utils          # si no esta ya
+arecord -l                           # ver que microfonos hay
+MEDIBOT_AUDIO=1 python3 main.py
+```
+
+En la web, el boton del **altavoz** encima del video: solo el icono, sin texto.
+El propio icono dice el estado — con ondas suena, con una cruz esta parado. Lo
+tiene que pulsar una persona: los navegadores bloquean el audio que empieza
+solo, asi que un autoplay quedaria mudo sin avisar. Si no hay microfono, el
+boton sale desactivado y **dice por que** al pasar el raton.
+
+| Variable | Def. | Para que |
+|---|---|---|
+| `MEDIBOT_AUDIO` | `0` | `1` lo activa |
+| `MEDIBOT_AUDIO_DISPOSITIVO` | autodetectar | p.ej. `plughw:1,0` |
+| `MEDIBOT_AUDIO_HZ` | `16000` | frecuencia de muestreo |
+| `MEDIBOT_AUDIO_CANALES` | `1` | la C270 es mono |
+
+Se manda **WAV en directo** (`arecord` -> HTTP). Se eligio asi porque
+`alsa-utils` ya viene con Raspberry Pi OS: nada que compilar, ni pyaudio ni
+WebRTC. La autodeteccion prefiere un dispositivo USB, porque la tarjeta 0 de
+una Pi suele ser la salida HDMI y esa no graba.
+
+Rutas: `/audio` (el sonido) y `/api/audio` (por que se puede o no escuchar).
+**Ojo con publicarlo por internet:** es un microfono abierto de la habitacion
+donde este el robot. Ponle Cloudflare Access delante, como el resto.
+
+### Entrar desde fuera de casa: tunel de Cloudflare
+
+Un tunel **no abre puertos**. `cloudflared` abre una conexion *saliente* desde
+la Pi hacia Cloudflare y el trafico baja por ahi, asi que no hace falta IP
+publica, ni tocar el router, ni IP fija: funciona detras del CGNAT de
+cualquier operador. El DNS apunta al tunel, nunca a tu IP.
+
+**1. Instalar `cloudflared` en la Pi** (`uname -m` dice la arquitectura):
+
+```bash
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 -o cloudflared
+sudo install -m 755 cloudflared /usr/local/bin/cloudflared
+```
+
+**2. Crear el tunel** en Zero Trust > Networks > Tunnels > Create a tunnel.
+Te da un token; lo pegas en la Pi:
+
+```bash
+sudo cloudflared service install eyJhIjoi...
+```
+
+> El **token** y el **ID del tunel** no son lo mismo. El ID es un UUID publico;
+> el token es una credencial (base64 de un JSON con la cuenta, el ID y **el
+> secreto**). Tratalo como una contrasena; si se escapa, *Refresh token* en el
+> panel.
+
+**3. Publicar los subdominios** con el script del repo. Saca la cuenta y el ID
+del propio token del tunel, asi que solo hay que anadir un API token:
+
+```bash
+python3 cloudflare_tunel.py --dominio tudominio.com --dry-run   # ensayo
+python3 cloudflare_tunel.py --dominio tudominio.com             # aplicar
+python3 cloudflare_tunel.py --dominio tudominio.com --verificar # comprobar
+```
+
+Los dos tokens se piden **por teclado y ocultos** si no estan puestos. El API
+token se crea en <https://dash.cloudflare.com/profile/api-tokens> con
+**Account > Cloudflare Tunnel > Edit** y **Zone > DNS > Edit**.
+
+> **No uses `export CF_API_TOKEN=...`.** Deja la credencial escrita en
+> `~/.bash_history` en claro, y la lee cualquiera que entre luego a la Pi con
+> un simple `history`. Si no quieres teclearla cada vez, guardala **fuera del
+> repositorio**:
+>
+> ```bash
+> mkdir -p ~/.medibot && chmod 700 ~/.medibot
+> printf '%s' 'TU_API_TOKEN' > ~/.medibot/cf_api_token
+> chmod 600 ~/.medibot/cf_api_token
+> ```
+>
+> Nunca dentro de la carpeta del proyecto: el primer `git push` lo publicaria
+> en GitHub, y **en el historial de git se queda aunque despues borres el
+> fichero**. El script avisa si detecta el token dentro del repo, y
+> `.gitignore` cubre los nombres habituales, pero la regla de oro es que las
+> credenciales viven fuera.
+>
+> Un token es **desechable**: si crees que se ha visto (un pantallazo, un
+> chat, un log), borralo en el panel y crea otro. Cuesta treinta segundos.
+
+Deja publicado:
+
+| URL | Va a |
+|---|---|
+| `https://medibot.tudominio.com` | `localhost:5000` (camaras y movimiento) |
+| `https://pastillero.tudominio.com` | `localhost:5001` (dispensador) |
+
+**El puerto 5055 no se publica nunca.** Es el hub serial, la linea directa con
+el Arduino y sin autenticacion ninguna; esta atado a `127.0.0.1` a proposito y
+el script se niega a enrutarlo. Para publicar otra cosa, edita el diccionario
+`SERVICIOS` del script.
+
+**4. Protegerlo — no es opcional.** Al terminar el paso 3 esas URLs las abre
+cualquiera, y detras hay un robot que se conduce a distancia y reparte
+pastillas. En Zero Trust > Access > Applications > Add an application >
+Self-hosted, una por subdominio, con politica *Allow* por email. Gratis hasta
+50 usuarios.
+
+**Que esperar del video.** El MJPEG es una respuesta HTTP que no termina
+nunca: por el proxy de Cloudflare funciona, pero suma latencia y el plan
+gratuito desaconseja en sus condiciones servir video continuo. Si va a
+tirones, baja el perfil web (`MEDIBOT_WEB_W=480 MEDIBOT_WEB_QUALITY=50
+MEDIBOT_WEB_FPS=10`) o deja el video solo en la LAN y publica unicamente el
+control.
+
+Comprobar desde fuera (con datos moviles, no por el wifi de casa):
+
+```bash
+curl -I https://medibot.tudominio.com     # debe traer X-Medibot-Build
+```
+
+### Rendimiento de la vision (por que iba a 9-14 FPS)
+
+`medibot_vision.py` concentra el motor de video. Medido sobre 640x480 en un
+solo nucleo, el coste por fotograma **sin usar ninguna IA**:
+
+
+
+### Perfiles de video (calidad / balanceado / bajo ancho de banda)
+
+La resolucion de **captura** (lo que se analiza y graba) y la de **emision
+web** son independientes. Se puede seguir analizando a 640x480 y mandar al
+movil una version mas ligera, sin tocar el reconocimiento ni la grabacion.
+
+| Perfil | Comando | Emite | Calidad | Tope FPS |
+|---|---|---|---|---|
+| **Calidad** | `MEDIBOT_WEB_QUALITY=85 MEDIBOT_WEB_FPS=25 python3 main.py` | resolucion nativa | 85 | 25 |
+| **Balanceado** (por defecto) | `python3 main.py` | resolucion nativa | 70 | 15 |
+| **Bajo ancho de banda** | `MEDIBOT_WEB_W=480 MEDIBOT_WEB_QUALITY=50 MEDIBOT_WEB_FPS=10 python3 main.py` | 480x360 | 50 | 10 |
+
+Medido con `bench_vision.py` sobre una fuente de 640x480 a 30 FPS (un solo
+cliente): **calidad** ~2290 kbit/s, **balanceado** ~1120 kbit/s, **bajo**
+~415 kbit/s. Con `MEDIBOT_WEB_W` solo se indica el ancho: el alto se calcula
+manteniendo la proporcion real, para que un 4:3 no salga estirado.
+
+Antes de decidir, **mide en tu equipo**:
+
+```bash
+python3 bench_vision.py --fake                 # sin camara (cualquier maquina)
+python3 bench_vision.py --camara 0 --segundos 8   # con la camara real
+python3 bench_vision.py --camara 0 --perfil bajo --clientes 2
+```
+
+La tabla que imprime dice, por perfil, los milisegundos de cada etapa, los FPS
+capturados, los FPS realmente enviados, los KB por fotograma y el ancho de
+banda; y la columna `manda` señala la etapa que limita.
+
+### Variables de entorno de video
+
+| Variable | Def. | Para que |
+|---|---|---|
+| `MEDIBOT_CAM0` / `MEDIBOT_CAM1` | `0` / `1` | indice de cada camara (`-1` la apaga) |
+| `MEDIBOT_CAM_W` / `MEDIBOT_CAM_H` | `640` / `480` | resolucion de captura |
+| `MEDIBOT_CAM_FPS` | `30` | FPS pedidos al sensor |
+| `MEDIBOT_CAM_FOURCC` | `MJPG` | `MJPG`, `YUYV` o vacio (no forzar) |
+| `MEDIBOT_CAM_BACKEND` | `auto` | `v4l2`, `any`, `dshow`, `msmf` |
+| `MEDIBOT_CAM_AUTOEXP` | (sin tocar) | `0` fuerza exposicion manual |
+| `MEDIBOT_CAMARA_FAKE` | `0` | `1` = camara sintetica, sin hardware |
+| `MEDIBOT_WEB_W` / `MEDIBOT_WEB_H` | = captura | resolucion emitida a la web |
+| `MEDIBOT_WEB_QUALITY` | `70` | calidad JPEG (1..100) |
+| `MEDIBOT_WEB_FPS` | `15` | tope de FPS enviados al navegador |
+| `MEDIBOT_GUI_W` / `MEDIBOT_GUI_H` | `400` / `300` | panel de la ventana Tkinter |
+| `MEDIBOT_DETECT_ROJO` | `1` | estado inicial; se cambia en caliente con el boton **Color rojo** |
+| `MEDIBOT_OVERLAY` | `1` | `0` quita los textos dibujados sobre el video |
+| `MEDIBOT_LBPH_UMBRAL` | `80` | umbral del reconocimiento facial (ver abajo) |
+
+### Controles de imagen (brillo, contraste, saturacion...)
+
+**Por defecto no se toca ninguno**, y esa es la opcion recomendada: los
+valores de fabrica de una webcam dan una imagen correcta. Solo se aplican los
+controles que se pidan explicitamente:
+
+| Variable | Control | Rango tipico en una C270 |
+|---|---|---|
+| `MEDIBOT_CAM_BRILLO` | brightness | `0..255` (def. `128`) |
+| `MEDIBOT_CAM_CONTRASTE` | contrast | `0..255` (def. `32`) |
+| `MEDIBOT_CAM_SATURACION` | saturation | `0..255` (def. `32`) |
+| `MEDIBOT_CAM_NITIDEZ` | sharpness | `0..255` (def. `24`) |
+| `MEDIBOT_CAM_GANANCIA` | gain | `0..255` (def. `0`) |
+| `MEDIBOT_CAM_EXPOSICION` | exposure | `1..10000` (def. `166`) |
+
+> **Van en las unidades del dispositivo, no en 0..1.** Es el fallo que hacia
+> que una Logitech C270 se viera **gris y horrible**: el codigo mandaba
+> `saturation=0.5` sobre un rango `0..255`, el driver lo redondeaba a **0**, y
+> saturacion 0 significa literalmente sin color. Igual con `contrast=0.3` (0 =
+> imagen plana) y `brightness=0.5` (0 = lo mas oscuro). Ahora, si se detecta un
+> valor asi, el programa avisa en consola en vez de dejar la imagen en gris.
+
+El rango real de **tu** camara se consulta con:
+
+```bash
+v4l2-ctl -d /dev/video0 --list-ctrls
+```
+
+Tras cada ajuste el valor se vuelve a **leer** del driver para comprobar que
+de verdad se aplico; lo aceptado y lo rechazado se registra en consola y se
+publica en `/api/all` (`controles_camara`). Ejemplo — subir la saturacion de
+una C270 sin tocar nada mas:
+
+```bash
+MEDIBOT_CAM_SATURACION=60 python3 main.py
+```
+
+### Arrancar sin camara (demo o desarrollo)
+
+```bash
+MEDIBOT_CAMARA_FAKE=1 python3 main.py
+```
+
+Genera fotogramas sinteticos con un cuadrado rojo en movimiento: sirve para
+ver la web, probar el chasis y desarrollar sin hardware conectado.
+
+### Umbral del reconocimiento facial: como calibrarlo
+
+**LBPH no devuelve un porcentaje de acierto, devuelve una distancia donde
+menor es mejor.** El umbral estaba en `700`, que en la practica aceptaba a
+cualquiera (una cara desconocida rara vez pasa de 200), y la etiqueta mostraba
+`int(100 - distancia)`, o sea porcentajes negativos.
+
+Ahora el umbral por defecto es `80` y se ajusta sin editar codigo. Para
+calibrarlo **con datos de tu equipo**, no copiando un numero de internet:
+
+1. Entrena desde la pestaña Gestion (esto genera `trainer.yml` y
+   `trainer_labels.json`).
+2. Activa el reconocimiento. Cada cara imprime en consola su distancia real:
+   ```
+   [lbph] distancia=42.7 umbral=80 -> Ana
+   [lbph] distancia=131.4 umbral=80 -> DESCONOCIDO
+   ```
+   Las mismas distancias salen en `/api/all` → `reconocimiento.distancias`.
+3. Ponte tu delante (distancias **bajas**) y luego alguien no registrado
+   (distancias **altas**).
+4. Elige un umbral entre ambos grupos, mas cerca del grupo bajo:
+   ```bash
+   MEDIBOT_LBPH_UMBRAL=65 python3 main.py
+   ```
+
+La etiqueta en pantalla dice ahora `sim 0..100` ("cerca del umbral esta la
+coincidencia", 100 = calcado, 0 = justo en el limite). **No es una
+probabilidad** y no debe presentarse como tal.
+
+`trainer_labels.json` guarda el mapa id → nombre en el momento de entrenar.
+Antes el nombre se deducia del orden de `os.listdir`, que cambia al dar de
+alta o borrar a alguien: tras un alta, el robot saludaba con el nombre
+equivocado. Si tienes un `trainer.yml` anterior a este cambio, el programa
+avisa al arrancar: vuelve a entrenar una vez para generar el mapa.
+
+### Pruebas automatizadas (no necesitan camara)
+
+```bash
+python3 test_medibot_vision.py       # 53 pruebas, ~1 s
+python3 test_medibot_vision.py -v    # detallado
+```
+
+Cubren el buzon de fotogramas (cache de JPEG, carreras entre clientes,
+despertar y limpieza), el orden de negociacion V4L2, la proporcion de imagen,
+las rutas de video seguras, el umbral LBPH y el mapa de etiquetas.
+
+### Si los FPS de la camara bajan: medir antes de tocar
+
+El bucle de video se mide solo. Cada 5 segundos imprime por consola el reparto
+real del tiempo, y lo mismo sale en `/api/all` (campo `perf`):
+
+```
+[perf cam1] captura 6 FPS | web 6 FPS (1 clientes) | camara 150.2 ms | proceso 5.5 ms | publicar 1.1 ms | TOTAL 156.9 ms (~6.4 FPS) -> manda: camara
+```
+
+Como leerlo:
+
+- **`manda: camara`** — el limite esta en el driver (USB + decodificar MJPEG),
+  no en el codigo Python. Optimizar el procesamiento no servira de nada; hay
+  que bajar la resolucion de captura (`MEDIBOT_CAM_W`/`MEDIBOT_CAM_H`), probar
+  sin forzar MJPG, o revisar que la camara no este negociando 5-10 FPS por poca
+  luz (muchas webcams alargan la exposicion automaticamente y bajan los FPS a
+  la mitad en interiores; `MEDIBOT_CAM_AUTOEXP=0` lo evita).
+- **`manda: proceso`** — el limite es nuestro; ahi si tiene sentido afinar
+  detectores (`MEDIBOT_DETECT_ROJO=0`, `MEDIBOT_OVERLAY=0`).
+
+**Antes de nada, comprueba que la camara acepta lo que le pides.** Al arrancar,
+Medibot imprime lo que el driver devolvio DE VERDAD y avisa si no coincide:
+
+```
+[cam0] pedido 640x480@30 MJPG | REAL 640x480@10 YUYV | backend v4l2   <-- NO coincide
+[cam0] AVISO: se pidio MJPG y el driver dio YUYV. Comprueba los modos reales con:
+       v4l2-ctl --list-formats-ext -d /dev/video0
+```
+
+En Linux/Raspberry Pi, los modos que la camara soporta de verdad se listan asi:
+
+```bash
+sudo apt install v4l-utils
+ls /dev/video*
+v4l2-ctl --list-formats-ext -d /dev/video0     # resoluciones y FPS por formato
+v4l2-ctl -d /dev/video0 --all                  # formato activo y controles
+```
+
+Regla practica: si tu camara solo ofrece 30 FPS en `MJPG` y 10 FPS en `YUYV`
+(muy comun por USB 2.0, donde 640x480 YUYV son ~614 KB por fotograma), **hay
+que capturar en MJPG**. Los mismos datos salen en `/api/all` →
+`camaras_reales`, y en la web bajo cada camara.
+
+Ajustes que se pueden probar sin editar codigo:
+
+```bash
+MEDIBOT_CV_THREADS=1 python3 main.py   # hilos internos de OpenCV (def.: automatico)
+MEDIBOT_GUI_MS=33 python3 main.py      # refresco de la interfaz (def.: 50 ms)
+MEDIBOT_PERF_SEG=2 python3 main.py     # cada cuanto se imprime la medicion
+```
+
+### La ruleta del dispensador (28BYJ-48 + ULN2003)
+
+**Si se encienden las cuatro luces del ULN2003, empieza por aqui.**
+
+```
+PINTEST
+```
+
+Enciende **una sola bobina cada vez**, 1,2 s, diciendo cual deberia iluminarse.
+Es lo que distingue un fallo de firmware de uno de cables:
+
+| Lo que ves con `PINTEST` | Que significa |
+|---|---|
+| se enciende **una** cada vez, en orden | cableado correcto |
+| se encienden **las cuatro** a la vez | los cables **no** estan en A0-A3; algo mas mueve esos pines (tipico: bobinas puestas en 10-13, que son del mando PS2, o en 6-9, que son headers de encoder) |
+| se enciende **otra distinta** | el orden IN1..IN4 esta cruzado |
+| **ninguna** se enciende | falta el 5 V del ULN2003, o su GND no esta unido al GND del Arduino (el fallo mas frecuente) |
+
+> Ojo: **con el motor girando es normal ver las cuatro luces encendidas.** La
+> secuencia activa dos bobinas a la vez y cambia 341 veces por segundo, asi que
+> cada LED va al 50 % a unos 85 Hz y el ojo las ve todas encendidas. Eso no es
+> un fallo. El fallo es que sigan encendidas **paradas**, o que el motor zumbe
+> sin girar.
+
+El cableado se declara en **un solo sitio** del sketch:
+
+```c
+#define RULETA_IN1 PIN_A0
+#define RULETA_IN2 PIN_A1
+#define RULETA_IN3 PIN_A2
+#define RULETA_IN4 PIN_A3
+```
+
+Si mueves los cables, cambia solo esas cuatro lineas. **El compilador comprueba
+que no chocan** con el Serial (0/1), el servo (D2), los encoders (6-9), el mando
+PS2 (10-13) ni el I2C (A4/A5): un pin ocupado no compila, en vez de subirse y
+portarse raro.
+
+Otros diagnosticos: `STEPTEST[,k]` gira k compartimientos aislado del resto,
+`MOTORTEST` prueba los 4 motores DC, `I2CSCAN` busca el Motor Shield (0x60).
+
+### Encoders de los motores
+
+Se usa la **libreria oficial del shield** (`QGPMaker_Encoder`), que ya conoce
+el mapeo de pines y calcula las RPM. Con el ULN2003 movido a A0-A3 quedan
+libres los headers de encoder:
+
+**Solo se habilitan DOS: M1 y M2, uno por cada lado del chasis.**
+
+| header | pines | motor | estado |
+|---|---|---|---|
+| Encoder1 | D8, D9 | M1 (lado A) | **habilitado** |
+| Encoder2 | D6, D7 | M2 (lado B) | **habilitado** |
+| Encoder4 | D4, D5 | M4 (lado B) | no: redundante, gira siempre con M2 |
+| Encoder3 | D2, D3 | M3 (lado A) | **no conectar**: D2 es la senal del servo dispensador |
+
+**Por que solo dos.** Los motores van emparejados por lados: **M1 y M3 son un
+lado, M2 y M4 el otro**. Los dos de un mismo lado giran siempre juntos, asi que
+su encoder mide lo mismo. Con M1 + M2 ya se tiene el recorrido de cada lado,
+que es todo lo que hace falta para odometria: el **avance** es la media de los
+dos y el **giro** su diferencia. M4 solo repetia el dato de M2.
+
+**Por que M3 no se puede usar, pase lo que pase.** Su header (Encoder3) ocupa
+los pines D2 y D3, y **D2 es donde va la senal del servo dispensador**. Si se
+conecta el encoder de M3, su salida y la del Arduino empujan la misma linea:
+dos drivers peleando por un cable. Ademas de no funcionar, puede danar el pin.
+**No conectes nada al header Encoder3.**
+
+Como efecto secundario, **D4 y D5 quedan libres**. D5 era el pin del servo
+*tilt* de la camara, asi que ahora se puede montar el pan/tilt sin sacrificar
+ningun encoder de los que se usan.
+
+**4320 cuentas = 1 vuelta** del eje de salida (12 PPR x 4 cuadratura x 90 de
+reductora).
+
+Por Serial:
+
+```
+ENC        -> ENC,4320,-2160,0,0          posicion acumulada (con signo)
+ENCRPM     -> ENCRPM,120,-118,0,0         velocidad de cada motor en RPM
+ENCRESET   -> ENC,0,0,0,0                 pone las cuentas a cero
+```
+
+Se siguen enviando **cuatro campos** para no romper a quien ya los lea; los de
+M3 y M4 van fijos a `0`.
+
+Desde Python:
+
+```python
+import medibot_serial as ms
+
+ms.reiniciar_encoders()                  # poner a cero
+cuentas = ms.leer_encoders()             # [m1, m2, m3, m4] o None
+rpm     = ms.leer_rpm()                  # [m1, m2, m3, m4] o None
+vueltas = cuentas[0] / ms.CUENTAS_POR_VUELTA
+```
+
+Los campos de **M3 y M4 llegan siempre a 0** (no estan habilitados). Las tres
+funciones devuelven `None` si el Arduino no responde, para poder distinguirlo
+de cuatro ceros legitimos (que significan "motores parados").
+
+Para odometria con los dos encoders que hay:
+
+```python
+c = ms.leer_encoders()
+if c:
+    avance = (c[0] + c[1]) / 2 / ms.CUENTAS_POR_VUELTA   # vueltas medias
+    giro   = (c[0] - c[1]) / ms.CUENTAS_POR_VUELTA       # diferencia entre lados
+```
+
+Los servos de camara pan/tilt estan desactivados (`USAR_SERVOS_CAMARA 0` en el
+sketch) porque este robot no lleva ese soporte; por eso D3 y D5 quedan para
+encoders. Si algun dia montas el pan/tilt, pon ese `#define` a 1: recuperas los
+servos y pierdes los encoders 3 y 4.
+
+## Protocolo serie Medibot <-> Arduino (v2)
+
+`medibot_protocolo.py` es **la** definicion del protocolo. Antes estaba escrito
+tres veces (Vision, Pillbox y firmware) y las tres se habian separado sin que
+nadie lo notara, porque el lado Python **descartaba las respuestas**:
+
+| Comando que enviaba Python | Que hacia el firmware | Sintoma |
+|---|---|---|
+| `MOVE,SPINL` / `MOVE,SPINR` | no los conocia -> **paraba** el robot, y contestaba `OK,MOVE,SPINL` | los botones de giro paraban el robot, con ACK conforme |
+| `VEL,<200..255>` | no existia -> `ERR,VEL,231` | el deslizador de velocidad no hacia **nada** |
+| `TRUCO,<1..4>` | no existia -> `ERR,TRUCO,1` | los trucos no hacian nada |
+
+### Formato de linea
+
+```
+NOMBRE[,arg1[,arg2]]<LF>
+```
+
+- **9600 baud**, 8N1. Sale de `protocolo.BAUDIOS`, que debe coincidir con
+  `Serial.begin()` del sketch (hay una prueba que lo comprueba).
+- **ASCII de 7 bits.** Nada de acentos: el firmware compara con `String` de
+  Arduino y un caracter multibyte rompe la comparacion en silencio.
+- **Terminador: un solo `\n` (LF).** El firmware ignora los `\r`, asi que CRLF
+  tambien vale, pero se manda solo LF.
+- Separador coma, nombre en MAYUSCULAS, maximo 96 bytes por linea (el Arduino
+  UNO tiene 2 KB de RAM: sin tope, un flujo sin `\n` lo reinicia).
+- **Toda orden responde algo.** Esa es la regla que permite detectar un
+  desajuste en vez de sufrirlo.
+
+### Comandos
+
+| Comando | Args | Respuesta | Que hace |
+|---|---|---|---|
+| `MOVE,<dir>` | `FWD` `BACK` `LEFT` `RIGHT` `SPINL` `SPINR` `STOP` | `OK,MOVE,<dir>` | mueve el chasis |
+| `VEL,<n>` | 200..255 | `OK,VEL,<n>` | velocidad (se recorta al rango) |
+| `TRUCO,<n>` | 1..4 | `OK,TRUCO,<n>` y luego `FIN,TRUCO,<n>` | movimiento especial |
+| `DISPENSE[,<n>]` | 1..8 | `OK,DISPENSE,<n>`, `DISPENSADO,<n>`, `POS,<n>` | dispensa |
+| `GOTO,<n>` / `SELECT,<n>` | 1..8 | `OK,GOTO,<n>`, `POS,<n>` | gira la ruleta |
+| `HOME` | — | `OK,HOME`, `POS,<n>` | ruleta al origen |
+| `GETPOS` | — | `POS,<n>` | compartimiento actual |
+| `SERVO,<n>` | 0..90 | `SERVO,<n>` | servo dispensador |
+| `ENC` / `ENCRPM` / `ENCRESET` | — | `ENC,a,b,0,d` | encoders |
+| `PING` | — | `PONG` | comprobar el enlace |
+| `PROTO` | — | `PROTO,2,MEDIBOT` | version del firmware |
+| `GPIO,<pin>,<v>` / `PWM,<pin>,<duty>` | — | `OK,GPIO,...` | protocolo antiguo (se mantiene) |
+
+Cualquier comando desconocido o argumento invalido devuelve `ERR,<linea>`.
+Al arrancar, el Arduino emite `READY,MEDIBOT,2`, lo que permite detectar que
+se reinicio (por ejemplo, por un bajon de tension al arrancar los motores).
+
+```bash
+python3 medibot_protocolo.py     # imprime la tabla completa
+```
+
+### Comprobar que ambos lados hablan lo mismo
+
+```python
+import medibot_serial as ms
+ms.ping()                       # True si el Arduino contesta PONG
+ms.comprobar_compatibilidad()   # compara la version de protocolo
+ms.mover("SPINL")               # devuelve una Respuesta VALIDADA
+ms.fijar_velocidad(231)
+```
+
+Al arrancar, si el Arduino lleva un sketch anterior a esta version, se avisa
+en consola en vez de descubrirlo porque un comando concreto no hace nada.
+
+### Probar sin la placa
+
+`arduino_falso.py` simula el Arduino detras de un **puerto serie real**
+(pseudoterminal), asi que se ejercita el codigo de pyserial autentico:
+
+```bash
+python3 arduino_falso.py                     # imprime el /dev/pts/N a usar
+python3 arduino_falso.py --viejo             # simula el firmware ANTIGUO
+
+# en otra terminal, con el puerto que imprimio:
+MEDIBOT_SERIAL_PORT=/dev/pts/5 python3 serial_hub.py
+```
+
+Con `--viejo` se reproduce el fallo original (el robot se para ante `SPINL`
+mientras responde `OK`), util para comprobar que ahora **si** se detecta.
+
+### Pruebas del protocolo
+
+```bash
+python3 test_protocolo_serial.py       # 50 pruebas, sin placa
+```
+
+Cubren dos caminos independientes:
+
+1. **Paridad con el firmware**: lee el propio `MEDIBOT.MOVE.` y comprueba que
+   implementa cada comando y cada movimiento de la tabla, que los baudios
+   coinciden y que la version de protocolo es la misma. Sin placa y sin
+   compilador de Arduino.
+2. **Ida y vuelta real**: por un pseudoterminal, con el `serial_hub` autentico,
+   incluyendo rafagas de comandos consecutivos para verificar que las
+   respuestas no se mezclan.
+
+### Si la autodeteccion no encuentra el Arduino
+
+Fija el puerto a mano con una variable de entorno antes de arrancar:
+
+```bash
+MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 python3 Pastillero.py    # Pi
+set MEDIBOT_SERIAL_PORT=COM3 && python Pastillero.py      # Windows
+```
+
+En la web de Pillbox, la pastilla de estado dice la verdad y en dos palabras:
+**Conectado** (en verde) solo cuando hay un Arduino fisico abierto, y
+**Desconectado** (en rojo) el resto del tiempo, con el boton **Reconectar** al
+lado. El detalle -que puerto es, si el hub esta apagado, si se esta
+reintentando solo- esta en el `title`: se lee pasando el raton por encima, sin
+ocupar la barra ni hacerla bailar de ancho a cada refresco.
+
+### Datos persistentes
+
+`pillbox_data.json` (junto a los scripts) guarda dosis, horarios y el
+historial de acciones. El Arduino recuerda en su EEPROM el compartimiento
+que quedo arriba.
+>>>>>>> 7260eb27b8f2de74940f2f204bbedf445d2eaca9

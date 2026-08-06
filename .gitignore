@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Logs
 logs
 *.log
@@ -22,3 +23,38 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+=======
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Datos de runtime del Pillbox (estado local de la Pi)
+pillbox_data.json
+
+# Salida de Medibot en la maquina donde corre (no es codigo)
+videos/
+data/
+trainer.yml
+trainer_labels.json
+
+# CREDENCIALES - nunca al repositorio.
+#  Un token de Cloudflare da permiso de Edit sobre el DNS y los tuneles: quien
+#  lo tenga puede repuntar el dominio a donde quiera. Y un token publicado en
+#  GitHub se queda en el historial de git aunque luego se borre el fichero.
+#  Los ficheros de credenciales van FUERA del repo (~/.medibot/), pero estas
+#  reglas estan aqui como red por si alguno acaba dentro por descuido.
+*.token
+*_token.txt
+.env
+.env.*
+cf_token*
+cloudflared/
+*.pem
+credenciales*.json
+>>>>>>> 7260eb27b8f2de74940f2f204bbedf445d2eaca9
