@@ -22,6 +22,7 @@ import {
 import hardware1 from "../media/hardware1.png";
 import hardware2 from "../media/hardware2.png";
 import hardware3 from "../media/hardware3.png";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -65,7 +66,7 @@ function MedibotMark({
     <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
       <g className={wheelClassName} style={{ transformOrigin: "50% 50%" }}>
         {sectorPaths.map((d, i) => (
-          <path key={i} d={d} fill="#5EE1E6" />
+          <path key={i} d={d} fill="var(--c-brandsoft)" />
         ))}
       </g>
     </svg>
@@ -88,8 +89,8 @@ function MedibotLogo({
       <MedibotMark className={markClassName} wheelClassName={markWheelClassName} />
       {showWordmark && (
         <span className={`font-extrabold tracking-tight ${wordmarkClassName}`}>
-          <span className="text-[#5EE1E6]">MEDI</span>
-          <span className="text-[#0A3D5C]">BOT</span>
+          <span className="text-brandsoft">MEDI</span>
+          <span className="text-ink">BOT</span>
         </span>
       )}
     </div>
@@ -120,18 +121,18 @@ const HARDWARE_ITEMS = [
     icon: Microchip,
   },
   {
-    title: "Módulo ESP32",
-    description: "Microcontrolador con conectividad WiFi para teleoperación y monitoreo en tiempo real desde interfaz web.",
+    title: "Módulo Controlador de PWM",
+    description: "Placa de potencia con dos MOSFET IRF540N que reciben la señal PWM del controlador y regulan el ventilador y la celda Peltier del compartimento térmico.",
     image: hardware3,
     icon: Cpu,
   },
 ];
 
 const SOFTWARE_STATS = [
-  { label: "C++ / Arduino", percentage: 35, color: "from-[#01BAEF] to-[#0B4F6C]" },
-  { label: "Python", percentage: 25, color: "from-[#34D399] to-[#01BAEF]" },
-  { label: "React / TypeScript", percentage: 30, color: "from-[#5EE1E6] to-[#34D399]" },
-  { label: "HTML / CSS", percentage: 10, color: "from-[#0B4F6C] to-[#5EE1E6]" },
+  { label: "C++ / Arduino", percentage: 35, color: "from-brand to-deep" },
+  { label: "Python", percentage: 25, color: "from-mint to-brand" },
+  { label: "React / TypeScript", percentage: 30, color: "from-brandsoft to-mint" },
+  { label: "HTML / CSS", percentage: 10, color: "from-deep to-brandsoft" },
 ];
 
 export default function TechnicalPage() {
@@ -221,9 +222,9 @@ export default function TechnicalPage() {
   }, []);
 
   return (
-    <div ref={pageRef} className="min-h-screen bg-[#F4FAFB]">
+    <div ref={pageRef} className="min-h-screen bg-surface">
       {/* ================= NAVBAR ================= */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-[#0A3D5C]/5">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-ink/5">
         <div className="max-w-7xl mx-auto px-6 lg:px-10">
           <div className="flex items-center justify-between h-16">
             <Link to="/" className="flex items-center gap-2.5">
@@ -235,20 +236,23 @@ export default function TechnicalPage() {
                 <Link
                   key={link.href}
                   to={link.href}
-                  className="text-sm font-medium text-[#0A3D5C]/70 hover:text-[#01BAEF] transition-colors"
+                  className="text-sm font-medium text-ink/70 hover:text-brand transition-colors"
                 >
                   {link.label}
                 </Link>
               ))}
             </div>
 
-            <Link
-              to="/auth"
-              className="hidden md:flex items-center gap-2 px-4 py- rounded-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white text-sm font-semibold hover:opacity-90 transition-opacity"
-            >
-              Acceder
-              <ArrowRight className="w-4 h-4" />
-            </Link>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <Link
+                to="/auth"
+                className="hidden md:flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-brand to-deep text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+              >
+                Acceder
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
         </div>
       </nav>
@@ -257,17 +261,17 @@ export default function TechnicalPage() {
       <section className="pt-32 pb-20 lg:pt-40 lg:pb-28 px-6 lg:px-10">
         <div className="max-w-7xl mx-auto">
           <div className="hero-content text-center max-w-4xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#5EE1E6]/10 border border-[#5EE1E6]/30 text-[#0B4F6C] text-sm font-semibold mb-6">
-              <Zap className="w-4 h-4 text-[#01BAEF]" />
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brandsoft/10 border border-brandsoft/30 text-ink text-sm font-semibold mb-6">
+              <Zap className="w-4 h-4 text-brand" />
               Tecnología detrás de MEDIBOT
             </div>
-            <h1 className="text-4xl lg:text-6xl font-extrabold mb-6 text-[#0A3D5C] leading-tight">
+            <h1 className="text-4xl lg:text-6xl font-extrabold mb-6 text-ink leading-tight">
               Innovación en{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#01BAEF] to-[#34D399]">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand to-mint">
                 Hardware y Software
               </span>
             </h1>
-            <p className="text-lg text-[#0A3D5C]/70 leading-relaxed mb-8">
+            <p className="text-lg text-ink/70 leading-relaxed mb-8">
               Explora los componentes técnicos que hacen posible MEDIBOT: desde el
               sistema de tracción omnidireccional hasta el código que controla cada
               movimiento.
@@ -277,16 +281,16 @@ export default function TechnicalPage() {
       </section>
 
       {/* ================= HARDWARE ================= */}
-      <section id="hardware" className="px-6 lg:px-10 py-24 lg:py-32 bg-white">
+      <section id="hardware" className="px-6 lg:px-10 py-24 lg:py-32 bg-card">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
               Hardware
             </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
               Componentes Físicos
             </h2>
-            <p className="text-[#0A3D5C]/60 text-lg">
+            <p className="text-ink/60 text-lg">
               Los elementos mecánicos y electrónicos que dan vida a MEDIBOT.
             </p>
           </div>
@@ -294,7 +298,7 @@ export default function TechnicalPage() {
           <div className="relative max-w-4xl mx-auto">
             <button
               onClick={() => setCurrentHardwareIndex((prev) => (prev === 0 ? HARDWARE_ITEMS.length - 1 : prev - 1))}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 z-20 w-12 h-12 rounded-full bg-white border border-[#0A3D5C]/10 shadow-lg flex items-center justify-center hover:bg-[#01BAEF] hover:text-white hover:border-[#01BAEF] transition-all"
+              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 z-20 w-12 h-12 rounded-full bg-card border border-ink/10 shadow-lg flex items-center justify-center hover:bg-brand hover:text-white hover:border-brand transition-all"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
@@ -306,8 +310,8 @@ export default function TechnicalPage() {
               >
                 {HARDWARE_ITEMS.map((item, index) => (
                   <div key={index} className="w-full flex-shrink-0 px-4">
-                    <div className="bg-white rounded-3xl border border-[#0A3D5C]/10 shadow-lg overflow-hidden">
-                      <div className="aspect-video bg-[#F4FAFB] p-8 flex items-center justify-center">
+                    <div className="bg-card rounded-3xl border border-ink/10 shadow-lg overflow-hidden">
+                      <div className="aspect-video bg-surface p-8 flex items-center justify-center">
                         <img
                           src={item.image}
                           alt={item.title}
@@ -316,12 +320,12 @@ export default function TechnicalPage() {
                       </div>
                       <div className="p-6">
                         <div className="flex items-center gap-3 mb-3">
-                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#01BAEF]/10 to-[#34D399]/10 flex items-center justify-center">
-                            <item.icon className="w-5 h-5 text-[#01BAEF]" />
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center">
+                            <item.icon className="w-5 h-5 text-brand" />
                           </div>
-                          <h3 className="font-bold text-[#0A3D5C]">{item.title}</h3>
+                          <h3 className="font-bold text-ink">{item.title}</h3>
                         </div>
-                        <p className="text-sm text-[#0A3D5C]/60 leading-relaxed">
+                        <p className="text-sm text-ink/60 leading-relaxed">
                           {item.description}
                         </p>
                       </div>
@@ -333,7 +337,7 @@ export default function TechnicalPage() {
 
             <button
               onClick={() => setCurrentHardwareIndex((prev) => (prev === HARDWARE_ITEMS.length - 1 ? 0 : prev + 1))}
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 z-20 w-12 h-12 rounded-full bg-white border border-[#0A3D5C]/10 shadow-lg flex items-center justify-center hover:bg-[#01BAEF] hover:text-white hover:border-[#01BAEF] transition-all"
+              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 z-20 w-12 h-12 rounded-full bg-card border border-ink/10 shadow-lg flex items-center justify-center hover:bg-brand hover:text-white hover:border-brand transition-all"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -344,7 +348,7 @@ export default function TechnicalPage() {
                   key={index}
                   onClick={() => setCurrentHardwareIndex(index)}
                   className={`w-2 h-2 rounded-full transition-all ${
-                    index === currentHardwareIndex ? "bg-[#01BAEF] w-6" : "bg-[#0A3D5C]/20"
+                    index === currentHardwareIndex ? "bg-brand w-6" : "bg-ink/20"
                   }`}
                 />
               ))}
@@ -357,26 +361,26 @@ export default function TechnicalPage() {
       <section id="software" className="px-6 lg:px-10 py-24 lg:py-32">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
               Software
             </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
               Código Fuente
             </h2>
-            <p className="text-[#0A3D5C]/60 text-lg">
+            <p className="text-ink/60 text-lg">
               Distribución del código que controla MEDIBOT.
             </p>
           </div>
 
           <div className="max-w-3xl mx-auto">
-            <div className="bg-white rounded-3xl p-8 border border-[#0A3D5C]/10 shadow-lg">
+            <div className="bg-card rounded-3xl p-8 border border-ink/10 shadow-lg">
               {SOFTWARE_STATS.map((stat, index) => (
                 <div key={index} className="mb-6 last:mb-0">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-[#0A3D5C]">{stat.label}</span>
-                    <span className="text-sm font-bold text-[#01BAEF]">{stat.percentage}%</span>
+                    <span className="font-semibold text-ink">{stat.label}</span>
+                    <span className="text-sm font-bold text-brand">{stat.percentage}%</span>
                   </div>
-                  <div className="h-3 bg-[#F4FAFB] rounded-full overflow-hidden">
+                  <div className="h-3 bg-surface rounded-full overflow-hidden">
                     <div
                       className={`stat-bar h-full bg-gradient-to-r ${stat.color} rounded-full`}
                       data-width={`${stat.percentage}%`}
@@ -385,12 +389,12 @@ export default function TechnicalPage() {
                 </div>
               ))}
 
-              <div className="mt-8 pt-6 border-t border-[#0A3D5C]/10">
+              <div className="mt-8 pt-6 border-t border-ink/10">
                 <a
                   href="https://github.com/elporxdk/Proyects"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-3 w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white font-semibold hover:opacity-90 transition-opacity"
+                  className="flex items-center justify-center gap-3 w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-brand to-deep text-white font-semibold hover:opacity-90 transition-opacity"
                 >
                   <Code2 className="w-5 h-5" />
                   Ver en GitHub
@@ -403,36 +407,36 @@ export default function TechnicalPage() {
       </section>
 
       {/* ================= DOCUMENTATION ================= */}
-      <section id="documentacion" className="px-6 lg:px-10 py-24 lg:py-32 bg-white">
+      <section id="documentacion" className="px-6 lg:px-10 py-24 lg:py-32 bg-card">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
               Documentación
             </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
               Recursos y Guías
             </h2>
-            <p className="text-[#0A3D5C]/60 text-lg">
+            <p className="text-ink/60 text-lg">
               Accede a la documentación completa del proyecto.
             </p>
           </div>
 
           {/* Anteproyecto Featured Section */}
-          <div className="bg-gradient-to-r from-[#01BAEF]/10 to-[#34D399]/10 rounded-3xl p-8 border border-[#01BAEF]/20">
+          <div className="bg-gradient-to-r from-brand/10 to-mint/10 rounded-3xl p-8 border border-brand/20">
             <div className="flex flex-col md:flex-row items-center justify-between gap-6">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#01BAEF] to-[#0B4F6C] flex items-center justify-center">
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand to-deep flex items-center justify-center">
                   <FileText className="w-8 h-8 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-[#0A3D5C] mb-1">Anteproyecto MEDIBOT</h3>
-                  <p className="text-sm text-[#0A3D5C]/60">Documento completo con análisis y planificación del proyecto.</p>
+                  <h3 className="text-xl font-bold text-ink mb-1">Anteproyecto MEDIBOT</h3>
+                  <p className="text-sm text-ink/60">Documento completo con análisis y planificación del proyecto.</p>
                 </div>
               </div>
               <a
                 href="/AnteproyectoMEDIBOT.docx"
                 download
-                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white font-semibold hover:opacity-90 transition-opacity whitespace-nowrap"
+                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-brand to-deep text-white font-semibold hover:opacity-90 transition-opacity whitespace-nowrap"
               >
                 <Download className="w-5 h-5" />
                 Descargar documento
@@ -443,10 +447,10 @@ export default function TechnicalPage() {
       </section>
 
       {/* ================= FOOTER ================= */}
-      <footer id="contacto" className="px-6 lg:px-10 py-16 bg-[#0A3D5C] text-white/70">
+      <footer id="contacto" className="px-6 lg:px-10 py-16 bg-ink text-white/70">
         <div className="max-w-7xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
           <div>
-            <div className="mb-4 [&_span]:text-white [&_span_span:first-child]:!text-[#5EE1E6]">
+            <div className="mb-4 [&_span]:text-white [&_span_span:first-child]:!text-brandsoft">
               <MedibotLogo markClassName="w-9 h-9" wordmarkClassName="text-lg" />
             </div>
             <p className="text-sm leading-relaxed">
@@ -481,13 +485,13 @@ export default function TechnicalPage() {
             <h4 className="text-white font-semibold mb-4">Contacto</h4>
             <ul className="space-y-3 text-sm">
               <li className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-[#01BAEF]" /> contacto@medibot.site
+                <Mail className="w-4 h-4 text-brand" /> contacto@medibot.site
               </li>
               <li className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-[#01BAEF]" /> +52 55 0000 0000
+                <Phone className="w-4 h-4 text-brand" /> +52 55 0000 0000
               </li>
               <li className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-[#01BAEF]" /> San Salvador, El Salvador
+                <MapPin className="w-4 h-4 text-brand" /> San Salvador, El Salvador
               </li>
             </ul>
           </div>
@@ -496,7 +500,7 @@ export default function TechnicalPage() {
         <div className="max-w-7xl mx-auto border-t border-white/10 mt-12 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
           <p>© {new Date().getFullYear()} Medibot. Todos los derechos reservados.</p>
           <p className="flex items-center gap-1">
-            <CheckCircle2 className="w-4 h-4 text-[#34D399]" /> Plataforma verificada
+            <CheckCircle2 className="w-4 h-4 text-mint" /> Plataforma verificada
           </p>
         </div>
       </footer>

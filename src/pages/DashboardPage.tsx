@@ -40,7 +40,7 @@ function MedibotMark({
     <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
       <g className={wheelClassName} style={{ transformOrigin: "50% 50%" }}>
         {sectorPaths.map((d, i) => (
-          <path key={i} d={d} fill="#5EE1E6" />
+          <path key={i} d={d} fill="var(--c-brandsoft)" />
         ))}
       </g>
     </svg>
@@ -63,8 +63,8 @@ function MedibotLogo({
       <MedibotMark className={markClassName} wheelClassName={markWheelClassName} />
       {showWordmark && (
         <span className={`font-extrabold tracking-tight ${wordmarkClassName}`}>
-          <span className="text-[#5EE1E6]">MEDI</span>
-          <span className="text-[#0A3D5C]">BOT</span>
+          <span className="text-brandsoft">MEDI</span>
+          <span className="text-ink">BOT</span>
         </span>
       )}
     </div>
@@ -79,24 +79,24 @@ export default function DashboardPage() {
   };
   //Este contenedor deberá ser sustituido por la pantalla completa que se planea dónde será el control del robot de medibot
   return (
-    <div className="min-h-screen bg-[#F4FAFB]">
+    <div className="min-h-screen bg-surface">
       {/* Navbar */}
-      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-[#0A3D5C]/5">
+      <nav className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b border-ink/5">
         <div className="max-w-7xl mx-auto px-6 lg:px-10 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <MedibotLogo markClassName="w-9 h-9" wordmarkClassName="text-lg" />
           </Link>
 
           <div className="flex items-center gap-4">
-            <button className="w-10 h-10 rounded-full bg-[#0A3D5C]/5 flex items-center justify-center hover:bg-[#0A3D5C]/10 transition-colors">
-              <Bell className="w-5 h-5 text-[#0A3D5C]" />
+            <button className="w-10 h-10 rounded-full bg-ink/5 flex items-center justify-center hover:bg-ink/10 transition-colors">
+              <Bell className="w-5 h-5 text-ink" />
             </button>
-            <button className="w-10 h-10 rounded-full bg-[#0A3D5C]/5 flex items-center justify-center hover:bg-[#0A3D5C]/10 transition-colors">
-              <Settings className="w-5 h-5 text-[#0A3D5C]" />
+            <button className="w-10 h-10 rounded-full bg-ink/5 flex items-center justify-center hover:bg-ink/10 transition-colors">
+              <Settings className="w-5 h-5 text-ink" />
             </button>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#0A3D5C]/5 hover:bg-[#0A3D5C]/10 transition-colors text-sm font-medium text-[#0A3D5C]"
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-ink/5 hover:bg-ink/10 transition-colors text-sm font-medium text-ink"
             >
               <LogOut className="w-4 h-4" />
               Cerrar sesión
@@ -110,10 +110,10 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto">
           <div className="hero-content flex items-center justify-between">
             <div>
-              <h1 className="text-4xl lg:text-5xl font-extrabold text-[#0A3D5C] mb-4">
+              <h1 className="text-4xl lg:text-5xl font-extrabold text-ink mb-4">
                 Bienvenido, {user?.user_metadata?.full_name || "Usuario"}
               </h1>
-              <p className="text-lg text-[#0A3D5C]/60 max-w-2xl">
+              <p className="text-lg text-ink/60 max-w-2xl">
                 Panel de control de MEDIBOT. Monitorea y gestiona el sistema de transporte hospitalario.
               </p>
             </div>
@@ -145,7 +145,7 @@ export default function DashboardPage() {
 
                     const d = `M ${x1} ${y1} A ${OUTER_R} ${OUTER_R} 0 0 1 ${x2} ${y2} L ${x3} ${y3} A ${INNER_R} ${INNER_R} 0 0 0 ${x4} ${y4} Z`;
 
-                    return <path key={i} d={d} fill="#5EE1E6" />;
+                    return <path key={i} d={d} fill="var(--c-brandsoft)" />;
                   })}
                 </g>
               </svg>
@@ -157,38 +157,38 @@ export default function DashboardPage() {
       {/* Stats Section */}
       <section className="px-6 lg:px-10 py-16 lg:py-24">
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-2xl font-bold text-[#0A3D5C] mb-8">Estadísticas</h2>
+          <h2 className="text-2xl font-bold text-ink mb-8">Estadísticas</h2>
           <div className="stats-grid grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="stat-card bg-white rounded-2xl p-6 border border-[#0A3D5C]/5 shadow-sm">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#01BAEF]/10 to-[#34D399]/10 flex items-center justify-center mb-4">
-                <Activity className="w-6 h-6 text-[#01BAEF]" />
+            <div className="stat-card bg-card rounded-2xl p-6 border border-ink/5 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center mb-4">
+                <Activity className="w-6 h-6 text-brand" />
               </div>
-              <p className="text-3xl font-bold text-[#0A3D5C] mb-1">24</p>
-              <p className="text-sm text-[#0A3D5C]/60">Transportes hoy</p>
+              <p className="text-3xl font-bold text-ink mb-1">24</p>
+              <p className="text-sm text-ink/60">Transportes hoy</p>
             </div>
 
-            <div className="stat-card bg-white rounded-2xl p-6 border border-[#0A3D5C]/5 shadow-sm">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#34D399]/10 to-[#01BAEF]/10 flex items-center justify-center mb-4">
-                <TrendingUp className="w-6 h-6 text-[#34D399]" />
+            <div className="stat-card bg-card rounded-2xl p-6 border border-ink/5 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-mint/10 to-brand/10 flex items-center justify-center mb-4">
+                <TrendingUp className="w-6 h-6 text-mint" />
               </div>
-              <p className="text-3xl font-bold text-[#0A3D5C] mb-1">98%</p>
-              <p className="text-sm text-[#0A3D5C]/60">Eficiencia</p>
+              <p className="text-3xl font-bold text-ink mb-1">98%</p>
+              <p className="text-sm text-ink/60">Eficiencia</p>
             </div>
 
-            <div className="stat-card bg-white rounded-2xl p-6 border border-[#0A3D5C]/5 shadow-sm">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#5EE1E6]/10 to-[#01BAEF]/10 flex items-center justify-center mb-4">
-                <FileText className="w-6 h-6 text-[#5EE1E6]" />
+            <div className="stat-card bg-card rounded-2xl p-6 border border-ink/5 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brandsoft/10 to-brand/10 flex items-center justify-center mb-4">
+                <FileText className="w-6 h-6 text-brandsoft" />
               </div>
-              <p className="text-3xl font-bold text-[#0A3D5C] mb-1">156</p>
-              <p className="text-sm text-[#0A3D5C]/60">Documentos</p>
+              <p className="text-3xl font-bold text-ink mb-1">156</p>
+              <p className="text-sm text-ink/60">Documentos</p>
             </div>
 
-            <div className="stat-card bg-white rounded-2xl p-6 border border-[#0A3D5C]/5 shadow-sm">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#0B4F6C]/10 to-[#5EE1E6]/10 flex items-center justify-center mb-4">
-                <User className="w-6 h-6 text-[#0B4F6C]" />
+            <div className="stat-card bg-card rounded-2xl p-6 border border-ink/5 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-deep/10 to-brandsoft/10 flex items-center justify-center mb-4">
+                <User className="w-6 h-6 text-ink" />
               </div>
-              <p className="text-3xl font-bold text-[#0A3D5C] mb-1">12</p>
-              <p className="text-sm text-[#0A3D5C]/60">Usuarios activos</p>
+              <p className="text-3xl font-bold text-ink mb-1">12</p>
+              <p className="text-sm text-ink/60">Usuarios activos</p>
             </div>
           </div>
         </div>
@@ -197,40 +197,40 @@ export default function DashboardPage() {
       {/* Quick Actions */}
       <section className="px-6 lg:px-10 py-16 lg:py-24">
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-2xl font-bold text-[#0A3D5C] mb-8">Acciones rápidas</h2>
+          <h2 className="text-2xl font-bold text-ink mb-8">Acciones rápidas</h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Link
               to="/tecnologia"
-              className="bg-white rounded-2xl p-6 border border-[#0A3D5C]/5 shadow-sm hover:shadow-md hover:border-[#01BAEF]/30 transition-all group"
+              className="bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group"
             >
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#01BAEF]/10 to-[#34D399]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <FileText className="w-6 h-6 text-[#01BAEF]" />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <FileText className="w-6 h-6 text-brand" />
               </div>
-              <h3 className="font-bold text-[#0A3D5C] mb-2">Documentación técnica</h3>
-              <p className="text-sm text-[#0A3D5C]/60">Accede a la documentación completa del sistema.</p>
+              <h3 className="font-bold text-ink mb-2">Documentación técnica</h3>
+              <p className="text-sm text-ink/60">Accede a la documentación completa del sistema.</p>
             </Link>
 
-            <div className="bg-white rounded-2xl p-6 border border-[#0A3D5C]/5 shadow-sm hover:shadow-md hover:border-[#01BAEF]/30 transition-all group cursor-pointer">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#34D399]/10 to-[#01BAEF]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Activity className="w-6 h-6 text-[#34D399]" />
+            <div className="bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group cursor-pointer">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-mint/10 to-brand/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <Activity className="w-6 h-6 text-mint" />
               </div>
-              <h3 className="font-bold text-[#0A3D5C] mb-2">Monitoreo en vivo</h3>
-              <p className="text-sm text-[#0A3D5C]/60">Visualiza el estado de los robots en tiempo real.</p>
+              <h3 className="font-bold text-ink mb-2">Monitoreo en vivo</h3>
+              <p className="text-sm text-ink/60">Visualiza el estado de los robots en tiempo real.</p>
             </div>
 
-            <div className="bg-white rounded-2xl p-6 border border-[#0A3D5C]/5 shadow-sm hover:shadow-md hover:border-[#01BAEF]/30 transition-all group cursor-pointer">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#5EE1E6]/10 to-[#01BAEF]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Settings className="w-6 h-6 text-[#5EE1E6]" />
+            <div className="bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group cursor-pointer">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brandsoft/10 to-brand/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <Settings className="w-6 h-6 text-brandsoft" />
               </div>
-              <h3 className="font-bold text-[#0A3D5C] mb-2">Configuración</h3>
-              <p className="text-sm text-[#0A3D5C]/60">Ajusta los parámetros del sistema.</p>
+              <h3 className="font-bold text-ink mb-2">Configuración</h3>
+              <p className="text-sm text-ink/60">Ajusta los parámetros del sistema.</p>
             </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-[#0A3D5C] text-white px-6 lg:px-10 py-12">
+      <footer className="bg-ink text-white px-6 lg:px-10 py-12">
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-2">

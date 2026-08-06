@@ -12,6 +12,7 @@ import carlosPhoto from "../media/CarlosVindel.png";
 // cualquier valor puesto por el setter estatico, asi que tiene que existir antes
 // de que se cree el primer elemento. Se configura en el <head> de index.html.
 import "@google/model-viewer";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
 // no lo conoce hasta que se declara. React 19 dejo de exponer un namespace JSX
@@ -85,7 +86,7 @@ function MedibotMark({
     <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
       <g className={wheelClassName} style={{ transformOrigin: "50% 50%" }}>
         {sectorPaths.map((d, i) => (
-          <path key={i} d={d} fill="#5EE1E6" />
+          <path key={i} d={d} fill="var(--c-brandsoft)" />
         ))}
       </g>
     </svg>
@@ -108,8 +109,8 @@ function MedibotLogo({
       <MedibotMark className={markClassName} wheelClassName={markWheelClassName} />
       {showWordmark && (
         <span className={`font-extrabold tracking-tight ${wordmarkClassName}`}>
-          <span className="text-[#5EE1E6]">MEDI</span>
-          <span className="text-[#0A3D5C]">BOT</span>
+          <span className="text-brandsoft">MEDI</span>
+          <span className="text-ink">BOT</span>
         </span>
       )}
     </div>
@@ -464,25 +465,25 @@ export default function MedicalLandingPage() {
   }, []);
 
   return (
-    <div ref={rootRef} className="min-h-screen bg-[#F4FAFB] text-[#0A3D5C] font-sans overflow-x-hidden">
+    <div ref={rootRef} className="min-h-screen bg-surface text-ink font-sans overflow-x-hidden">
       {/* ================= SPLASH SCREEN ================= */}
       {showSplash && (
         <div
           ref={splashRef}
-          className="fixed inset-0 z-[100] bg-[#DFF9FA] flex flex-col items-center justify-center gap-6"
+          className="fixed inset-0 z-[100] bg-surface flex flex-col items-center justify-center gap-6"
         >
           <div ref={splashLogoRef}>
             <MedibotMark className="w-40 h-40" wheelClassName="splash-wheel" />
           </div>
           <div className="text-4xl sm:text-5xl font-extrabold tracking-tight">
-            <span className="text-[#5EE1E6]">MEDI</span>
-            <span className="text-[#0A3D5C]">BOT</span>
+            <span className="text-brandsoft">MEDI</span>
+            <span className="text-ink">BOT</span>
           </div>
         </div>
       )}
 
       {/* ================= NAVBAR ================= */}
-      <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-white/80 border-b border-[#0A3D5C]/5">
+      <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-card/80 border-b border-ink/5">
         <div className="max-w-7xl mx-auto px-6 lg:px-10 h-20 flex items-center justify-between">
           <a href="#inicio" className="group">
             <div className="group-hover:scale-105 transition-transform">
@@ -490,63 +491,70 @@ export default function MedicalLandingPage() {
             </div>
           </a>
 
-          <nav className="hidden lg:flex items-center gap-8">
+          {/* `gap-6` y no `gap-8`, y `whitespace-nowrap` en los enlaces: con siete
+              enlaces mas el interruptor de tema, a 1440 px la barra desbordaba y
+              los enlaces se partian en dos lineas, chocando con el logotipo. */}
+          <nav className="hidden xl:flex items-center gap-6 whitespace-nowrap">
             {NAV_LINKS.map((link) =>
               link.href.startsWith('/') ? (
                 <Link
                   key={link.href}
                   to={link.href}
-                  className="text-sm font-medium text-[#0A3D5C]/70 hover:text-[#0A3D5C] transition-colors relative group"
+                  className="text-sm font-medium text-ink/70 hover:text-ink transition-colors relative group"
                 >
                   {link.label}
-                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#01BAEF] group-hover:w-full transition-all duration-300" />
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-brand group-hover:w-full transition-all duration-300" />
                 </Link>
               ) : (
                 <a
                   key={link.href}
                   href={link.href}
-                  className="text-sm font-medium text-[#0A3D5C]/70 hover:text-[#0A3D5C] transition-colors relative group"
+                  className="text-sm font-medium text-ink/70 hover:text-ink transition-colors relative group"
                 >
                   {link.label}
-                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#01BAEF] group-hover:w-full transition-all duration-300" />
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-brand group-hover:w-full transition-all duration-300" />
                 </a>
               )
             )}
           </nav>
 
-          <div className="hidden lg:flex items-center gap-3">
+          <div className="hidden xl:flex items-center gap-2 whitespace-nowrap">
+            <ThemeToggle />
             <Link
               to="/auth"
-              className="text-sm font-semibold px-5 py-2.5 rounded-full text-[#0A3D5C] hover:bg-[#0A3D5C]/5 transition-colors"
+              className="hidden 2xl:block text-sm font-semibold px-4 py-2.5 rounded-full text-ink hover:bg-ink/5 transition-colors"
             >
               Iniciar sesión
             </Link>
             <Link
               to="/auth"
-              className="text-sm font-semibold px-5 py-2.5 rounded-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center gap-2"
+              className="text-sm font-semibold px-5 py-2.5 rounded-full bg-gradient-to-r from-brand to-deep text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center gap-2"
             >
               Comenzar gratis <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
 
-          <button
-            className="lg:hidden w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#0A3D5C]/5"
+          <div className="xl:hidden flex items-center gap-1">
+            <ThemeToggle />
+            <button
+            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-ink/5"
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="Abrir menú"
           >
             {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+            </button>
+          </div>
         </div>
 
         {menuOpen && (
-          <div className="lg:hidden bg-white border-t border-[#0A3D5C]/5 px-6 py-4 flex flex-col gap-4">
+          <div className="xl:hidden bg-card border-t border-ink/5 px-6 py-4 flex flex-col gap-4">
             {NAV_LINKS.map((link) => (
               link.href.startsWith('/') ? (
                 <Link
                   key={link.href}
                   to={link.href}
                   onClick={() => setMenuOpen(false)}
-                  className="text-sm font-medium text-[#0A3D5C]/70"
+                  className="text-sm font-medium text-ink/70"
                 >
                   {link.label}
                 </Link>
@@ -555,7 +563,7 @@ export default function MedicalLandingPage() {
                   key={link.href}
                   href={link.href}
                   onClick={() => setMenuOpen(false)}
-                  className="text-sm font-medium text-[#0A3D5C]/70"
+                  className="text-sm font-medium text-ink/70"
                 >
                   {link.label}
                 </a>
@@ -564,7 +572,7 @@ export default function MedicalLandingPage() {
             <Link
               to="/auth"
               onClick={() => setMenuOpen(false)}
-              className="mt-2 text-sm font-semibold px-5 py-3 rounded-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white text-center"
+              className="mt-2 text-sm font-semibold px-5 py-3 rounded-full bg-gradient-to-r from-brand to-deep text-white text-center"
             >
               Comenzar gratis
             </Link>
@@ -579,25 +587,25 @@ export default function MedicalLandingPage() {
       >
         {/* Background decoration */}
         <div className="absolute inset-0 -z-10">
-          <div className="absolute top-10 right-0 w-[500px] h-[500px] bg-[#01BAEF]/15 rounded-full blur-3xl" />
-          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-[#34D399]/15 rounded-full blur-3xl" />
+          <div className="absolute top-10 right-0 w-[500px] h-[500px] bg-brand/15 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-mint/15 rounded-full blur-3xl" />
         </div>
 
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
           <div>
-            <div className="hero-badge inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#01BAEF]/10 border border-[#01BAEF]/20 text-[#0B4F6C] text-sm font-semibold mb-6">
-              <Sparkles className="w-4 h-4 text-[#01BAEF]" />
+            <div className="hero-badge inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand/10 border border-brand/20 text-ink text-sm font-semibold mb-6">
+              <Sparkles className="w-4 h-4 text-brand" />
               Prototipo CREA-J 2026 · Colegio Don Bosco
             </div>
 
             <h1 className="hero-title text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.1] tracking-tight mb-6">
               Transporte hospitalario
-              <span className="block bg-gradient-to-r from-[#01BAEF] via-[#0B4F6C] to-[#34D399] bg-clip-text text-transparent">
+              <span className="block bg-gradient-to-r from-brand via-deep to-mint bg-clip-text text-transparent">
                 seguro y teleoperado
               </span>
             </h1>
 
-            <p className="hero-desc text-lg text-[#0A3D5C]/70 max-w-xl mb-10 leading-relaxed">
+            <p className="hero-desc text-lg text-ink/70 max-w-xl mb-10 leading-relaxed">
               MEDIBOT es un robot móvil teleoperado con control térmico activo
               que transporta medicamentos e insumos entre la farmacia y las
               áreas de atención al paciente, reduciendo la exposición del
@@ -608,16 +616,16 @@ export default function MedicalLandingPage() {
             <div className="hero-cta flex flex-col sm:flex-row gap-4">
               <a
                 href="#nosotros"
-                className="group px-7 py-4 rounded-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] text-white font-semibold shadow-xl shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
+                className="group px-7 py-4 rounded-full bg-gradient-to-r from-brand to-deep text-white font-semibold shadow-xl shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
               >
                 Conoce el proyecto
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </a>
               <a
                 href="#como-funciona"
-                className="px-7 py-4 rounded-full bg-white border border-[#0A3D5C]/10 font-semibold text-[#0A3D5C] hover:bg-[#0A3D5C]/5 transition-colors flex items-center justify-center gap-2"
+                className="px-7 py-4 rounded-full bg-card border border-ink/10 font-semibold text-ink hover:bg-ink/5 transition-colors flex items-center justify-center gap-2"
               >
-                <MessageCircle className="w-5 h-5 text-[#01BAEF]" />
+                <MessageCircle className="w-5 h-5 text-brand" />
                 Ver cómo funciona
               </a>
             </div>
@@ -628,7 +636,7 @@ export default function MedicalLandingPage() {
                   <div
                     key={member.code}
                     title={member.name}
-                    className="w-10 h-10 rounded-full border-2 border-white bg-gradient-to-br from-[#01BAEF] to-[#34D399] flex items-center justify-center text-white text-xs font-bold overflow-hidden"
+                    className="w-10 h-10 rounded-full border-2 border-white bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white text-xs font-bold overflow-hidden"
                   >
                     {member.photo ? (
                       <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
@@ -641,8 +649,8 @@ export default function MedicalLandingPage() {
                   </div>
                 ))}
               </div>
-              <div className="text-sm text-[#0A3D5C]/70">
-                <span className="font-bold text-[#0A3D5C]">4 estudiantes</span>{" "}
+              <div className="text-sm text-ink/70">
+                <span className="font-bold text-ink">4 estudiantes</span>{" "}
                 de Electrónica desarrollando MEDIBOT
               </div>
             </div>
@@ -650,15 +658,15 @@ export default function MedicalLandingPage() {
 
           {/* Hero visual: modelo 3D MEDIBOT */}
           <div className="hero-visual relative">
-            <div className="relative bg-white rounded-3xl shadow-2xl shadow-[#0A3D5C]/10 p-6 border border-[#0A3D5C]/5">
-              <div className="flex items-center gap-3 pb-4 border-b border-[#0A3D5C]/5">
-                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#01BAEF] to-[#0B4F6C] flex items-center justify-center">
+            <div className="relative bg-card rounded-3xl shadow-2xl shadow-shade/10 p-6 border border-ink/5">
+              <div className="flex items-center gap-3 pb-4 border-b border-ink/5">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand to-deep flex items-center justify-center">
                   <Bot className="w-5 h-5 text-white" />
                 </div>
                 <div>
                   <p className="font-semibold text-sm">Modelo 3D MEDIBOT</p>
-                  <p className="text-xs text-[#34D399] flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#34D399] inline-block animate-pulse" />
+                  <p className="text-xs text-mint flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-mint inline-block animate-pulse" />
                     Vista interactiva
                   </p>
                 </div>
@@ -688,11 +696,11 @@ export default function MedicalLandingPage() {
                 ></model-viewer>
               </div>
 
-              <div className="flex items-center gap-2 pt-3 border-t border-[#0A3D5C]/5">
-                <div className="flex-1 bg-[#F4FAFB] rounded-full px-4 py-2.5 text-sm text-[#0A3D5C]/40">
+              <div className="flex items-center gap-2 pt-3 border-t border-ink/5">
+                <div className="flex-1 bg-surface rounded-full px-4 py-2.5 text-sm text-ink/40">
                   Arrastra para rotar • Usa scroll para zoom
                 </div>
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#01BAEF] to-[#0B4F6C] flex items-center justify-center">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand to-deep flex items-center justify-center">
                   <Sparkles className="w-4 h-4 text-white" />
                 </div>
               </div>
@@ -702,7 +710,7 @@ export default function MedicalLandingPage() {
       </section>
 
       {/* ================= STATS ================= */}
-      <section className="px-6 lg:px-10 py-16 bg-gradient-to-r from-[#0B4F6C] to-[#0A3D5C]">
+      <section className="px-6 lg:px-10 py-16 bg-gradient-to-r from-deep to-shade">
         <div className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-8">
           {STATS.map((stat) => (
             <div key={stat.label} className="stat-item text-center">
@@ -716,24 +724,24 @@ export default function MedicalLandingPage() {
       </section>
 
       {/* ================= QUIÉNES SOMOS ================= */}
-      <section id="nosotros" className="relative px-6 lg:px-10 py-24 lg:py-32 bg-white overflow-hidden">
-        <div className="absolute -top-24 -left-24 w-80 h-80 bg-[#5EE1E6]/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-[#34D399]/10 rounded-full blur-3xl" />
+      <section id="nosotros" className="relative px-6 lg:px-10 py-24 lg:py-32 bg-card overflow-hidden">
+        <div className="absolute -top-24 -left-24 w-80 h-80 bg-brandsoft/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-mint/10 rounded-full blur-3xl" />
 
         <div className="max-w-5xl mx-auto relative">
           <div className="text-center max-w-3xl mx-auto mb-14 section-title">
-            <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#5EE1E6]/10 border border-[#5EE1E6]/30 text-[#0B4F6C] text-sm font-semibold mb-5">
-              <Users className="w-4 h-4 text-[#01BAEF]" />
+            <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brandsoft/10 border border-brandsoft/30 text-ink text-sm font-semibold mb-5">
+              <Users className="w-4 h-4 text-brand" />
               ¿Quiénes somos?
             </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-6 text-[#0A3D5C]">
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-6 text-ink">
               Un equipo joven, con una misión clínica muy real
             </h2>
-            <p className="text-[#0A3D5C]/70 text-lg leading-relaxed">
+            <p className="text-ink/70 text-lg leading-relaxed">
               Somos un equipo de estudiantes de electrónica de segundo año del{" "}
-              <span className="font-semibold text-[#0A3D5C]">Colegio Don Bosco</span>,
+              <span className="font-semibold text-ink">Colegio Don Bosco</span>,
               participantes de distintas ferias, comprometidos con el
-              desarrollo de <span className="font-semibold text-[#0A3D5C]">MEDIBOT</span>,
+              desarrollo de <span className="font-semibold text-ink">MEDIBOT</span>,
               un prototipo robótico asistencial teleoperado con control
               térmico activo. MEDIBOT busca apoyar al personal de salud en el
               transporte seguro de medicamentos e insumos, reduciendo la
@@ -747,9 +755,9 @@ export default function MedicalLandingPage() {
             {TEAM.map((member) => (
               <div
                 key={member.code}
-                className="bg-[#F4FAFB] rounded-2xl p-5 border border-[#0A3D5C]/5 text-center hover:border-[#01BAEF]/30 hover:-translate-y-1 transition-all"
+                className="bg-surface rounded-2xl p-5 border border-ink/5 text-center hover:border-brand/30 hover:-translate-y-1 transition-all"
               >
-                <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-[#01BAEF] to-[#34D399] flex items-center justify-center text-white font-bold text-lg mb-3 overflow-hidden">
+                <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white font-bold text-lg mb-3 overflow-hidden">
                   {member.photo ? (
                     <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
                   ) : (
@@ -760,18 +768,18 @@ export default function MedicalLandingPage() {
                   )}
                 </div>
                 <p className="font-semibold text-sm leading-tight">{member.name}</p>
-                <p className="text-xs text-[#0A3D5C]/50 mt-1">Código {member.code}</p>
+                <p className="text-xs text-ink/50 mt-1">Código {member.code}</p>
               </div>
             ))}
           </div>
 
           {/* Objetivo general y específicos */}
           <div className="feature-card grid lg:grid-cols-2 gap-6 mb-12">
-            <div className="bg-white rounded-3xl p-8 border border-[#0A3D5C]/10">
-              <span className="inline-block text-xs font-bold tracking-widest uppercase text-[#01BAEF] mb-3">
+            <div className="bg-card rounded-3xl p-8 border border-ink/10">
+              <span className="inline-block text-xs font-bold tracking-widest uppercase text-brand mb-3">
                 Objetivo general
               </span>
-              <p className="text-[#0A3D5C]/70 leading-relaxed">
+              <p className="text-ink/70 leading-relaxed">
                 Desarrollar un prototipo robótico asistencial de
                 bioseguridad, integrando tecnologías de procesamiento
                 Raspberry Pi 4, microcontroladores ESP32 y sistemas de
@@ -782,14 +790,14 @@ export default function MedicalLandingPage() {
               </p>
             </div>
 
-            <div className="bg-white rounded-3xl p-8 border border-[#0A3D5C]/10">
-              <span className="inline-block text-xs font-bold tracking-widest uppercase text-[#34D399] mb-3">
+            <div className="bg-card rounded-3xl p-8 border border-ink/10">
+              <span className="inline-block text-xs font-bold tracking-widest uppercase text-mint mb-3">
                 Objetivos específicos
               </span>
               <ul className="space-y-3">
                 {OBJETIVOS_ESPECIFICOS.map((obj, i) => (
-                  <li key={i} className="flex gap-3 text-sm text-[#0A3D5C]/70 leading-relaxed">
-                    <CheckCircle2 className="w-4 h-4 text-[#34D399] shrink-0 mt-0.5" />
+                  <li key={i} className="flex gap-3 text-sm text-ink/70 leading-relaxed">
+                    <CheckCircle2 className="w-4 h-4 text-mint shrink-0 mt-0.5" />
                     {obj}
                   </li>
                 ))}
@@ -798,12 +806,12 @@ export default function MedicalLandingPage() {
           </div>
 
           {/* Planteamiento del problema */}
-          <div className="feature-card grid lg:grid-cols-[auto,1fr] gap-6 items-start bg-gradient-to-br from-[#0B4F6C] to-[#0A3D5C] rounded-3xl p-8 lg:p-10 shadow-2xl shadow-[#0A3D5C]/20">
-            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
-              <Activity className="w-7 h-7 text-[#5EE1E6]" />
+          <div className="feature-card grid lg:grid-cols-[auto,1fr] gap-6 items-start bg-gradient-to-br from-deep to-shade rounded-3xl p-8 lg:p-10 shadow-2xl shadow-shade/20">
+            <div className="w-14 h-14 rounded-2xl bg-card/10 flex items-center justify-center shrink-0">
+              <Activity className="w-7 h-7 text-brandsoft" />
             </div>
             <div>
-              <span className="inline-block text-xs font-bold tracking-widest uppercase text-[#5EE1E6] mb-2">
+              <span className="inline-block text-xs font-bold tracking-widest uppercase text-brandsoft mb-2">
                 Planteamiento del problema
               </span>
               <p className="text-white/80 leading-relaxed">
@@ -831,8 +839,8 @@ export default function MedicalLandingPage() {
               }}
               className="solucion-btn group relative inline-flex items-center gap-3 px-9 py-4 rounded-full font-bold text-white overflow-hidden"
             >
-              <span className="absolute inset-0 bg-gradient-to-r from-[#01BAEF] via-[#0B4F6C] to-[#34D399] bg-[length:200%_100%] animate-[gradientMove_3s_ease_infinite]" />
-              <span className="absolute inset-0 rounded-full ring-2 ring-[#5EE1E6]/50 solucion-pulse" />
+              <span className="absolute inset-0 bg-gradient-to-r from-brand via-deep to-mint bg-[length:200%_100%] animate-[gradientMove_3s_ease_infinite]" />
+              <span className="absolute inset-0 rounded-full ring-2 ring-brandsoft/50 solucion-pulse" />
               <span className="relative z-10 flex items-center gap-2">
                 Descubre la solución MEDIBOT
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1.5 transition-transform" />
@@ -854,13 +862,13 @@ export default function MedicalLandingPage() {
       <section id="beneficios" className="px-6 lg:px-10 py-24 lg:py-32">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
               Beneficios
             </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
               Todo lo que necesitas para cuidar tu salud
             </h2>
-            <p className="text-[#0A3D5C]/60 text-lg">
+            <p className="text-ink/60 text-lg">
               Una plataforma diseñada para acompañarte en cada paso, con la
               tecnología de la inteligencia artificial y la calidez de un
               buen consejo médico.
@@ -871,13 +879,13 @@ export default function MedicalLandingPage() {
             {FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="feature-card group bg-white rounded-3xl p-8 border border-[#0A3D5C]/5 hover:border-[#01BAEF]/30 hover:shadow-2xl hover:shadow-[#01BAEF]/10 transition-all duration-300 hover:-translate-y-1"
+                className="feature-card group bg-card rounded-3xl p-8 border border-ink/5 hover:border-brand/30 hover:shadow-2xl hover:shadow-brand/10 transition-all duration-300 hover:-translate-y-1"
               >
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#01BAEF]/10 to-[#34D399]/10 flex items-center justify-center mb-5 group-hover:from-[#01BAEF] group-hover:to-[#0B4F6C] transition-all duration-300">
-                  <f.icon className="w-7 h-7 text-[#01BAEF] group-hover:text-white transition-colors duration-300" />
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center mb-5 group-hover:from-brand group-hover:to-deep transition-all duration-300">
+                  <f.icon className="w-7 h-7 text-brand group-hover:text-white transition-colors duration-300" />
                 </div>
                 <h3 className="text-lg font-bold mb-2">{f.title}</h3>
-                <p className="text-[#0A3D5C]/60 text-sm leading-relaxed">{f.desc}</p>
+                <p className="text-ink/60 text-sm leading-relaxed">{f.desc}</p>
               </div>
             ))}
           </div>
@@ -885,16 +893,16 @@ export default function MedicalLandingPage() {
       </section>
 
       {/* ================= HOW IT WORKS ================= */}
-      <section id="como-funciona" className="px-6 lg:px-10 py-24 lg:py-32 bg-white">
+      <section id="como-funciona" className="px-6 lg:px-10 py-24 lg:py-32 bg-card">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-20 section-title">
-            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
               Proceso
             </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
               Cómo funciona Medibot
             </h2>
-            <p className="text-[#0A3D5C]/60 text-lg">
+            <p className="text-ink/60 text-lg">
               Cuatro pasos simples entre tú y la orientación médica que
               necesitas.
             </p>
@@ -903,13 +911,13 @@ export default function MedicalLandingPage() {
           <div className="grid lg:grid-cols-4 gap-8">
             {STEPS.map((step) => (
               <div key={step.number} className="step-item relative">
-                <div className="text-6xl font-extrabold text-[#01BAEF]/10 mb-2">
+                <div className="text-6xl font-extrabold text-brand/10 mb-2">
                   {step.number}
                 </div>
                 <h3 className="text-lg font-bold mb-2 -mt-8 relative z-10">
                   {step.title}
                 </h3>
-                <p className="text-[#0A3D5C]/60 text-sm leading-relaxed">
+                <p className="text-ink/60 text-sm leading-relaxed">
                   {step.desc}
                 </p>
               </div>
@@ -922,10 +930,10 @@ export default function MedicalLandingPage() {
       <section id="testimonios" className="px-6 lg:px-10 py-24 lg:py-32">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
               Testimonios
             </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-[#0A3D5C]">
+            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
               Personas reales, resultados reales
             </h2>
           </div>
@@ -934,21 +942,21 @@ export default function MedicalLandingPage() {
             {TESTIMONIALS.map((t) => (
               <div
                 key={t.name}
-                className="testimonial-card bg-white rounded-3xl p-8 border border-[#0A3D5C]/5 shadow-sm hover:shadow-xl transition-shadow"
+                className="testimonial-card bg-card rounded-3xl p-8 border border-ink/5 shadow-sm hover:shadow-xl transition-shadow"
               >
                 <div className="flex gap-1 mb-4">
                   {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-[#01BAEF] text-[#01BAEF]" />
+                    <Star key={i} className="w-4 h-4 fill-brand text-brand" />
                   ))}
                 </div>
-                <p className="text-[#0A3D5C]/70 text-sm leading-relaxed mb-6">
+                <p className="text-ink/70 text-sm leading-relaxed mb-6">
                   “{t.text}”
                 </p>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#01BAEF] to-[#34D399]" />
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand to-mint" />
                   <div>
                     <p className="font-semibold text-sm">{t.name}</p>
-                    <p className="text-xs text-[#0A3D5C]/50">{t.role}</p>
+                    <p className="text-xs text-ink/50">{t.role}</p>
                   </div>
                 </div>
               </div>
@@ -958,13 +966,13 @@ export default function MedicalLandingPage() {
       </section>
 
       {/* ================= FAQ ================= */}
-      <section className="px-6 lg:px-10 py-24 lg:py-32 bg-white">
+      <section className="px-6 lg:px-10 py-24 lg:py-32 bg-card">
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-[#01BAEF] mb-3 tracking-wide uppercase">
+            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
               Preguntas frecuentes
             </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold text-[#0A3D5C]">
+            <h2 className="text-3xl lg:text-4xl font-extrabold text-ink">
               Resolvemos tus dudas
             </h2>
           </div>
@@ -973,13 +981,13 @@ export default function MedicalLandingPage() {
             {FAQS.map((faq) => (
               <details
                 key={faq.q}
-                className="group bg-[#F4FAFB] rounded-2xl px-6 py-5 [&_summary::-webkit-details-marker]:hidden cursor-pointer"
+                className="group bg-surface rounded-2xl px-6 py-5 [&_summary::-webkit-details-marker]:hidden cursor-pointer"
               >
-                <summary className="flex items-center justify-between font-semibold text-[#0A3D5C]">
+                <summary className="flex items-center justify-between font-semibold text-ink">
                   {faq.q}
-                  <ChevronRight className="w-5 h-5 text-[#01BAEF] group-open:rotate-90 transition-transform" />
+                  <ChevronRight className="w-5 h-5 text-brand group-open:rotate-90 transition-transform" />
                 </summary>
-                <p className="text-[#0A3D5C]/60 text-sm mt-3 leading-relaxed">
+                <p className="text-ink/60 text-sm mt-3 leading-relaxed">
                   {faq.a}
                 </p>
               </details>
@@ -990,8 +998,8 @@ export default function MedicalLandingPage() {
 
       {/* ================= CTA ================= */}
       <section className="px-6 lg:px-10 py-24">
-        <div className="max-w-4xl mx-auto relative rounded-[2.5rem] overflow-hidden bg-gradient-to-br from-[#0B4F6C] via-[#0A3D5C] to-[#01BAEF] px-10 py-20 text-center">
-          <div className="absolute top-0 right-0 w-72 h-72 bg-[#34D399]/20 rounded-full blur-3xl" />
+        <div className="max-w-4xl mx-auto relative rounded-[2.5rem] overflow-hidden bg-gradient-to-br from-deep via-shade to-brand px-10 py-20 text-center">
+          <div className="absolute top-0 right-0 w-72 h-72 bg-mint/20 rounded-full blur-3xl" />
           <div className="relative z-10 flex flex-col items-center justify-center">
             <Users className="w-10 h-10 text-white/80 mx-auto mb-6" />
             <h2 className="text-3xl lg:text-4xl font-extrabold text-white mb-4 text-center">
@@ -1002,7 +1010,7 @@ export default function MedicalLandingPage() {
             </p>
             <Link
               to="/auth"
-              className="px-8 py-4 rounded-full bg-white text-[#0A3D5C] font-bold shadow-2xl hover:-translate-y-0.5 transition-transform inline-flex items-center gap-2"
+              className="px-8 py-4 rounded-full bg-card text-ink font-bold shadow-2xl hover:-translate-y-0.5 transition-transform inline-flex items-center gap-2"
             >
               Crear cuenta gratis
               <ArrowRight className="w-5 h-5" />
@@ -1012,10 +1020,10 @@ export default function MedicalLandingPage() {
       </section>
 
       {/* ================= FOOTER ================= */}
-      <footer id="contacto" className="px-6 lg:px-10 py-16 bg-[#0A3D5C] text-white/70">
+      <footer id="contacto" className="px-6 lg:px-10 py-16 bg-ink text-white/70">
         <div className="max-w-7xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
           <div>
-            <div className="mb-4 [&_span]:text-white [&_span_span:first-child]:!text-[#5EE1E6]">
+            <div className="mb-4 [&_span]:text-white [&_span_span:first-child]:!text-brandsoft">
               <MedibotLogo markClassName="w-9 h-9" wordmarkClassName="text-lg" />
             </div>
             <p className="text-sm leading-relaxed">
@@ -1050,13 +1058,13 @@ export default function MedicalLandingPage() {
             <h4 className="text-white font-semibold mb-4">Contacto</h4>
             <ul className="space-y-3 text-sm">
               <li className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-[#01BAEF]" /> contacto@medibot.site
+                <Mail className="w-4 h-4 text-brand" /> contacto@medibot.site
               </li>
               <li className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-[#01BAEF]" /> +52 55 0000 0000
+                <Phone className="w-4 h-4 text-brand" /> +52 55 0000 0000
               </li>
               <li className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-[#01BAEF]" /> San Salvador, El Salvador
+                <MapPin className="w-4 h-4 text-brand" /> San Salvador, El Salvador
               </li>
             </ul>
           </div>
@@ -1065,7 +1073,7 @@ export default function MedicalLandingPage() {
         <div className="max-w-7xl mx-auto border-t border-white/10 mt-12 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
           <p>© {new Date().getFullYear()} Medibot. Todos los derechos reservados.</p>
           <p className="flex items-center gap-1">
-            <CheckCircle2 className="w-4 h-4 text-[#34D399]" /> Plataforma verificada
+            <CheckCircle2 className="w-4 h-4 text-mint" /> Plataforma verificada
           </p>
         </div>
       </footer>

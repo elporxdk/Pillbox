@@ -45,7 +45,7 @@ function MedibotMark({
     <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
       <g className={wheelClassName} style={{ transformOrigin: "50% 50%" }}>
         {sectorPaths.map((d, i) => (
-          <path key={i} d={d} fill="#5EE1E6" />
+          <path key={i} d={d} fill="var(--c-brandsoft)" />
         ))}
       </g>
     </svg>
@@ -68,8 +68,8 @@ function MedibotLogo({
       <MedibotMark className={markClassName} wheelClassName={markWheelClassName} />
       {showWordmark && (
         <span className={`font-extrabold tracking-tight ${wordmarkClassName}`}>
-          <span className="text-[#5EE1E6]">MEDI</span>
-          <span className="text-[#0A3D5C]">BOT</span>
+          <span className="text-brandsoft">MEDI</span>
+          <span className="text-ink">BOT</span>
         </span>
       )}
     </div>
@@ -80,14 +80,14 @@ export default function AuthPage() {
   const [tab, setTab] = useState<"login" | "register">("login");
 
   return (
-    <div className="min-h-screen w-full bg-[#F4FAFB] flex items-center justify-center px-6 py-12 relative overflow-hidden">
+    <div className="min-h-screen w-full bg-surface flex items-center justify-center px-6 py-12 relative overflow-hidden">
       {/* Decoración de fondo */}
-      <div className="absolute top-0 right-0 w-96 h-96 bg-[#01BAEF]/10 rounded-full blur-3xl" />
-      <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#34D399]/10 rounded-full blur-3xl" />
+      <div className="absolute top-0 right-0 w-96 h-96 bg-brand/10 rounded-full blur-3xl" />
+      <div className="absolute bottom-0 left-0 w-96 h-96 bg-mint/10 rounded-full blur-3xl" />
 
       <Link
         to="/"
-        className="absolute top-6 left-6 flex items-center gap-2 text-sm font-medium text-[#0A3D5C]/60 hover:text-[#0A3D5C] transition-colors"
+        className="absolute top-6 left-6 flex items-center gap-2 text-sm font-medium text-ink/60 hover:text-ink transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
         Volver al inicio
@@ -98,15 +98,15 @@ export default function AuthPage() {
           <MedibotLogo markClassName="w-11 h-11" wordmarkClassName="text-2xl" />
         </div>
 
-        <Card className="border-[#0A3D5C]/10 shadow-xl shadow-[#0A3D5C]/5 rounded-3xl">
+        <Card className="border-ink/10 shadow-xl shadow-shade/5 rounded-3xl">
           <CardHeader className="pb-4">
-            <div className="flex bg-[#F4FAFB] rounded-xl p-1">
+            <div className="flex bg-surface rounded-xl p-1">
               <button
                 onClick={() => setTab("login")}
                 className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${
                   tab === "login"
-                    ? "bg-white shadow-sm text-[#0A3D5C]"
-                    : "text-[#0A3D5C]/60 hover:text-[#0A3D5C]"
+                    ? "bg-card shadow-sm text-ink"
+                    : "text-ink/60 hover:text-ink"
                 }`}
               >
                 Iniciar sesión
@@ -115,8 +115,8 @@ export default function AuthPage() {
                 onClick={() => setTab("register")}
                 className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${
                   tab === "register"
-                    ? "bg-white shadow-sm text-[#0A3D5C]"
-                    : "text-[#0A3D5C]/60 hover:text-[#0A3D5C]"
+                    ? "bg-card shadow-sm text-ink"
+                    : "text-ink/60 hover:text-ink"
                 }`}
               >
                 Crear cuenta
@@ -133,13 +133,13 @@ export default function AuthPage() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-[#0A3D5C]/40 mt-6">
+        <p className="text-center text-xs text-ink/40 mt-6">
           Al continuar aceptas nuestros{" "}
-          <a href="#" className="underline hover:text-[#0A3D5C]/60">
+          <a href="#" className="underline hover:text-ink/60">
             Términos de uso
           </a>{" "}
           y{" "}
-          <a href="#" className="underline hover:text-[#0A3D5C]/60">
+          <a href="#" className="underline hover:text-ink/60">
             Aviso de privacidad
           </a>
           .
@@ -172,8 +172,8 @@ function LoginForm() {
   return (
     <>
       <div className="mb-6 text-center">
-        <h3 className="text-xl font-bold text-[#0A3D5C]">Bienvenido de nuevo</h3>
-        <p className="text-sm text-[#0A3D5C]/60">
+        <h3 className="text-xl font-bold text-ink">Bienvenido de nuevo</h3>
+        <p className="text-sm text-ink/60">
           Ingresa tus credenciales para acceder a tu cuenta.
         </p>
       </div>
@@ -182,7 +182,7 @@ function LoginForm() {
         <div className="space-y-2">
           <Label htmlFor="login-email">Correo electrónico</Label>
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0A3D5C]/40" />
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/40" />
             <Input
               id="login-email"
               type="email"
@@ -200,7 +200,7 @@ function LoginForm() {
             <Label htmlFor="login-password">Contraseña</Label>
           </div>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0A3D5C]/40" />
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/40" />
             <Input
               id="login-password"
               type="password"
@@ -217,7 +217,7 @@ function LoginForm() {
         <Button
           type="submit"
           disabled={loading}
-          className="w-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] hover:opacity-90 text-white font-semibold"
+          className="w-full bg-gradient-to-r from-brand to-deep hover:opacity-90 text-white font-semibold"
         >
           {loading ? (
             <>
@@ -266,8 +266,8 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
   return (
     <>
       <div className="mb-6 text-center">
-        <h3 className="text-xl font-bold text-[#0A3D5C]">Crea tu cuenta</h3>
-        <p className="text-sm text-[#0A3D5C]/60">
+        <h3 className="text-xl font-bold text-ink">Crea tu cuenta</h3>
+        <p className="text-sm text-ink/60">
           Únete a Medibot.
         </p>
       </div>
@@ -276,7 +276,7 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
         <div className="space-y-2">
           <Label htmlFor="register-name">Nombre completo</Label>
           <div className="relative">
-            <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0A3D5C]/40" />
+            <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/40" />
             <Input
               id="register-name"
               type="text"
@@ -292,7 +292,7 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
         <div className="space-y-2">
           <Label htmlFor="register-email">Correo electrónico</Label>
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0A3D5C]/40" />
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/40" />
             <Input
               id="register-email"
               type="email"
@@ -308,7 +308,7 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
         <div className="space-y-2">
           <Label htmlFor="register-password">Contraseña</Label>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0A3D5C]/40" />
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/40" />
             <Input
               id="register-password"
               type="password"
@@ -325,7 +325,7 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
         <div className="space-y-2">
           <Label htmlFor="register-confirm">Confirmar contraseña</Label>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#0A3D5C]/40" />
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/40" />
             <Input
               id="register-confirm"
               type="password"
@@ -342,7 +342,7 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
         <Button
           type="submit"
           disabled={loading}
-          className="w-full bg-gradient-to-r from-[#01BAEF] to-[#0B4F6C] hover:opacity-90 text-white font-semibold"
+          className="w-full bg-gradient-to-r from-brand to-deep hover:opacity-90 text-white font-semibold"
         >
           {loading ? (
             <>
