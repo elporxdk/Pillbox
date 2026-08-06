@@ -1,78 +1,220 @@
-# Proyects
+# MEDIBOT
 
-Repositorio con los proyectos del equipo: **Pillbox** y **Medibot**.
+**Robot móvil teleoperado para transporte hospitalario, con control térmico activo.**
 
-`2027 ECA/CDB`
+Prototipo desarrollado por cuatro estudiantes de Electrónica del Colegio Don Bosco
+para la feria de innovación CREA-J 2026.
+
+> Esta descripción está escrita a partir del código real del repositorio, no de
+> documentación previa. Se han excluido a propósito los ficheros del subsistema
+> pastillero (`Pillbox ESP32`, `Pillbox ESP8266.`, `Pillbox Servo ESP8266.`,
+> `Pillbox_Dispensador.ino` y `Pastillero.py`, que es el mismo subsistema con el
+> nombre en español).
 
 ---
 
-# Web (MedibotWeb)
+## El problema que ataca
 
-La web esta hecha con React + TypeScript + Vite, y se despliega en Cloudflare
-Workers desde la rama `web` (ver `wrangler.jsonc`).
+Las Infecciones Asociadas a la Atención Médica (IAAS) se propagan en parte por el
+tránsito constante de personal entre farmacia y áreas de paciente, y por la
+manipulación manual de los medicamentos. A eso se suma que los fármacos
+**termolábiles** pierden eficacia si se rompe su cadena de frío durante el
+traslado interno.
 
-## Requisitos para levantarla en local
+MEDIBOT traslada medicamentos e insumos **sin que una persona los acompañe**: un
+operador lo conduce a distancia desde el navegador, ve por su cámara y escucha
+por su micrófono, mientras el compartimento mantiene la temperatura por sí solo.
 
-### Node.js
+## Cómo funciona
 
-Descargar la version LTS de [nodejs.org](https://nodejs.org) y comprobar la
-instalacion con:
+Tres capas, cada una con una responsabilidad clara:
 
-```bash
-node -v
+```
+  Navegador del operador
+        │  HTTP / MJPEG / WAV
+        ▼
+  Raspberry Pi 4  ──────────────────────────────────┐
+    Vision_MEDIBOT.py   (interfaz Tkinter + Flask)  │
+    medibot_vision.py   (motor de vídeo)            │
+    medibot_audio.py    (micrófono por HTTP)        │
+    medibot_red.py      (descubrimiento de IP)      │
+        │                                            │
+        │  TCP 127.0.0.1:5055 (una línea JSON)       │
+        ▼                                            │
+    serial_hub.py   ← único dueño del puerto serie ──┘
+        │
+        │  USB / COM, protocolo de texto
+        ▼
+  Arduino  →  motores mecanum, celda Peltier, ventilador, servos
 ```
 
-### Despues de clonar el repositorio
+### Por qué existe el hub serial
+
+Es la decisión de arquitectura central del proyecto. Dos programas no pueden
+abrir el mismo puerto `COM` a la vez: el segundo falla con «puerto ocupado».
+`serial_hub.py` lo abre **una sola vez** y todos los demás le mandan órdenes por
+TCP local; el hub las escribe al Arduino en orden y devuelve la respuesta.
+
+- **Autodetecta** el Arduino (`ttyUSB*` / `ttyACM*` en la Pi, `COMx` en Windows),
+  o se fija a mano con `MEDIBOT_SERIAL_PORT`.
+- Si el Arduino no está al arrancar, o se desconecta en marcha, **reintenta cada
+  2 segundos**: no hay que reiniciar nada.
+- No se lanza a mano. `medibot_serial.ensure_hub()` lo arranca solo.
+
+### Un único protocolo, y por qué importa
+
+`medibot_protocolo.py` es **la** definición del protocolo serie. Antes estaba
+escrito tres veces —en Vision, en el pastillero y en el firmware— y las tres
+copias se habían separado **en silencio**, porque el lado Python descartaba las
+respuestas del Arduino:
+
+| Se enviaba | El firmware respondía | Consecuencia real |
+|---|---|---|
+| `MOVE,SPINL` / `MOVE,SPINR` | `OK,MOVE,SPINL` | el robot **se paraba**, y el ACK decía que todo iba bien |
+| `VEL,<200..255>` | `ERR,VEL,231` | el deslizador de velocidad no hacía nada |
+| `TRUCO,<1..4>` | `ERR,TRUCO,1` | el comando no existía |
+
+Ninguno de los tres fallos era visible. Centralizar el protocolo y **mirar las
+respuestas** es lo que los hizo aparecer.
+
+## Características principales
+
+**Teleoperación por navegador.** La Pi sirve la interfaz de control; el operador
+entra desde cualquier dispositivo de la red. `medibot_red.py` averigua la IP real
+por la que otros equipos pueden conectarse —descartando `127.*`, `169.254.*` e
+interfaces virtuales de Docker o VPN— y comprueba **de verdad** que el servidor
+responde por esa IP, no solo por `localhost`.
+
+**Visión con reconocimiento facial y detección de objetos.** `medibot_vision.py`
+captura, detecta y reparte el vídeo. El módulo nació de un problema medido: el
+programa iba a 9–14 FPS porque el detector Haar consumía 25,5 ms por fotograma
+—el **97 % del coste**— y se ejecutaba *incluso con el reconocimiento apagado*,
+que es como arranca el programa. Las cinco ideas que aplica:
+
+1. **No hacer trabajo que nadie ha pedido.** Los detectores solo corren si alguien
+   va a usar su resultado.
+2. **Trabajar con menos píxeles.** El Haar detecta sobre una copia a mitad de
+   escala —4 veces menos píxeles— y devuelve las coordenadas en tamaño real, así
+   que el reconocimiento sigue recortando a resolución completa y no pierde
+   precisión.
+3. **No repetir trabajo hecho.** Cada fotograma lleva número de secuencia: la
+   interfaz solo se redibuja si cambia, y el JPEG del streaming se calcula una vez
+   y se reparte entre todos los navegadores.
+4. **No reservar memoria en el bucle.** Kernels y buffers se crean una sola vez.
+5. **Nadie sondea.** Los clientes del streaming esperan en una condición.
+
+**Audio en directo desde el robot.** `medibot_audio.py` captura el micrófono de la
+webcam con `arecord` y lo sirve por HTTP como un WAV sin fin, para escuchar el
+entorno del robot desde un `<audio autoplay>`. Se eligió `arecord` porque ya viene
+con Raspberry Pi OS: `pyaudio` arrastraría PortAudio y WebRTC todo `aiortc`. No se
+comprime a MP3/Ogg a propósito — haría falta `ffmpeg` o `lame` y gastaría CPU de
+la Pi que hace falta para el vídeo.
+
+**Control térmico activo.** Celda Peltier con disipador, ventilador y termistor
+NTC mantienen el compartimento en rango. La conmutación la hace una placa de
+potencia con dos MOSFET **IRF540N** gobernados por señal PWM.
+
+**Tracción omnidireccional.** Chasis con ruedas mecanum y motores DC con encoder,
+que permiten avanzar, retroceder y desplazarse en lateral o diagonal sin maniobras
+—pensado para pasillos estrechos.
+
+**Acceso desde fuera de la red local.** `cloudflare_tunel.py` deja las webs del
+robot publicadas en el dominio a través de un túnel de Cloudflare. Configura por
+API las dos cosas que `cloudflared service install` no hace: los *Public
+Hostnames* del túnel y los registros DNS.
+
+## Flujo de una operación
+
+1. Se ejecuta `python3 main.py`. Es el **único** punto de entrada: arranca el hub
+   serial —matando cualquier hub viejo, para no quedarse con código en memoria de
+   una versión anterior— y después las interfaces.
+2. El operador abre la interfaz y conduce el robot. Cada orden viaja como texto
+   por el hub hasta el Arduino, que mueve los motores.
+3. El compartimento regula su temperatura de forma autónoma durante todo el
+   trayecto.
+4. El robot llega al punto de atención, el personal retira el medicamento y el
+   módulo RTC deja registrada la hora exacta de la entrega.
+
+`main.py` está escrito con una regla explícita de disponibilidad: **si el módulo
+de visión falta, le faltan librerías o no hay entorno gráfico** (por ejemplo por
+SSH sin `DISPLAY`), **el servidor web sigue sirviendo igual**. Y cuando falta algo,
+el lanzador lo dice con un mensaje claro y cómo instalarlo, en lugar de un
+*traceback*.
+
+## Estructura del repositorio
+
+### Rama `main` — el robot
+
+| Fichero | Qué hace |
+|---|---|
+| `main.py` | Lanzador único: arranca el hub y las interfaces en orden |
+| `serial_hub.py` | Único dueño del puerto serie; sirve a los demás por TCP |
+| `medibot_serial.py` | Cliente del hub: `ensure_hub`, `send_command`, `hub_status`… |
+| `medibot_protocolo.py` | La definición del protocolo serie Medibot ↔ Arduino |
+| `Vision_MEDIBOT.py` | Interfaz de cámaras y movimiento (Tkinter + Flask) |
+| `medibot_vision.py` | Motor de vídeo: captura, detección y reparto |
+| `medibot_audio.py` | Micrófono de la webcam servido por HTTP |
+| `medibot_red.py` | Descubrimiento de la IP de LAN utilizable |
+| `cloudflare_tunel.py` | Publica las webs del robot en el dominio |
+| `arduino_falso.py` | Arduino simulado, para probar sin la placa |
+| `bench_vision.py` | Banco de pruebas de rendimiento de visión |
+| `test_*.py` | Pruebas automatizadas; no necesitan cámara ni Arduino |
+
+**Firmware Arduino:** `Test_Motores.ino`, `Borrar_EEPROM.ino` y los sketches
+`Movement v1 MEDIBOT`, `Joystick MEDIBOT`, `MEDIBOT.MOVE.` y `Vision MEDIBOT`.
+
+**Script auxiliar:** `verificar.js` usa `whatsapp-web.js` sobre Chromium para
+comprobar qué números de un listado tienen WhatsApp y volcar el resultado a CSV.
+Es una utilidad independiente, ajena al funcionamiento del robot.
+
+### Rama `web` — el sitio público
+
+React 19 + TypeScript + Vite, con Tailwind CSS v4, GSAP para las animaciones,
+componentes shadcn/ui y autenticación con Supabase. El modelo 3D del robot se
+muestra con `@google/model-viewer` sobre un `.glb` comprimido con Draco. Se
+despliega en **Cloudflare Workers** desde la propia rama (ver `wrangler.jsonc`).
+
+Tiene modo claro y oscuro: los colores viven como tokens en `src/index.css` y el
+tema lo conmuta `next-themes` con la clase `.dark` en `<html>`.
+
+#### Levantarlo en local
 
 ```bash
 npm install
-cp .env.example .env
+cp .env.example .env     # y rellenar los dos valores
+npm run dev
 ```
 
-Y rellenar los dos valores dentro de `.env`:
+Los valores de `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` están en Supabase,
+en **Project Settings → API**. Sin ellos el sitio compila, pero el inicio de
+sesión y el panel no funcionan.
 
-```
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
-```
+> `.env` está en `.gitignore` y no debe subirse. Vite hornea las variables
+> `VITE_*` dentro del bundle, así que la *anon key* acaba siendo visible para
+> cualquier visitante. Está diseñada para eso, pero **solo es segura con Row
+> Level Security activado** en las tablas de Supabase.
 
-Estan en Supabase, en **Project Settings -> API**. Sin ellas la autenticacion
-no funciona: no registra datos ni permite iniciar sesion.
-
-> `.env` esta en `.gitignore` y no debe subirse nunca al repositorio. Vite
-> hornea las variables `VITE_*` dentro del bundle, asi que acaban siendo
-> visibles en el navegador de cualquier visitante. La anon key de Supabase esta
-> disenada para eso, pero **solo es segura con Row Level Security activado** en
-> las tablas.
-
-## Comandos
+#### Comandos
 
 ```bash
 npm run dev      # servidor de desarrollo
-npm run build    # build de produccion en dist/
+npm run build    # build de producción en dist/
 npm run lint     # eslint
 npm run preview  # previsualizar el build
 ```
 
-## Paquetes que ya trae el proyecto
-
-- **Tailwind CSS v4** — `tailwindcss`, `@tailwindcss/vite`
-- **shadcn/ui** — componentes; para anadir mas, ver [ui.shadcn.com](https://ui.shadcn.com)
-  (`npx shadcn@latest add button`, `npx shadcn@latest add card`, ...)
-- **GSAP** — animaciones (`gsap`, `@gsap/react`)
-- **Lucide** — iconos (`lucide-react`)
-- **model-viewer** — visor del modelo 3D (`@google/model-viewer`)
-
-## Nota sobre `public/`
+#### Nota sobre `public/`
 
 `src/index.css` excluye `public/` del escaneo de Tailwind con
 `@source not "../public"`. Es necesario: `public/Medibot3D.glb` son 17,6 MiB de
-binario, y si el escaner lo abre para buscar clases CSS el build agota la
-memoria y no termina nunca.
+binario, y si el escáner lo abre buscando clases CSS el build agota la memoria y
+no termina nunca.
 
 ---
 
-# MEDIBOT
+# Documentación operativa
+
+_Guía de uso y mantenimiento del robot en marcha._
 
 ```
 Vision (Medibot) ---+

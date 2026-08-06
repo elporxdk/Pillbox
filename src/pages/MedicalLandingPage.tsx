@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkles, ChevronRight, Activity, Users, Star, CheckCircle2, Menu, X, Phone, Mail, MapPin, ArrowRight,} from "lucide-react";
+import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkles, ChevronRight, Activity, Users, Star, CheckCircle2, Menu, X, ArrowRight,} from "lucide-react";
 import elianPhoto from "../media/ElianTorres.jpg";
 import diegoPhoto from "../media/DiegoYanes.jpg";
 import carlosPhoto from "../media/CarlosVindel.png";
@@ -13,6 +13,8 @@ import carlosPhoto from "../media/CarlosVindel.png";
 // de que se cree el primer elemento. Se configura en el <head> de index.html.
 import "@google/model-viewer";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
+import { SiteFooter } from "@/components/SiteFooter";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
 // no lo conoce hasta que se declara. React 19 dejo de exponer un namespace JSX
@@ -20,6 +22,11 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 // aumentar el namespace del modulo "react". Con `declare global` el aumento
 // creaba un JSX suelto que nadie consultaba y el build fallaba con TS2339.
 declare module "react" {
+  // La regla pide sintaxis de modulos ES en vez de `namespace`, pero aqui no hay
+  // alternativa: `React.JSX.IntrinsicElements` SOLO se puede aumentar declarando
+  // el namespace dentro del modulo "react". Es el mecanismo documentado por
+  // React 19 para registrar custom elements.
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace JSX {
     interface IntrinsicElements {
       "model-viewer": React.DetailedHTMLProps<
@@ -42,80 +49,6 @@ declare module "react" {
 }
 
 gsap.registerPlugin(ScrollTrigger);
-
-/**
- * Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales con
- * separación entre ellos — representa conceptualmente las ruedas del
- * chasis y la ruleta dispensadora de cápsulas de medicamento. NO son
- * pétalos: son subdivisiones geométricas rectas de una corona circular.
- */
-function MedibotMark({
-  className = "w-9 h-9",
-  wheelClassName = "",
-}: {
-  className?: string;
-  wheelClassName?: string;
-}) {
-  const SEGMENTS = 8;
-  const GAP_DEG = 8; // separación visual entre sectores
-  const CX = 50;
-  const CY = 50;
-  const OUTER_R = 46;
-  const INNER_R = 20;
-
-  const toRad = (deg: number) => ((deg - 90) * Math.PI) / 180;
-  const point = (r: number, deg: number) => [
-    CX + r * Math.cos(toRad(deg)),
-    CY + r * Math.sin(toRad(deg)),
-  ];
-
-  const sectorPaths = Array.from({ length: SEGMENTS }).map((_, i) => {
-    const sweep = 360 / SEGMENTS;
-    const start = i * sweep + GAP_DEG / 2;
-    const end = (i + 1) * sweep - GAP_DEG / 2;
-
-    const [x1, y1] = point(OUTER_R, start);
-    const [x2, y2] = point(OUTER_R, end);
-    const [x3, y3] = point(INNER_R, end);
-    const [x4, y4] = point(INNER_R, start);
-
-    return `M ${x1} ${y1} A ${OUTER_R} ${OUTER_R} 0 0 1 ${x2} ${y2} L ${x3} ${y3} A ${INNER_R} ${INNER_R} 0 0 0 ${x4} ${y4} Z`;
-  });
-
-  return (
-    <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
-      <g className={wheelClassName} style={{ transformOrigin: "50% 50%" }}>
-        {sectorPaths.map((d, i) => (
-          <path key={i} d={d} fill="var(--c-brandsoft)" />
-        ))}
-      </g>
-    </svg>
-  );
-}
-
-function MedibotLogo({
-  markClassName = "w-10 h-10",
-  showWordmark = true,
-  wordmarkClassName = "text-xl",
-  markWheelClassName = "",
-}: {
-  markClassName?: string;
-  showWordmark?: boolean;
-  wordmarkClassName?: string;
-  markWheelClassName?: string;
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <MedibotMark className={markClassName} wheelClassName={markWheelClassName} />
-      {showWordmark && (
-        <span className={`font-extrabold tracking-tight ${wordmarkClassName}`}>
-          <span className="text-brandsoft">MEDI</span>
-          <span className="text-ink">BOT</span>
-        </span>
-      )}
-    </div>
-  );
-}
 
 /**
  * =====================================================================
@@ -1020,63 +953,7 @@ export default function MedicalLandingPage() {
       </section>
 
       {/* ================= FOOTER ================= */}
-      <footer id="contacto" className="px-6 lg:px-10 py-16 bg-ink text-white/70">
-        <div className="max-w-7xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
-          <div>
-            <div className="mb-4 [&_span]:text-white [&_span_span:first-child]:!text-brandsoft">
-              <MedibotLogo markClassName="w-9 h-9" wordmarkClassName="text-lg" />
-            </div>
-            <p className="text-sm leading-relaxed">
-              Orientación médica inteligente, disponible siempre que la
-              necesites.
-            </p>
-          </div>
-
-          <div>
-            <h4 className="text-white font-semibold mb-4">Navegación</h4>
-            <ul className="space-y-2 text-sm">
-              {NAV_LINKS.map((l) => (
-                <li key={l.href}>
-                  <a href={l.href} className="hover:text-white transition-colors">
-                    {l.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="text-white font-semibold mb-4">Legal</h4>
-            <ul className="space-y-2 text-sm">
-              <li><a href="#" className="hover:text-white transition-colors">Términos de uso</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Privacidad</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Aviso médico</a></li>
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="text-white font-semibold mb-4">Contacto</h4>
-            <ul className="space-y-3 text-sm">
-              <li className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-brand" /> contacto@medibot.site
-              </li>
-              <li className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-brand" /> +52 55 0000 0000
-              </li>
-              <li className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-brand" /> San Salvador, El Salvador
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="max-w-7xl mx-auto border-t border-white/10 mt-12 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
-          <p>© {new Date().getFullYear()} Medibot. Todos los derechos reservados.</p>
-          <p className="flex items-center gap-1">
-            <CheckCircle2 className="w-4 h-4 text-mint" /> Plataforma verificada
-          </p>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

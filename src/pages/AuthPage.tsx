@@ -7,74 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
+import { MedibotLogo } from "@/components/MedibotLogo";
   //Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales 
-function MedibotMark({
-  className = "w-9 h-9",
-  wheelClassName = "",
-}: {
-  className?: string;
-  wheelClassName?: string;
-}) {
-  const SEGMENTS = 8;
-  const GAP_DEG = 6;
-  const CX = 50;
-  const CY = 50;
-  const OUTER_R = 46;
-  const INNER_R = 20;
-
-  const toRad = (deg: number) => ((deg - 90) * Math.PI) / 180;
-  const point = (r: number, deg: number) => [
-    CX + r * Math.cos(toRad(deg)),
-    CY + r * Math.sin(toRad(deg)),
-  ];
-
-  const sectorPaths = Array.from({ length: SEGMENTS }).map((_, i) => {
-    const sweep = 360 / SEGMENTS;
-    const start = i * sweep + GAP_DEG / 2;
-    const end = (i + 1) * sweep - GAP_DEG / 2;
-
-    const [x1, y1] = point(OUTER_R, start);
-    const [x2, y2] = point(OUTER_R, end);
-    const [x3, y3] = point(INNER_R, end);
-    const [x4, y4] = point(INNER_R, start);
-
-    return `M ${x1} ${y1} A ${OUTER_R} ${OUTER_R} 0 0 1 ${x2} ${y2} L ${x3} ${y3} A ${INNER_R} ${INNER_R} 0 0 0 ${x4} ${y4} Z`;
-  });
-
-  return (
-    <svg viewBox="0 0 100 100" className={className} xmlns="http://www.w3.org/2000/svg">
-      <g className={wheelClassName} style={{ transformOrigin: "50% 50%" }}>
-        {sectorPaths.map((d, i) => (
-          <path key={i} d={d} fill="var(--c-brandsoft)" />
-        ))}
-      </g>
-    </svg>
-  );
-}
-
-function MedibotLogo({
-  markClassName = "w-10 h-10",
-  showWordmark = true,
-  wordmarkClassName = "text-xl",
-  markWheelClassName = "",
-}: {
-  markClassName?: string;
-  showWordmark?: boolean;
-  wordmarkClassName?: string;
-  markWheelClassName?: string;
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <MedibotMark className={markClassName} wheelClassName={markWheelClassName} />
-      {showWordmark && (
-        <span className={`font-extrabold tracking-tight ${wordmarkClassName}`}>
-          <span className="text-brandsoft">MEDI</span>
-          <span className="text-ink">BOT</span>
-        </span>
-      )}
-    </div>
-  );
-}
 //Función principal de la página de autenticación (login/registro) trabaja con funciones propias de supabase y su SDK 
 export default function AuthPage() {
   const [tab, setTab] = useState<"login" | "register">("login");
