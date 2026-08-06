@@ -37,9 +37,13 @@ env/
 # Datos de runtime del Pillbox (estado local de la Pi)
 pillbox_data.json
 
-# Salida de Medibot en la maquina donde corre (no es codigo)
-videos/
-data/
+# Salida de Medibot en la maquina donde corre (no es codigo).
+#  Anclados con barra inicial A PROPOSITO: `data/` a secas coincide con
+#  CUALQUIER carpeta llamada data a cualquier profundidad, y se llevo por delante
+#  src/data/, que si es codigo. El resultado fue un import a un fichero que no
+#  estaba en el repo: compilaba en local y el build de Cloudflare moria.
+/videos/
+/data/
 trainer.yml
 trainer_labels.json
 
