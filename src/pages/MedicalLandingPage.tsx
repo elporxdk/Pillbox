@@ -28,6 +28,7 @@ declare module "react" {
         src?: string;
         alt?: string;
         poster?: string;
+        orientation?: string;
         "auto-rotate"?: boolean;
         "camera-controls"?: boolean;
         "camera-orbit"?: string;
@@ -271,6 +272,64 @@ export default function MedicalLandingPage() {
   const rootRef = useRef<HTMLDivElement>(null);
   const splashRef = useRef<HTMLDivElement>(null);
   const splashLogoRef = useRef<HTMLDivElement>(null);
+  const modelRef = useRef<HTMLElement>(null);
+
+  // ================= GIRO VERTICAL DEL MODELO 3D =================
+  // `auto-rotate` de model-viewer solo sabe girar en horizontal: mueve la camara
+  // en torno al eje Y, como un torno. Para que el robot vuelque en vertical hay
+  // que rotar el modelo, no la camara, animando su `orientation`.
+  useEffect(() => {
+    const el = modelRef.current as (HTMLElement & {
+      loaded?: boolean;
+      cameraOrbit?: string;
+      getCameraOrbit?: () => { theta: number; phi: number; radius: number };
+    }) | null;
+    if (!el) return;
+
+    // Un giro constante puede marear o molestar; si el sistema pide menos
+    // movimiento, el modelo se queda quieto en su pose inicial.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+    const GRADOS_POR_SEGUNDO = 18;
+    let raf = 0;
+    let cancelado = false;
+
+    const arrancar = () => {
+      if (cancelado) return;
+
+      // Fijar el radio ANTES de empezar a girar. Al volcar el modelo cambia su
+      // caja contenedora, y con el radio en `auto` model-viewer reencuadra en
+      // cada frame: la camara daria saltos. Se toma el radio que calculo el
+      // encuadre automatico y se le deja margen para que no recorte al girar.
+      const orbita = el.getCameraOrbit?.();
+      if (orbita) {
+        const aGrados = (rad: number) => ((rad * 180) / Math.PI).toFixed(2);
+        el.cameraOrbit = `${aGrados(orbita.theta)}deg ${aGrados(orbita.phi)}deg ${(
+          orbita.radius * 1.2
+        ).toFixed(3)}m`;
+      }
+
+      const inicio = performance.now();
+      const tick = (ahora: number) => {
+        if (cancelado) return;
+        // Basado en tiempo y no en frames, para que gire a la misma velocidad
+        // en un movil a 30 fps que en un portatil a 120.
+        const grados = (((ahora - inicio) / 1000) * GRADOS_POR_SEGUNDO) % 360;
+        el.setAttribute("orientation", `0deg ${grados.toFixed(2)}deg 0deg`);
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    };
+
+    if (el.loaded) arrancar();
+    else el.addEventListener("load", arrancar, { once: true });
+
+    return () => {
+      cancelado = true;
+      cancelAnimationFrame(raf);
+      el.removeEventListener("load", arrancar);
+    };
+  }, []);
 
   // ================= SPLASH SCREEN (círculo giratorio de MEDIBOT) =================
   useEffect(() => {
@@ -647,14 +706,17 @@ export default function MedicalLandingPage() {
 
               <div className="py-5">
                 <model-viewer
+                  ref={modelRef}
                   src="/Medibot3D.glb"
                   /* Fallback 2D: se ve mientras el modelo carga (son 17,6 MiB) y
                    * se queda si el 3D no puede arrancar -- sin WebGL, GPU
                    * bloqueada o movil que no aguanta la malla. Sin poster, en
                    * esos casos solo quedaba un hueco blanco. */
                   poster="/Medibot3D-poster.webp"
-                  alt="Robot MEDIBOT: chasis con ruedas mecanum, tapa superior con la ruleta dispensadora de capsulas y compartimento termico interior"
-                  auto-rotate
+                  alt="Robot MEDIBOT: chasis negro con ruedas mecanum, tapa azul con la ruleta dispensadora de capsulas y compartimento termico interior"
+                  /* Sin `auto-rotate`: ese solo gira en horizontal y competiria
+                   * con el volteo vertical, que se anima desde el efecto de
+                   * arriba tocando la `orientation` del modelo. */
                   camera-controls
                   touch-action="pan-y"
                   /* El radio se deja en `auto` a proposito. Estaba fijado en
