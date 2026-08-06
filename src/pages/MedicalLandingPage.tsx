@@ -6,6 +6,11 @@ import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkl
 import elianPhoto from "../media/ElianTorres.jpg";
 import diegoPhoto from "../media/DiegoYanes.jpg";
 import carlosPhoto from "../media/CarlosVindel.png";
+// Medibot3D.glb va comprimido con Draco, asi que model-viewer necesita el
+// decodificador para abrirlo. La ruta NO se configura aqui: el constructor de
+// cada <model-viewer> la relee de `self.ModelViewerElement` y sobrescribe
+// cualquier valor puesto por el setter estatico, asi que tiene que existir antes
+// de que se cree el primer elemento. Se configura en el <head> de index.html.
 import "@google/model-viewer";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
@@ -643,11 +648,22 @@ export default function MedicalLandingPage() {
               <div className="py-5">
                 <model-viewer
                   src="/Medibot3D.glb"
-                  alt="Modelo 3D de MEDIBOT"
+                  /* Fallback 2D: se ve mientras el modelo carga (son 17,6 MiB) y
+                   * se queda si el 3D no puede arrancar -- sin WebGL, GPU
+                   * bloqueada o movil que no aguanta la malla. Sin poster, en
+                   * esos casos solo quedaba un hueco blanco. */
+                  poster="/Medibot3D-poster.webp"
+                  alt="Robot MEDIBOT: chasis con ruedas mecanum, tapa superior con la ruleta dispensadora de capsulas y compartimento termico interior"
                   auto-rotate
                   camera-controls
                   touch-action="pan-y"
-                  camera-orbit="90deg 75deg 0.5m"
+                  /* El radio se deja en `auto` a proposito. Estaba fijado en
+                   * 0.5m, y el robot mide 0,85 m de profundidad: la camara
+                   * quedaba DENTRO del chasis y en la web solo se veia un panel
+                   * amarillo a pantalla completa, irreconocible. Con `auto`,
+                   * model-viewer encuadra el modelo entero. */
+                  camera-orbit="45deg 68deg auto"
+                  shadow-intensity="0.6"
                   style={{ width: '100%', height: '450px', borderRadius: '16px' }}
                   interaction-prompt="none"
                 ></model-viewer>

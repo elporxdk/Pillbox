@@ -4,7 +4,27 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>medibotweb</title>
+    <title>MEDIBOT — Transporte hospitalario seguro y teleoperado</title>
+    <meta
+      name="description"
+      content="MEDIBOT es un robot movil teleoperado con control termico activo que transporta medicamentos e insumos entre la farmacia y las areas de atencion al paciente."
+    />
+    <script>
+      // El modelo 3D (Medibot3D.glb) va comprimido con Draco y model-viewer
+      // necesita el decodificador para abrirlo. Por defecto lo baja de
+      // https://www.gstatic.com/draco/... -- una peticion a un dominio de Google
+      // en cada visita. Si esa peticion falla (red hospitalaria con filtrado,
+      // visitante sin salida a Internet, caida de gstatic) el robot no aparece y
+      // no hay ninguna pista de por que.
+      //
+      // Los ficheros estan vendorizados en public/draco/, asi que el visor solo
+      // depende de nuestro propio dominio. Tiene que ir aqui, en el <head>: el
+      // constructor de cada <model-viewer> relee esta global y sobrescribe lo que
+      // se ponga por el setter estatico, asi que configurarlo desde el modulo de
+      // React llega tarde.
+      self.ModelViewerElement = self.ModelViewerElement || {};
+      self.ModelViewerElement.dracoDecoderLocation = '/draco/';
+    </script>
   </head>
   <body>
     <div id="root"></div>
