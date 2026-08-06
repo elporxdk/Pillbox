@@ -8,10 +8,28 @@ import diegoPhoto from "../media/DiegoYanes.jpg";
 import carlosPhoto from "../media/CarlosVindel.png";
 import "@google/model-viewer";
 
-declare global {
+// `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
+// no lo conoce hasta que se declara. React 19 dejo de exponer un namespace JSX
+// global: ahora TSX resuelve contra React.JSX, asi que la declaracion tiene que
+// aumentar el namespace del modulo "react". Con `declare global` el aumento
+// creaba un JSX suelto que nadie consultaba y el build fallaba con TS2339.
+declare module "react" {
   namespace JSX {
     interface IntrinsicElements {
-      'model-viewer': any;
+      "model-viewer": React.DetailedHTMLProps<
+        React.HTMLAttributes<HTMLElement>,
+        HTMLElement
+      > & {
+        src?: string;
+        alt?: string;
+        poster?: string;
+        "auto-rotate"?: boolean;
+        "camera-controls"?: boolean;
+        "camera-orbit"?: string;
+        "touch-action"?: string;
+        "interaction-prompt"?: string;
+        "shadow-intensity"?: string;
+      };
     }
   }
 }

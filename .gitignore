@@ -1,4 +1,9 @@
-<<<<<<< HEAD
+# --- Node / Vite ---
+node_modules
+dist
+dist-ssr
+*.local
+
 # Logs
 logs
 *.log
@@ -8,12 +13,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
+# --- Editor ---
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -23,8 +23,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-=======
-# Python
+
+# --- Python (Medibot / Pi) ---
 __pycache__/
 *.py[cod]
 *$py.class
@@ -43,18 +43,24 @@ data/
 trainer.yml
 trainer_labels.json
 
-# CREDENCIALES - nunca al repositorio.
+# Volcados de datos: no son codigo y no deben publicarse en el sitio
+doctores.txt
+*.dump
+*.sqlite
+*.sqlite3
+
+# --- CREDENCIALES - nunca al repositorio ---
 #  Un token de Cloudflare da permiso de Edit sobre el DNS y los tuneles: quien
 #  lo tenga puede repuntar el dominio a donde quiera. Y un token publicado en
 #  GitHub se queda en el historial de git aunque luego se borre el fichero.
 #  Los ficheros de credenciales van FUERA del repo (~/.medibot/), pero estas
 #  reglas estan aqui como red por si alguno acaba dentro por descuido.
-*.token
-*_token.txt
 .env
 .env.*
+!.env.example
+*.token
+*_token.txt
 cf_token*
 cloudflared/
 *.pem
 credenciales*.json
->>>>>>> 7260eb27b8f2de74940f2f204bbedf445d2eaca9
