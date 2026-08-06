@@ -44,6 +44,7 @@
   --color-brandsoft: var(--c-brandsoft);
   --color-mint: var(--c-mint);
   --color-shade: var(--c-shade);
+  --color-footer: var(--c-footer);
 }
 
 :root {
@@ -58,6 +59,9 @@
    * degradados que llevan texto blanco, y el color de las sombras. Una sombra
    * clara en modo oscuro se ve como un halo, no como una sombra. */
   --c-shade: #0a3d5c;
+  /* El footer es una banda oscura en AMBOS temas. Antes usaba `ink`, que se
+   * aclara en oscuro y dejaba texto blanco sobre fondo claro: ilegible. */
+  --c-footer: #0a3d5c;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
@@ -91,6 +95,9 @@
   --c-brandsoft: #7fe9ed;
   --c-mint: #34d399;
   --c-shade: #05121a;
+  /* Mas profundo que `surface` (#06161f) para que el footer se lea como una
+   * banda distinta del cuerpo de la pagina, no como una continuacion. */
+  --c-footer: #04121a;
 }
 
 body {
