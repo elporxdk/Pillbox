@@ -642,7 +642,7 @@ export default function MedicalLandingPage() {
 
               <div className="py-5">
                 <model-viewer
-                  src="/Medibot3D.gltf"
+                  src="/Medibot3D.glb"
                   alt="Modelo 3D de MEDIBOT"
                   auto-rotate
                   camera-controls

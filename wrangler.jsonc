@@ -1,0 +1,25 @@
+{
+  // Worker de assets estaticos: no hay codigo de servidor, solo el build de
+  // Vite. Por eso no lleva "main" -- Cloudflare sirve `dist/` directamente.
+  //
+  // El nombre tiene que coincidir con el Worker que ya existe en la cuenta
+  // ("medibot"), o `wrangler deploy` crearia uno nuevo en vez de actualizarlo.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "medibot",
+  "compatibility_date": "2026-08-06",
+
+  "assets": {
+    "directory": "./dist",
+
+    // La web es una SPA con react-router: /tecnologia, /auth y /dashboard no
+    // existen como ficheros en dist/. Sin esto, entrar directo a cualquiera de
+    // esas rutas devuelve 404 en vez de dejar que el router las resuelva.
+    // Sustituye al truco de copiar index.html a 404.html que hace falta en
+    // GitHub Pages.
+    "not_found_handling": "single-page-application"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
