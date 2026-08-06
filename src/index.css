@@ -7,28 +7,63 @@
  * "transforming...". El .gltf anterior no lo activaba porque su extension si
  * estaba en la lista de ignorados; .glb no lo esta. */
 @source not "../public";
+
+/* El tema lo controla next-themes poniendo la clase `.dark` en <html>, no la
+ * preferencia del sistema, para que el interruptor de la interfaz pueda mandar.
+ * Por defecto la variante `dark:` de Tailwind v4 mira `prefers-color-scheme`,
+ * asi que hay que redefinirla. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------
+ *  TOKENS DE COLOR
+ *
+ *  El sitio tenia los colores escritos a mano en 337 sitios
+ *  (`text-[#0A3D5C]`, `bg-white`, ...). Con `@theme inline` cada utilidad
+ *  emite `var(--c-*)` en vez de un valor fijo, asi que basta con redefinir
+ *  esas variables bajo `.dark` y TODO el sitio cambia -- sin sembrar mil
+ *  variantes `dark:` por las plantillas.
+ *
+ *  No todos los colores se voltean, y eso es intencionado:
+ *
+ *  - `ink` es sobre todo texto (104 usos), mas bordes y fondos tenues. Al
+ *    volverse claro en oscuro, los tres usos siguen siendo correctos: texto
+ *    claro, borde tenue claro, velo claro.
+ *  - `surface` y `card` son fondos: se oscurecen.
+ *  - `brand`, `deep`, `brandsoft` y `mint` son acentos que van casi siempre
+ *    en degradados CON TEXTO BLANCO ENCIMA (`from-brand to-deep`). Si se
+ *    aclararan, el texto blanco quedaria ilegible. Se quedan como estan; solo
+ *    `brand` se sube un poco de luminosidad para que respire sobre el fondo
+ *    oscuro.
+ * ------------------------------------------------------------------ */
+@theme inline {
+  --color-ink: var(--c-ink);
+  --color-surface: var(--c-surface);
+  --color-card: var(--c-card);
+  --color-brand: var(--c-brand);
+  --color-deep: var(--c-deep);
+  --color-brandsoft: var(--c-brandsoft);
+  --color-mint: var(--c-mint);
+  --color-shade: var(--c-shade);
+}
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --c-ink: #0a3d5c;
+  --c-surface: #f4fafb;
+  --c-card: #ffffff;
+  --c-brand: #01baef;
+  --c-deep: #0b4f6c;
+  --c-brandsoft: #5ee1e6;
+  --c-mint: #34d399;
+  /* Mismo azul que `ink` en claro, pero NO se voltea: es el extremo de los
+   * degradados que llevan texto blanco, y el color de las sombras. Una sombra
+   * clara en modo oscuro se ve como un halo, no como una sombra. */
+  --c-shade: #0a3d5c;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
   font: 18px/145% var(--sans);
   letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -39,24 +74,29 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+:root:not(.dark) {
+  color-scheme: light;
+}
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+.dark {
+  color-scheme: dark;
+
+  /* Azul muy desaturado en vez de gris neutro: mantiene el aire clinico de la
+   * marca y evita el look "modo oscuro generico". */
+  --c-ink: #dbeaf3;
+  --c-surface: #06161f;
+  --c-card: #0e2733;
+  --c-brand: #22c9f5;
+  --c-deep: #0b4f6c;
+  --c-brandsoft: #7fe9ed;
+  --c-mint: #34d399;
+  --c-shade: #05121a;
+}
+
+body {
+  background: var(--c-surface);
+  color: var(--c-ink);
+  transition: background-color 0.25s ease;
 }
 
 #root {
