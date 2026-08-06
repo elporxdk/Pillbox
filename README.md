@@ -132,8 +132,10 @@ Hostnames* del túnel y los registros DNS.
    por el hub hasta el Arduino, que mueve los motores.
 3. El compartimento regula su temperatura de forma autónoma durante todo el
    trayecto.
-4. El robot llega al punto de atención, el personal retira el medicamento y el
-   módulo RTC deja registrada la hora exacta de la entrega.
+4. El robot llega al punto de atención, el personal retira el medicamento y la
+   grabación del trayecto queda archivada con su fecha y hora en el nombre del
+   fichero. No hay módulo de reloj: la marca de tiempo la pone el reloj de la
+   propia Raspberry Pi.
 
 `main.py` está escrito con una regla explícita de disponibilidad: **si el módulo
 de visión falta, le faltan librerías o no hay entorno gráfico** (por ejemplo por

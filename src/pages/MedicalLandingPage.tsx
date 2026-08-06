@@ -125,7 +125,7 @@ const FEATURES = [
   {
     icon: Clock,
     title: "Registro de trazabilidad",
-    desc: "Un módulo RTC DS3231 registra con precisión la hora y fecha de cada entrega, dejando constancia del traslado realizado para fines de control hospitalario.",
+    desc: "La Raspberry Pi graba el vídeo del trayecto con la fecha y la hora en el nombre del archivo, así queda constancia de cada traslado sin añadir hardware.",
   },
   {
     icon: Stethoscope,
@@ -153,7 +153,7 @@ const STEPS = [
   {
     number: "04",
     title: "Entrega y trazabilidad",
-    desc: "El robot llega al punto de atención, el personal retira el medicamento y el RTC DS3231 deja registrado el momento exacto de la entrega.",
+    desc: "El robot llega al punto de atención, el personal retira el medicamento y la grabación del trayecto queda archivada con su fecha y hora.",
   },
 ];
 
