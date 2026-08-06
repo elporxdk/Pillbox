@@ -1,133 +1,79 @@
-<<<<<<< HEAD
-# React + TypeScript + Vite
+# Proyects
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Repositorio con los proyectos del equipo: **Pillbox** y **Medibot**.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-## IMPORTANTE
-# Requerimientos esenciales para correr este programa 
-
-
-#### ========== LO UNICO QUE SE REQUIRE PARA QUE TRABAJE EN CADA EQUIPO ========== #####
-
-
-### Node js 
-----> Visitar nodejs.org y descargar la versión LTS como cualquier archivo 
-----> Revisar con el comando " node -v " para verificar su correcta instalación
-
-### Después de clonar repositorio
-----> usar el comando "npm install" dentro de la carpeta en el que se trabaja la clonación del repositorio 
-----> crear un archivo .env que este al mismo nivel que src que contenga lo siguiente escrito dentro de este: 
-
-VITE_SUPABASE_URL=https://kuvpownbspwntjneshtt.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1dnBvd25ic3B3bnRqbmVzaHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTkyMjIsImV4cCI6MjEwMTI5NTIyMn0.cbXcRpDcgXVHGPenaYSF1olCcwSOnAoVzGjDMHkKff4
-
-Estas serán las variables de entorno que conectan con la base de supabase si no estan la autenticación no servirá ni registrara datos o inicio de sesión
-
-
-##### ================ ADICIONAL SOLO SI EL PROYECTO DA ERROR Y REQUIERE UNO DE ESTOS PAQUETES PARA COMPLEMENTAR ==================== #####
-
-
-### Taildwind CSS 
-------> npm install tailwindcss @tailwindcss/vite 
-
-### Shadcn UI ###
-------> Depende de Taildwind para sus componentes y si se requiere agregar más componentes se visita la página de ui.shadcn.com
-Ejemplos de ShadcnUI
-
-- Para un Botón:
-npx shadcn@latest add button
-- Para una tarjeta (Card):
-npx shadcn@latest add card
-
-### GSAP 
------> Permite animaciones sencillas y fáciles para utilizar en la vista de la página
------> npm install gsap @gsap/react 
-
-### Lucide
------> Componente para iconos
------> npm install lucide-react
-=======
-this is a repository made for different proyects
-made by my team, incluiding proyects are: Pillbox and Medibot
-
-
-
-made by 2027 ECA/CDB.
+`2027 ECA/CDB`
 
 ---
 
-#MEDIBOT
+# Web (MedibotWeb)
+
+La web esta hecha con React + TypeScript + Vite, y se despliega en Cloudflare
+Workers desde la rama `web` (ver `wrangler.jsonc`).
+
+## Requisitos para levantarla en local
+
+### Node.js
+
+Descargar la version LTS de [nodejs.org](https://nodejs.org) y comprobar la
+instalacion con:
+
+```bash
+node -v
+```
+
+### Despues de clonar el repositorio
+
+```bash
+npm install
+cp .env.example .env
+```
+
+Y rellenar los dos valores dentro de `.env`:
+
+```
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+```
+
+Estan en Supabase, en **Project Settings -> API**. Sin ellas la autenticacion
+no funciona: no registra datos ni permite iniciar sesion.
+
+> `.env` esta en `.gitignore` y no debe subirse nunca al repositorio. Vite
+> hornea las variables `VITE_*` dentro del bundle, asi que acaban siendo
+> visibles en el navegador de cualquier visitante. La anon key de Supabase esta
+> disenada para eso, pero **solo es segura con Row Level Security activado** en
+> las tablas.
+
+## Comandos
+
+```bash
+npm run dev      # servidor de desarrollo
+npm run build    # build de produccion en dist/
+npm run lint     # eslint
+npm run preview  # previsualizar el build
+```
+
+## Paquetes que ya trae el proyecto
+
+- **Tailwind CSS v4** — `tailwindcss`, `@tailwindcss/vite`
+- **shadcn/ui** — componentes; para anadir mas, ver [ui.shadcn.com](https://ui.shadcn.com)
+  (`npx shadcn@latest add button`, `npx shadcn@latest add card`, ...)
+- **GSAP** — animaciones (`gsap`, `@gsap/react`)
+- **Lucide** — iconos (`lucide-react`)
+- **model-viewer** — visor del modelo 3D (`@google/model-viewer`)
+
+## Nota sobre `public/`
+
+`src/index.css` excluye `public/` del escaneo de Tailwind con
+`@source not "../public"`. Es necesario: `public/Medibot3D.glb` son 17,6 MiB de
+binario, y si el escaner lo abre para buscar clases CSS el build agota la
+memoria y no termina nunca.
+
+---
+
+# MEDIBOT
+
 ```
 Vision (Medibot) ---+
                     +--- TCP local ---> serial_hub.py --- USB/COM ---> Arduino
@@ -843,4 +789,3 @@ ocupar la barra ni hacerla bailar de ancho a cada refresco.
 `pillbox_data.json` (junto a los scripts) guarda dosis, horarios y el
 historial de acciones. El Arduino recuerda en su EEPROM el compartimiento
 que quedo arriba.
->>>>>>> 7260eb27b8f2de74940f2f204bbedf445d2eaca9

@@ -1,4 +1,12 @@
 @import "tailwindcss";
+
+/* Tailwind v4 detecta las clases recorriendo el proyecto, y `public/` no tiene
+ * codigo: solo assets. Sin esta exclusion el escaner abre Medibot3D.glb (17,6
+ * MiB de binario), extrae millones de candidatos falsos de esos bytes y el
+ * build se come toda la RAM sin terminar nunca -- se queda clavado en
+ * "transforming...". El .gltf anterior no lo activaba porque su extension si
+ * estaba en la lista de ignorados; .glb no lo esta. */
+@source not "../public";
 :root {
   --text: #6b6375;
   --text-h: #08060d;
