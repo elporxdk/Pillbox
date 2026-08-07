@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { IaasPortal } from "@/components/IaasPortal";
+import { PortalNoticias } from "@/components/comunidad/PortalNoticias";
 
 
 // Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales
@@ -108,6 +109,16 @@ export default function DashboardPage() {
 
           Lo que queda vende el problema que el robot resuelve. */}
       <IaasPortal />
+
+      {/* ================= NOTICIAS =================
+          Se reutiliza el mismo componente que la pestaña de /comunidad, con su
+          filtro, su busqueda y su orden por fecha. No hay una segunda copia del
+          listado: si se añade una noticia, aparece en los dos sitios. */}
+      <section className="px-6 lg:px-10 pb-16 lg:pb-24">
+        <div className="max-w-7xl mx-auto">
+          <PortalNoticias />
+        </div>
+      </section>
 
       {/* ================= ACCIONES ================= */}
       <section className="px-6 lg:px-10 pb-16 lg:pb-24">
