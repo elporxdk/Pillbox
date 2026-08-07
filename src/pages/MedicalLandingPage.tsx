@@ -19,6 +19,7 @@ import { ESTADISTICAS_PROYECTO } from "@/data/proyecto";
 import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnimatedCounter } from "@/components/AnimatedCounter";
 import { SubsystemMonitor } from "@/components/SubsystemMonitor";
+import { PrototypeGallery } from "@/components/PrototypeGallery";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
 // no lo conoce hasta que se declara. React 19 dejo de exponer un namespace JSX
@@ -642,6 +643,8 @@ export default function MedicalLandingPage() {
       </section>
 
       <SubsystemMonitor />
+
+      <PrototypeGallery />
 
       {/* ================= STATS ================= */}
       <section className="px-6 lg:px-10 py-16 bg-gradient-to-r from-deep to-shade">
