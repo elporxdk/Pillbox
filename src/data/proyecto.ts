@@ -55,19 +55,19 @@ export const DETALLES_TECNICOS = [
 
 export const VENTAJAS_ACCESO = [
   {
-    titulo: "Estadísticas del prototipo",
-    detalle: "Las cifras de los tres subsistemas y del avance de construcción.",
+    titulo: "Arquitectura del sistema",
+    detalle: "Las tres capas y el camino de una orden desde el navegador hasta las ruedas.",
   },
   {
-    titulo: "Documentación técnica",
-    detalle: "Anteproyecto, esquemas del hardware y protocolo serie completo.",
+    titulo: "Protocolo serie completo",
+    detalle: "Los comandos que la Raspberry Pi envía al Arduino, con su respuesta y su espera.",
   },
   {
-    titulo: "Monitoreo en vivo",
-    detalle: "Estado del robot y de la cadena de frío del compartimento.",
+    titulo: "Perfilado de la visión",
+    detalle: "El coste real por fotograma, y por qué el vídeo iba a 9–14 FPS.",
   },
   {
-    titulo: "Configuración",
-    detalle: "Parámetros de tracción, rango térmico y trazabilidad de entregas.",
+    titulo: "Portal IAAS",
+    detalle: "Las fuentes oficiales que vigilan las infecciones asociadas a la atención.",
   },
 ] as const;

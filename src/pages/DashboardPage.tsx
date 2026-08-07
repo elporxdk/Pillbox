@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { IaasPortal } from "@/components/IaasPortal";
+import { ProjectInternals } from "@/components/ProjectInternals";
 
 
 // Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales
@@ -88,6 +89,15 @@ export default function DashboardPage() {
               </svg>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ================= INTERIORIDADES DEL PROTOTIPO ================= */}
+      {/* Sin `pb` aqui: el portal IAAS que viene despues ya trae su propio
+          `py-16`, y sumar los dos dejaba un hueco doble entre secciones. */}
+      <section className="px-6 lg:px-10">
+        <div className="max-w-7xl mx-auto">
+          <ProjectInternals />
         </div>
       </section>
 
