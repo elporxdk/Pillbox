@@ -89,8 +89,13 @@ function traducir(codigo: string | undefined, mensaje: string): string {
   if (codigo === "23505" || codigo === "23514") {
     return "El contenido no cumple el formato mínimo. Revisa la longitud del texto.";
   }
+  // 23503 es una violacion de clave ajena, y puede venir de tres sitios: la
+  // categoria, la publicacion o el PERFIL del autor. El del perfil es el unico
+  // que el usuario no puede provocar por su cuenta, y era el habitual: las
+  // cuentas creadas antes de la migracion no tenian fila en `perfiles`. El
+  // mensaje nombra las tres para no volver a mandar a nadie a mirar donde no es.
   if (codigo === "23503") {
-    return "La categoría o la publicación ya no existe.";
+    return "Falta un dato al que esto hace referencia: la categoría, la publicación o tu perfil. Vuelve a entrar; si sigue, hay que ejecutar la migración de la comunidad.";
   }
   return mensaje;
 }

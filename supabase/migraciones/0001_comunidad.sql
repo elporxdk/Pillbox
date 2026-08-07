@@ -73,10 +73,13 @@ begin
   values (
     new.id,
     -- El nombre lo manda el formulario de registro en user_metadata. Si no
-    -- viene, se usa la parte local del correo antes de la arroba.
+    -- viene, se usa la parte local del correo antes de la arroba. El ultimo
+    -- coalesce cubre las altas sin correo (por telefono o por proveedor
+    -- externo): sin el, `nombre` saldria NULL y chocaria con su NOT NULL.
     coalesce(
       nullif(trim(new.raw_user_meta_data ->> 'full_name'), ''),
-      split_part(new.email, '@', 1)
+      nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
+      'Usuario'
     )
   )
   on conflict (id) do nothing;
@@ -88,6 +91,26 @@ drop trigger if exists al_crear_usuario on auth.users;
 create trigger al_crear_usuario
   after insert on auth.users
   for each row execute function public.crear_perfil_al_registrarse();
+
+-- Perfiles de quien ya existia ANTES de esta migracion.
+--
+-- El disparador de arriba solo salta al dar de alta un usuario, asi que las
+-- cuentas creadas antes de ejecutar esto se quedarian sin perfil. Y sin perfil
+-- no se puede publicar: `publicaciones.autor_id` apunta a `perfiles`, y Postgres
+-- rechaza la insercion con un 23503.
+--
+-- Es idempotente por el `on conflict do nothing`, asi que este fichero se puede
+-- volver a ejecutar entero sin duplicar nada.
+insert into public.perfiles (id, nombre)
+select
+  u.id,
+  coalesce(
+    nullif(trim(u.raw_user_meta_data ->> 'full_name'), ''),
+    nullif(split_part(coalesce(u.email, ''), '@', 1), ''),
+    'Usuario'
+  )
+from auth.users u
+on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
 --  2. LAS DOS FUNCIONES EN LAS QUE SE APOYA TODO

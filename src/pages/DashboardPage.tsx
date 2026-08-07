@@ -4,7 +4,6 @@ import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { IaasPortal } from "@/components/IaasPortal";
-import { ProjectInternals } from "@/components/ProjectInternals";
 
 
 // Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales
@@ -43,8 +42,10 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="px-6 lg:px-10 py-16 lg:py-24">
+      {/* Hero Section. Solo `pt`: el portal IAAS que viene justo despues ya trae
+          su propio `py-16 lg:py-24`, y sumar los dos dejaba el doble de hueco
+          entre el saludo y el primer bloque. */}
+      <section className="px-6 lg:px-10 pt-16 lg:pt-24">
         <div className="max-w-7xl mx-auto">
           <div className="hero-content flex items-center justify-between">
             <div>
@@ -92,21 +93,20 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ================= INTERIORIDADES DEL PROTOTIPO ================= */}
-      {/* Sin `pb` aqui: el portal IAAS que viene despues ya trae su propio
-          `py-16`, y sumar los dos dejaba un hueco doble entre secciones. */}
-      <section className="px-6 lg:px-10">
-        <div className="max-w-7xl mx-auto">
-          <ProjectInternals />
-        </div>
-      </section>
-
       {/* ================= PORTAL IAAS =================
-          Sustituye a la seccion de "Estadisticas", que mostraba cuatro cifras
-          inventadas -- 24 transportes hoy, 98 % de eficiencia, 156 documentos,
-          12 usuarios activos -- sin nada detras que las contara. Un panel que
-          ensena numeros falsos al usuario que acaba de entrar es peor que un
-          panel vacio. */}
+          Antes de esto hubo dos secciones que ya no estan, y conviene saber por
+          que para no reponerlas:
+
+          - "Estadisticas" ensenaba cuatro cifras inventadas (24 transportes hoy,
+            98 % de eficiencia, 156 documentos, 12 usuarios activos) sin nada
+            detras que las contara.
+          - "Interioridades del prototipo" desglosaba capas, modulos, limites del
+            enlace y la tabla del protocolo serie. Todo cierto, pero contaba COMO
+            se construyo el robot en lugar de para que sirve, que es lo que tiene
+            que quedarse quien entra. Sigue en el historial de git, y la parte que
+            de verdad interesa a un lector tecnico vive en /tecnologia.
+
+          Lo que queda vende el problema que el robot resuelve. */}
       <IaasPortal />
 
       {/* ================= ACCIONES ================= */}
