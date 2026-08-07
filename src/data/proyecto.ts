@@ -23,6 +23,36 @@ export const ESTADISTICAS_PROYECTO = [
  * asi a proposito -- un incentivo que promete algo que no esta detras del login
  * no es un incentivo, es un engano.
  */
+/**
+ * Detalles de ingenieria del prototipo, para la pantalla de acceso.
+ *
+ * Todos salen de leer el codigo de la rama `main`, no de material promocional:
+ * el hub serial, el perfilado del motor de video y la compresion del modelo 3D
+ * estan documentados en sus propios modulos. Son los datos que hacen que el
+ * proyecto resulte interesante a quien entiende algo del tema, y lo que
+ * distingue esta pantalla de un formulario de acceso cualquiera.
+ */
+export const DETALLES_TECNICOS = [
+  {
+    cifra: "1",
+    unidad: "puerto serie",
+    texto:
+      "Dos programas no pueden abrir el mismo COM a la vez. Un hub lo abre una sola vez y sirve a los demás por TCP local.",
+  },
+  {
+    cifra: "97",
+    unidad: "% del coste",
+    texto:
+      "Lo consumía el detector de caras, y corría incluso con el reconocimiento apagado. Por eso el vídeo iba a 9–14 FPS.",
+  },
+  {
+    cifra: "102 → 17,6",
+    unidad: "MB del modelo",
+    texto:
+      "El modelo 3D del robot, comprimido con Draco conservando la malla, para que quepa en el límite del hosting.",
+  },
+] as const;
+
 export const VENTAJAS_ACCESO = [
   {
     titulo: "Estadísticas del prototipo",

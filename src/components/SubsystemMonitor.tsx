@@ -1,7 +1,7 @@
-import { Activity, Radio, Thermometer } from "lucide-react";
+import { Activity, Thermometer } from "lucide-react";
 
 /**
- * Panel que ilustra los tres subsistemas del robot.
+ * Panel que ilustra los subsistemas del robot.
  *
  * HONESTIDAD DEL DATO: esto NO es telemetria en vivo. No hay ningun robot
  * conectado a esta web, y hacer que lo parezca -- numeros que suben y bajan como
@@ -23,29 +23,10 @@ const TRAZO_PULSO =
 export function SubsystemMonitor() {
   return (
     <section
-      aria-label="Los tres subsistemas de MEDIBOT"
+      aria-label="Subsistemas de MEDIBOT"
       className="relative mx-auto mt-16 max-w-5xl px-6 lg:px-10"
     >
-      <div className="grid gap-4 sm:grid-cols-3">
-        {/* ---------- Enlace de control ---------- */}
-        <Bloque
-          icono={<Radio className="h-4 w-4" />}
-          titulo="Enlace de control"
-          nota="Raspberry Pi → Arduino"
-        >
-          <div className="flex items-center gap-2.5">
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="latido absolute inline-flex h-full w-full rounded-full bg-mint/60" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-mint" />
-            </span>
-            <span className="font-mono text-sm text-ink/70">
-              serie · 127.0.0.1:5055
-            </span>
-          </div>
-          <p className="mt-2 text-xs text-ink/50">
-            Las órdenes viajan por un único puerto, gobernado por el hub.
-          </p>
-        </Bloque>
+      <div className="grid gap-4 sm:grid-cols-2">
 
         {/* ---------- Supervisión ---------- */}
         <Bloque
