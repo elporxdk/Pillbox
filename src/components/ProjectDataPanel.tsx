@@ -1,5 +1,5 @@
 import { Check } from "lucide-react";
-import { ESTADISTICAS_PROYECTO, VENTAJAS_ACCESO } from "@/data/proyecto";
+import { DETALLES_TECNICOS, ESTADISTICAS_PROYECTO, VENTAJAS_ACCESO } from "@/data/proyecto";
 
 /**
  * Panel de incentivo de la pantalla de acceso.
@@ -65,6 +65,29 @@ export function ProjectDataPanel() {
           </li>
         ))}
       </ul>
+
+      {/* Detalles de ingenieria reales, leidos del codigo. Es lo que hace que
+          esta pantalla resulte interesante y no un formulario mas. */}
+      <div className="mt-8 border-t border-ink/10 pt-6">
+        <p className="mb-4 text-xs font-bold uppercase tracking-widest text-ink/40">
+          Del cuaderno de ingeniería
+        </p>
+        <ul className="space-y-4">
+          {DETALLES_TECNICOS.map((dato) => (
+            <li key={dato.unidad} className="flex gap-4">
+              <div className="w-24 shrink-0 text-right">
+                <span className="block font-mono text-sm font-bold text-brand tabular-nums">
+                  {dato.cifra}
+                </span>
+                <span className="block text-[10px] uppercase tracking-wide text-ink/40">
+                  {dato.unidad}
+                </span>
+              </div>
+              <p className="text-sm leading-snug text-ink/60">{dato.texto}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
     </aside>
   );
 }

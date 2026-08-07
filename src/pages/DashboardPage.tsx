@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
-import { LogOut, Settings, FileText, Activity, TrendingUp, User, Bell, } from "lucide-react";
+import { LogOut, Settings, FileText, Bell, } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
+import { IaasPortal } from "@/components/IaasPortal";
 
 
 // Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales
@@ -90,77 +91,35 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Stats Section */}
-      <section className="px-6 lg:px-10 py-16 lg:py-24">
+      {/* ================= PORTAL IAAS =================
+          Sustituye a la seccion de "Estadisticas", que mostraba cuatro cifras
+          inventadas -- 24 transportes hoy, 98 % de eficiencia, 156 documentos,
+          12 usuarios activos -- sin nada detras que las contara. Un panel que
+          ensena numeros falsos al usuario que acaba de entrar es peor que un
+          panel vacio. */}
+      <IaasPortal />
+
+      {/* ================= ACCIONES ================= */}
+      <section className="px-6 lg:px-10 pb-16 lg:pb-24">
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-2xl font-bold text-ink mb-8">Estadísticas</h2>
-          <div className="stats-grid grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="stat-card bg-card rounded-2xl p-6 border border-ink/5 shadow-sm">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center mb-4">
-                <Activity className="w-6 h-6 text-brand" />
-              </div>
-              <p className="text-3xl font-bold text-ink mb-1">24</p>
-              <p className="text-sm text-ink/60">Transportes hoy</p>
-            </div>
-
-            <div className="stat-card bg-card rounded-2xl p-6 border border-ink/5 shadow-sm">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-mint/10 to-brand/10 flex items-center justify-center mb-4">
-                <TrendingUp className="w-6 h-6 text-mint" />
-              </div>
-              <p className="text-3xl font-bold text-ink mb-1">98%</p>
-              <p className="text-sm text-ink/60">Eficiencia</p>
-            </div>
-
-            <div className="stat-card bg-card rounded-2xl p-6 border border-ink/5 shadow-sm">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brandsoft/10 to-brand/10 flex items-center justify-center mb-4">
-                <FileText className="w-6 h-6 text-brandsoft" />
-              </div>
-              <p className="text-3xl font-bold text-ink mb-1">156</p>
-              <p className="text-sm text-ink/60">Documentos</p>
-            </div>
-
-            <div className="stat-card bg-card rounded-2xl p-6 border border-ink/5 shadow-sm">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-deep/10 to-brandsoft/10 flex items-center justify-center mb-4">
-                <User className="w-6 h-6 text-ink" />
-              </div>
-              <p className="text-3xl font-bold text-ink mb-1">12</p>
-              <p className="text-sm text-ink/60">Usuarios activos</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Quick Actions */}
-      <section className="px-6 lg:px-10 py-16 lg:py-24">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-2xl font-bold text-ink mb-8">Acciones rápidas</h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <h2 className="text-2xl font-bold text-ink mb-8">Documentación</h2>
+          {/* Solo queda este enlace. "Monitoreo en vivo" y "Configuracion" eran
+              <div> con `cursor-pointer` que no llevaban a ninguna parte: parecian
+              pulsables y no hacian nada. Cuando esas pantallas existan, vuelven. */}
+          <div className="grid md:grid-cols-2 gap-6">
             <Link
               to="/tecnologia"
-              className="bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group"
+              className="grupo-tarjeta relative overflow-hidden bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group"
             >
+              <span className="barrido pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-brand/10 to-transparent" />
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                 <FileText className="w-6 h-6 text-brand" />
               </div>
               <h3 className="font-bold text-ink mb-2">Documentación técnica</h3>
-              <p className="text-sm text-ink/60">Accede a la documentación completa del sistema.</p>
+              <p className="text-sm text-ink/60">
+                Hardware, subsistemas y protocolo serie del prototipo.
+              </p>
             </Link>
-
-            <div className="bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group cursor-pointer">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-mint/10 to-brand/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Activity className="w-6 h-6 text-mint" />
-              </div>
-              <h3 className="font-bold text-ink mb-2">Monitoreo en vivo</h3>
-              <p className="text-sm text-ink/60">Visualiza el estado de los robots en tiempo real.</p>
-            </div>
-
-            <div className="bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group cursor-pointer">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brandsoft/10 to-brand/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Settings className="w-6 h-6 text-brandsoft" />
-              </div>
-              <h3 className="font-bold text-ink mb-2">Configuración</h3>
-              <p className="text-sm text-ink/60">Ajusta los parámetros del sistema.</p>
-            </div>
           </div>
         </div>
       </section>
