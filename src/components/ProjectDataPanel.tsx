@@ -91,30 +91,3 @@ export function ProjectDataPanel() {
     </aside>
   );
 }
-
-/**
- * Version reducida para movil: solo las cifras, en una fila que se desplaza.
- * Da el mismo contexto sin empujar el formulario fuera de la pantalla.
- */
-export function ProjectDataStrip() {
-  return (
-    <div className="lg:hidden mb-6">
-      <p className="text-center text-xs font-semibold uppercase tracking-widest text-brand mb-3">
-        Entra y mira MEDIBOT por dentro
-      </p>
-      <dl className="grid grid-cols-2 gap-2">
-        {ESTADISTICAS_PROYECTO.map((dato) => (
-          <div
-            key={dato.label}
-            className="rounded-xl border border-ink/10 bg-card px-3 py-2 text-center"
-          >
-            <dt className="text-lg font-extrabold text-brand tabular-nums">
-              {dato.value}
-            </dt>
-            <dd className="text-[11px] leading-tight text-ink/60">{dato.label}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}

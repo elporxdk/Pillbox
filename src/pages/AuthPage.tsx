@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo } from "@/components/MedibotLogo";
-import { ProjectDataPanel, ProjectDataStrip } from "@/components/ProjectDataPanel";
+import { ProjectDataPanel } from "@/components/ProjectDataPanel";
   //Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales 
 //Función principal de la página de autenticación (login/registro) trabaja con funciones propias de supabase y su SDK 
 export default function AuthPage() {
@@ -29,8 +29,9 @@ export default function AuthPage() {
       </Link>
 
       {/* Dos columnas desde `lg`: el incentivo a la izquierda y el formulario a
-          la derecha. Por debajo, una sola columna con la tira de cifras encima
-          del formulario, para no dejarlo fuera de pantalla. */}
+          la derecha. Por debajo de `lg` el incentivo se oculta y queda solo el
+          formulario: en movil, cualquier cosa encima lo empuja fuera de la
+          pantalla y hay que hacer scroll para poder escribir. */}
       <div className="relative z-10 grid w-full max-w-5xl items-center gap-12 lg:grid-cols-2">
         <ProjectDataPanel />
 
@@ -38,8 +39,6 @@ export default function AuthPage() {
           <div className="flex items-center justify-center mb-8">
             <MedibotLogo markClassName="w-11 h-11" wordmarkClassName="text-2xl" />
           </div>
-
-          <ProjectDataStrip />
 
           <Card className="border-ink/10 shadow-xl shadow-shade/5 rounded-3xl">
             <CardHeader className="pb-4">
