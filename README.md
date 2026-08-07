@@ -179,6 +179,13 @@ despliega en **Cloudflare Workers** desde la propia rama (ver `wrangler.jsonc`).
 Tiene modo claro y oscuro: los colores viven como tokens en `src/index.css` y el
 tema lo conmuta `next-themes` con la clase `.dark` en `<html>`.
 
+En `/comunidad` hay un foro y un portal de noticias de salud. Leer es abierto;
+participar exige tener el correo confirmado, y eso lo imponen las políticas RLS de
+Supabase, no el código de React. **La migración
+`supabase/migraciones/0001_comunidad.sql` hay que ejecutarla a mano en el SQL
+Editor de Supabase: sin ella no hay control de acceso.** Todo está explicado en
+[`docs/comunidad.md`](docs/comunidad.md).
+
 #### Levantarlo en local
 
 ```bash
