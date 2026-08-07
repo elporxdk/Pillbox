@@ -31,6 +31,7 @@ const NAV_LINKS = [
   { label: "Cómo funciona", href: "/#como-funciona" },
   { label: "Testimonios", href: "/#testimonios" },
   { label: "Tecnología", href: "/tecnologia" },
+  { label: "Comunidad", href: "/comunidad" },
   { label: "Contacto", href: "/#contacto" },
 ];
 

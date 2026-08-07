@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { LogOut, Settings, FileText, Bell, } from "lucide-react";
+import { LogOut, Settings, FileText, Bell, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -112,10 +112,11 @@ export default function DashboardPage() {
       {/* ================= ACCIONES ================= */}
       <section className="px-6 lg:px-10 pb-16 lg:pb-24">
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-2xl font-bold text-ink mb-8">Documentación</h2>
-          {/* Solo queda este enlace. "Monitoreo en vivo" y "Configuracion" eran
-              <div> con `cursor-pointer` que no llevaban a ninguna parte: parecian
-              pulsables y no hacian nada. Cuando esas pantallas existan, vuelven. */}
+          <h2 className="text-2xl font-bold text-ink mb-8">Explora</h2>
+          {/* "Monitoreo en vivo" y "Configuracion" eran <div> con `cursor-pointer`
+              que no llevaban a ninguna parte: parecian pulsables y no hacian nada.
+              Cuando esas pantallas existan, vuelven. Los dos que hay si llevan a
+              algo. */}
           <div className="grid md:grid-cols-2 gap-6">
             <Link
               to="/tecnologia"
@@ -128,6 +129,20 @@ export default function DashboardPage() {
               <h3 className="font-bold text-ink mb-2">Documentación técnica</h3>
               <p className="text-sm text-ink/60">
                 Hardware, subsistemas y protocolo serie del prototipo.
+              </p>
+            </Link>
+
+            <Link
+              to="/comunidad"
+              className="grupo-tarjeta relative overflow-hidden bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group"
+            >
+              <span className="barrido pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-brand/10 to-transparent" />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <Users className="w-6 h-6 text-brand" />
+              </div>
+              <h3 className="font-bold text-ink mb-2">Comunidad</h3>
+              <p className="text-sm text-ink/60">
+                Foro de prevención de IAAS y noticias de salud en El Salvador.
               </p>
             </Link>
           </div>
