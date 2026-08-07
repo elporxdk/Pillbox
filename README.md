@@ -219,6 +219,12 @@ npm run preview  # previsualizar el build
 binario, y si el escáner lo abre buscando clases CSS el build agota la memoria y
 no termina nunca.
 
+### `whatsapp-bot/` — chatbot de WhatsApp en local
+
+Proyecto Node independiente (no se despliega junto al sitio). Conecta un
+número de WhatsApp con `whatsapp-web.js` y responde con Claude a quien
+escriba. Instrucciones completas en [`whatsapp-bot/README.md`](whatsapp-bot/README.md).
+
 ---
 
 # Documentación operativa
