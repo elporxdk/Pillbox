@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Navigate, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Mail, Lock, User as UserIcon, Loader2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,26 @@ import { ProjectDataPanel } from "@/components/ProjectDataPanel";
 //Función principal de la página de autenticación (login/registro) trabaja con funciones propias de supabase y su SDK 
 export default function AuthPage() {
   const [tab, setTab] = useState<"login" | "register">("login");
+
+  /**
+   * Con la sesion abierta, al panel.
+   *
+   * La sesion vive en localStorage y sobrevive a recargar y a cerrar la pestana,
+   * pero esta pagina ensenaba el formulario igualmente. Volver a ver "Iniciar
+   * sesion" cuando ya has entrado se lee como que te ha echado, y meter la
+   * contrasena otra vez lo confirma. Con `replace` el formulario no queda en el
+   * historial: el boton de atras del navegador no lo trae de vuelta.
+   */
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen w-full bg-surface flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-ink/40" />
+      </div>
+    );
+  }
+  if (user) return <Navigate to="/dashboard" replace />;
 
   return (
     <div className="min-h-screen w-full bg-surface flex items-center justify-center px-6 py-12 relative overflow-hidden">

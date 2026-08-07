@@ -12,13 +12,13 @@ import carlosPhoto from "../media/CarlosVindel.png";
 // cualquier valor puesto por el setter estatico, asi que tiene que existir antes
 // de que se cree el primer elemento. Se configura en el <head> de index.html.
 import "@google/model-viewer";
+import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ESTADISTICAS_PROYECTO } from "@/data/proyecto";
 import { ScrollProgress } from "@/components/ScrollProgress";
 import { AnimatedCounter } from "@/components/AnimatedCounter";
-import { SubsystemMonitor } from "@/components/SubsystemMonitor";
 import { PrototypeGallery } from "@/components/PrototypeGallery";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
@@ -201,6 +201,19 @@ const FAQS = [
 ];
 
 export default function MedicalLandingPage() {
+  /**
+   * La sesion se guarda en localStorage (`persistSession` en el cliente de
+   * Supabase), asi que sobrevive a recargar y a cerrar la pestana. Lo que faltaba
+   * era que la portada lo reflejase: ensenaba "Iniciar sesion" y "Comenzar gratis"
+   * a quien ya habia entrado, y eso se lee como haber perdido la sesion.
+   *
+   * `loading` importa: durante el primer instante la sesion aun se esta leyendo,
+   * y sin esperar se veria "Iniciar sesion" un momento antes de cambiar a "Ir al
+   * panel". Ese parpadeo es justo lo que hace dudar de si sigues dentro.
+   */
+  const { user, loading: cargandoSesion } = useAuth();
+  const autenticado = !cargandoSesion && user !== null;
+
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [showSplash, setShowSplash] = React.useState(true);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -454,17 +467,22 @@ export default function MedicalLandingPage() {
 
           <div className="hidden xl:flex items-center gap-2 whitespace-nowrap">
             <ThemeToggle />
+            {/* Con sesion abierta sobra el par "Iniciar sesion" + "Comenzar
+                gratis": queda un solo boton que lleva al panel. */}
+            {!autenticado && (
+              <Link
+                to="/auth"
+                className="hidden 2xl:block text-sm font-semibold px-4 py-2.5 rounded-full text-ink hover:bg-ink/5 transition-colors"
+              >
+                Iniciar sesión
+              </Link>
+            )}
             <Link
-              to="/auth"
-              className="hidden 2xl:block text-sm font-semibold px-4 py-2.5 rounded-full text-ink hover:bg-ink/5 transition-colors"
-            >
-              Iniciar sesión
-            </Link>
-            <Link
-              to="/auth"
+              to={autenticado ? "/dashboard" : "/auth"}
               className="text-sm font-semibold px-5 py-2.5 rounded-full bg-gradient-to-r from-brand to-deep text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center gap-2"
             >
-              Comenzar gratis <ArrowRight className="w-4 h-4" />
+              {autenticado ? "Ir al panel" : "Comenzar gratis"}
+              <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
 
@@ -504,11 +522,11 @@ export default function MedicalLandingPage() {
               )
             ))}
             <Link
-              to="/auth"
+              to={autenticado ? "/dashboard" : "/auth"}
               onClick={() => setMenuOpen(false)}
               className="mt-2 text-sm font-semibold px-5 py-3 rounded-full bg-gradient-to-r from-brand to-deep text-white text-center"
             >
-              Comenzar gratis
+              {autenticado ? "Ir al panel" : "Comenzar gratis"}
             </Link>
           </div>
         )}
@@ -548,13 +566,16 @@ export default function MedicalLandingPage() {
             </p>
 
             <div className="hero-cta flex flex-col sm:flex-row gap-4">
-              <a
-                href="#nosotros"
+              {/* Lleva al mismo sitio que "Iniciar sesion" de la barra: es el boton
+                  principal de la portada y tiene que empujar a entrar, no a bajar
+                  a una seccion. Con sesion abierta va directo al panel. */}
+              <Link
+                to={autenticado ? "/dashboard" : "/auth"}
                 className="group px-7 py-4 rounded-full bg-gradient-to-r from-brand to-deep text-white font-semibold shadow-xl shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
               >
-                Conoce el proyecto
+                {autenticado ? "Ir al panel" : "Conoce el proyecto"}
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </a>
+              </Link>
               <a
                 href="#como-funciona"
                 className="px-7 py-4 rounded-full bg-card border border-ink/10 font-semibold text-ink hover:bg-ink/5 transition-colors flex items-center justify-center gap-2"
@@ -642,8 +663,6 @@ export default function MedicalLandingPage() {
           </div>
         </div>
       </section>
-
-      <SubsystemMonitor />
 
       <PrototypeGallery />
 
