@@ -16,6 +16,9 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ESTADISTICAS_PROYECTO } from "@/data/proyecto";
+import { ScrollProgress } from "@/components/ScrollProgress";
+import { AnimatedCounter } from "@/components/AnimatedCounter";
+import { SubsystemMonitor } from "@/components/SubsystemMonitor";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
 // no lo conoce hasta que se declara. React 19 dejo de exponer un namespace JSX
@@ -394,6 +397,7 @@ export default function MedicalLandingPage() {
 
   return (
     <div ref={rootRef} className="min-h-screen bg-surface text-ink font-sans overflow-x-hidden">
+      <ScrollProgress />
       {/* ================= SPLASH SCREEN ================= */}
       {showSplash && (
         <div
@@ -515,8 +519,8 @@ export default function MedicalLandingPage() {
       >
         {/* Background decoration */}
         <div className="absolute inset-0 -z-10">
-          <div className="absolute top-10 right-0 w-[500px] h-[500px] bg-brand/15 rounded-full blur-3xl" />
-          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-mint/15 rounded-full blur-3xl" />
+          <div className="aurora absolute top-10 right-0 w-[500px] h-[500px] bg-brand/15 rounded-full blur-3xl" />
+          <div className="aurora-lenta absolute bottom-0 left-0 w-[400px] h-[400px] bg-mint/15 rounded-full blur-3xl" />
         </div>
 
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
@@ -637,14 +641,17 @@ export default function MedicalLandingPage() {
         </div>
       </section>
 
+      <SubsystemMonitor />
+
       {/* ================= STATS ================= */}
       <section className="px-6 lg:px-10 py-16 bg-gradient-to-r from-deep to-shade">
         <div className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-8">
           {ESTADISTICAS_PROYECTO.map((stat) => (
             <div key={stat.label} className="stat-item text-center">
-              <p className="text-3xl lg:text-4xl font-extrabold text-white mb-1">
-                {stat.value}
-              </p>
+              <AnimatedCounter
+                value={stat.value}
+                className="text-3xl lg:text-4xl font-extrabold text-white mb-1 tabular-nums"
+              />
               <p className="text-sm text-white/60 font-medium">{stat.label}</p>
             </div>
           ))}
@@ -653,8 +660,8 @@ export default function MedicalLandingPage() {
 
       {/* ================= QUIÉNES SOMOS ================= */}
       <section id="nosotros" className="relative px-6 lg:px-10 py-24 lg:py-32 bg-card overflow-hidden">
-        <div className="absolute -top-24 -left-24 w-80 h-80 bg-brandsoft/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-mint/10 rounded-full blur-3xl" />
+        <div className="aurora-lenta absolute -top-24 -left-24 w-80 h-80 bg-brandsoft/10 rounded-full blur-3xl" />
+        <div className="aurora absolute -bottom-24 -right-24 w-80 h-80 bg-mint/10 rounded-full blur-3xl" />
 
         <div className="max-w-5xl mx-auto relative">
           <div className="text-center max-w-3xl mx-auto mb-14 section-title">

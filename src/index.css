@@ -106,6 +106,130 @@ body {
   transition: background-color 0.25s ease;
 }
 
+/* ==================================================================
+ *  ANIMACIONES
+ *
+ *  Todas animan SOLO `transform` y `opacity`. Es deliberado: son las dos
+ *  propiedades que el navegador puede componer en la GPU sin recalcular
+ *  layout ni repintar. Animar `width`, `top` o `background` obliga a
+ *  rehacer el layout en cada fotograma, y en este sitio hay un modelo 3D
+ *  de 17,6 MiB compitiendo por el hilo principal: cualquier animacion
+ *  caraataca directamente a la fluidez del visor.
+ * ================================================================== */
+
+/* Manchas de color del fondo: derivan muy despacio, para que el fondo
+ * respire sin que el movimiento llame la atencion. 18-26 s por ciclo. */
+@keyframes deriva-aurora {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(3%, -4%, 0) scale(1.08);
+  }
+  66% {
+    transform: translate3d(-3%, 3%, 0) scale(0.95);
+  }
+}
+
+.aurora {
+  animation: deriva-aurora 22s ease-in-out infinite;
+  will-change: transform;
+}
+.aurora-lenta {
+  animation: deriva-aurora 30s ease-in-out infinite reverse;
+  will-change: transform;
+}
+
+/* Trazo del pulso: dibuja la linea de izquierda a derecha y vuelve a
+ * empezar. `stroke-dashoffset` no dispara layout, solo repintado del path. */
+@keyframes recorrer-trazo {
+  from {
+    stroke-dashoffset: var(--largo-trazo);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.trazo-pulso {
+  stroke-dasharray: var(--largo-trazo);
+  animation: recorrer-trazo 2.4s linear infinite;
+}
+
+/* Punto que viaja sobre la linea del pulso, como el cabezal de un monitor. */
+@keyframes latido {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.9);
+    opacity: 1;
+  }
+}
+
+.latido {
+  animation: latido 1.6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Indicador termico: el marcador oscila dentro de la banda 13-25 grados,
+ * como un lazo de control real buscando su consigna. */
+@keyframes oscilar-termico {
+  0%,
+  100% {
+    transform: translateX(18%);
+  }
+  50% {
+    transform: translateX(74%);
+  }
+}
+
+.marcador-termico {
+  animation: oscilar-termico 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Barrido de brillo sobre las tarjetas al pasar el raton. */
+@keyframes barrido {
+  from {
+    transform: translateX(-120%) skewX(-12deg);
+  }
+  to {
+    transform: translateX(220%) skewX(-12deg);
+  }
+}
+
+.grupo-tarjeta:hover .barrido {
+  animation: barrido 0.9s ease-out;
+}
+
+/* ==================================================================
+ *  `prefers-reduced-motion`
+ *
+ *  Quien pide menos movimiento no quiere "menos": quiere que se pare. Se
+ *  anulan TODAS las animaciones decorativas de una vez, en lugar de ir
+ *  acordandose de cada una. El contenido no depende de ninguna.
+ * ================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .aurora,
+  .aurora-lenta,
+  .trazo-pulso,
+  .latido,
+  .marcador-termico,
+  .barrido {
+    animation: none !important;
+  }
+  .trazo-pulso {
+    stroke-dashoffset: 0;
+  }
+  .marcador-termico {
+    transform: translateX(46%);
+  }
+}
+
 #root {
   width: 100%;
   min-height: 100vh;
