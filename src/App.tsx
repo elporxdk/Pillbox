@@ -1,7 +1,8 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 
 import { AuthProvider } from "@/context/AuthContext";
+import { ChatBot } from "@/components/ChatBot";
 import MedicalLandingPage from "@/pages/MedicalLandingPage";
 import AuthPage from "@/pages/AuthPage";
 import TechnicalPage from "@/pages/TechnicalPage";
@@ -36,10 +37,35 @@ function App() {
           />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        <AsistenteSiEncaja />
       </BrowserRouter>
       <Toaster position="top-center" richColors />
     </AuthProvider>
   );
+}
+
+/**
+ * Rutas con asistente.
+ *
+ * Es una lista de donde SI aparece, no de donde no. Con la lista al reves, una
+ * pagina nueva heredaria el globo de chat sin que nadie lo hubiera decidido; asi
+ * hay que pedirlo. Fuera quedan /auth y /restablecer, donde el visitante esta a
+ * mitad de una tarea concreta y un chat encima del formulario es ruido, y la 404,
+ * donde no hay nada de que hablar.
+ */
+const CON_ASISTENTE = ["/", "/tecnologia", "/comunidad", "/dashboard"];
+
+/**
+ * Monta el asistente una sola vez, aqui, en lugar de repetirlo en cada pagina.
+ *
+ * Con `<ChatBot />` dentro de cada pagina, la decision de donde va y donde no
+ * viviria en la ausencia de una linea repartida por varios ficheros. Aqui esta
+ * escrita en un sitio y se lee de un golpe.
+ */
+function AsistenteSiEncaja() {
+  const { pathname } = useLocation();
+  if (!CON_ASISTENTE.includes(pathname)) return null;
+  return <ChatBot />;
 }
 
 export default App;

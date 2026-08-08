@@ -1,0 +1,27 @@
+{
+  /* El Worker no es el navegador: no hay DOM, y si hay APIs de Cloudflare. Por eso
+     tiene su propio proyecto en vez de compartir tsconfig.app.json, que declara
+     `lib: DOM` y `types: vite/client`. Con uno solo, o el Worker ve `document`
+     (que no existe en produccion) o la web pierde los tipos de Vite. */
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"],
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  /* `src/lib` entra fichero a fichero y no entero: casi todo lo de ahi es codigo de
+     navegador (Supabase, tokens de Tailwind) que no compila sin `lib: DOM`. Estos
+     dos son los unicos neutrales, y el Worker los necesita. */
+  "include": ["src/worker", "src/data", "src/lib/fechas.ts", "src/lib/chat.ts"]
+}

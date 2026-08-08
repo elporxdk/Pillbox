@@ -4,6 +4,9 @@ dist
 dist-ssr
 *.local
 
+# Estado local de `wrangler dev` (cache y almacenamiento simulado). Se regenera.
+.wrangler/
+
 # Logs
 logs
 *.log
@@ -62,6 +65,11 @@ doctores.txt
 .env
 .env.*
 !.env.example
+#  Secrets del Worker para `wrangler dev`. Aqui va la clave de la API del
+#  asistente cuando se prueba en local; en produccion es un secret de Cloudflare.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 *.token
 *_token.txt
 cf_token*
