@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkles, ChevronRight, Activity, Users, Star, CheckCircle2, Menu, X, ArrowRight,} from "lucide-react";
+import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkles, ChevronRight, Activity, Users, CheckCircle2, Menu, X, ArrowRight,} from "lucide-react";
 import elianPhoto from "../media/ElianTorres.jpg";
 import diegoPhoto from "../media/DiegoYanes.jpg";
 import carlosPhoto from "../media/CarlosVindel.png";
@@ -16,9 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
-import { ESTADISTICAS_PROYECTO } from "@/data/proyecto";
 import { ScrollProgress } from "@/components/ScrollProgress";
-import { AnimatedCounter } from "@/components/AnimatedCounter";
 import { PrototypeGallery } from "@/components/PrototypeGallery";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
@@ -86,7 +84,6 @@ const NAV_LINKS = [
   { label: "Quiénes somos", href: "#nosotros" },
   { label: "Beneficios", href: "#beneficios" },
   { label: "Cómo funciona", href: "#como-funciona" },
-  { label: "Testimonios", href: "#testimonios" },
   { label: "Tecnología", href: "/tecnologia" },
   { label: "Comunidad", href: "/comunidad" },
   { label: "Contacto", href: "#contacto" },
@@ -162,24 +159,6 @@ const STEPS = [
   },
 ];
 
-
-const TESTIMONIALS = [
-  {
-    name: "Dra. María González",
-    role: "Jefa de Enfermería",
-    text: "MEDIBOT ha transformado nuestra logística hospitalaria. El control térmico asegura la integridad de los medicamentos y reduce significativamente el riesgo de contaminación.",
-  },
-  {
-    name: "Dr. Carlos Martínez",
-    role: "Director Médico",
-    text: "La teleoperación nos permite mantener la distancia de seguridad necesaria sin comprometer la eficiencia en la entrega de insumos críticos.",
-  },
-  {
-    name: "Lic. Ana Rodríguez",
-    role: "Coordinadora de Farmacia",
-    text: "El sistema de trazabilidad y el control de temperatura en tiempo real nos da la confianza que necesitamos para medicamentos termolábiles.",
-  },
-];
 
 const FAQS = [
   {
@@ -338,36 +317,6 @@ export default function MedicalLandingPage() {
           scrollTrigger: {
             trigger: el,
             start: "top 85%",
-          },
-        });
-      });
-
-      // Stats counter animation
-      gsap.utils.toArray<HTMLElement>(".stat-item").forEach((el, i) => {
-        gsap.from(el, {
-          y: 30,
-          opacity: 0,
-          duration: 0.6,
-          delay: i * 0.1,
-          ease: "power2.out",
-          scrollTrigger: {
-            trigger: el,
-            start: "top 90%",
-          },
-        });
-      });
-
-      // Testimonials
-      gsap.utils.toArray<HTMLElement>(".testimonial-card").forEach((el, i) => {
-        gsap.from(el, {
-          y: 40,
-          opacity: 0,
-          duration: 0.7,
-          delay: i * 0.08,
-          ease: "power2.out",
-          scrollTrigger: {
-            trigger: el,
-            start: "top 88%",
           },
         });
       });
@@ -545,11 +494,6 @@ export default function MedicalLandingPage() {
 
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
           <div>
-            <div className="hero-badge inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand/10 border border-brand/20 text-ink text-sm font-semibold mb-6">
-              <Sparkles className="w-4 h-4 text-brand" />
-              Prototipo CREA-J 2026 · Colegio Don Bosco
-            </div>
-
             <h1 className="hero-title text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.1] tracking-tight mb-6">
               Transporte hospitalario
               <span className="block bg-gradient-to-r from-brand via-deep to-mint bg-clip-text text-transparent">
@@ -573,7 +517,7 @@ export default function MedicalLandingPage() {
                 to={autenticado ? "/dashboard" : "/auth"}
                 className="group px-7 py-4 rounded-full bg-gradient-to-r from-brand to-deep text-white font-semibold shadow-xl shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
               >
-                {autenticado ? "Ir al panel" : "Conoce el proyecto"}
+                {autenticado ? "Ir al panel" : "Iniciar sesión"}
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <a
@@ -665,21 +609,6 @@ export default function MedicalLandingPage() {
       </section>
 
       <PrototypeGallery />
-
-      {/* ================= STATS ================= */}
-      <section className="px-6 lg:px-10 py-16 bg-gradient-to-r from-deep to-shade">
-        <div className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 gap-8">
-          {ESTADISTICAS_PROYECTO.map((stat) => (
-            <div key={stat.label} className="stat-item text-center">
-              <AnimatedCounter
-                value={stat.value}
-                className="text-3xl lg:text-4xl font-extrabold text-white mb-1 tabular-nums"
-              />
-              <p className="text-sm text-white/60 font-medium">{stat.label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
 
       {/* ================= QUIÉNES SOMOS ================= */}
       <section id="nosotros" className="relative px-6 lg:px-10 py-24 lg:py-32 bg-card overflow-hidden">
@@ -877,45 +806,6 @@ export default function MedicalLandingPage() {
                 <p className="text-ink/60 text-sm leading-relaxed">
                   {step.desc}
                 </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ================= TESTIMONIALS ================= */}
-      <section id="testimonios" className="px-6 lg:px-10 py-24 lg:py-32">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
-              Testimonios
-            </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
-              Personas reales, resultados reales
-            </h2>
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-6">
-            {TESTIMONIALS.map((t) => (
-              <div
-                key={t.name}
-                className="testimonial-card bg-card rounded-3xl p-8 border border-ink/5 shadow-sm hover:shadow-xl transition-shadow"
-              >
-                <div className="flex gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-brand text-brand" />
-                  ))}
-                </div>
-                <p className="text-ink/70 text-sm leading-relaxed mb-6">
-                  “{t.text}”
-                </p>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand to-mint" />
-                  <div>
-                    <p className="font-semibold text-sm">{t.name}</p>
-                    <p className="text-xs text-ink/50">{t.role}</p>
-                  </div>
-                </div>
               </div>
             ))}
           </div>
