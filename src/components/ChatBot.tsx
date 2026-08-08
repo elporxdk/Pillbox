@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUp01Icon, MessageMultiple02Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowUp01Icon,
+  MessageMultiple02Icon,
+  Cancel01Icon,
+  Delete02Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { useAuth } from "@/context/AuthContext";
@@ -12,6 +17,7 @@ import {
   type RespuestaChat,
   type Turno,
 } from "@/lib/chat";
+import { borrarHistorial, guardarHistorial, leerHistorial } from "@/lib/historial";
 
 /**
  * El asistente del sitio.
@@ -51,7 +57,11 @@ type Estado =
 export function ChatBot() {
   const { session } = useAuth();
   const [abierto, setAbierto] = useState(false);
-  const [turnos, setTurnos] = useState<Turno[]>([]);
+  // Inicializador perezoso: `leerHistorial()` corre una sola vez, al montar, y no
+  // en cada render. Hacerlo aqui y no en un `useEffect` evita el setState dentro de
+  // un efecto que prohibe el compilador de React -- y ademas la conversacion ya
+  // esta en pantalla en el primer pintado, sin un salto visible.
+  const [turnos, setTurnos] = useState<Turno[]>(() => leerHistorial());
   const [borrador, setBorrador] = useState("");
   const [estado, setEstado] = useState<Estado>({ fase: "libre" });
   const [restantes, setRestantes] = useState<number | null>(null);
@@ -59,7 +69,7 @@ export function ChatBot() {
   const finDelHilo = useRef<HTMLDivElement>(null);
   const campo = useRef<HTMLTextAreaElement>(null);
 
-  // Estos dos efectos solo tocan el DOM (foco y scroll); no llaman a setState, que
+  // Estos efectos solo tocan el DOM y el almacenamiento; no llaman a setState, que
   // es lo que el compilador de React prohibe dentro de un efecto.
   useEffect(() => {
     if (abierto) campo.current?.focus();
@@ -68,6 +78,13 @@ export function ChatBot() {
   useEffect(() => {
     finDelHilo.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turnos, estado]);
+
+  // Se guarda al cambiar los turnos y no dentro de `enviar()` para que no haya
+  // ningun camino que actualice la conversacion sin persistirla: el estado es la
+  // fuente, el almacenamiento la sigue.
+  useEffect(() => {
+    guardarHistorial(turnos);
+  }, [turnos]);
 
   useEffect(() => {
     if (!abierto) return;
@@ -155,6 +172,21 @@ export function ChatBot() {
     void enviar(ultimo.texto);
   }
 
+  /**
+   * Empieza una conversacion nueva.
+   *
+   * Borra tambien el almacenamiento y no solo el estado: si se limpiara solo la
+   * pantalla, al recargar volveria a aparecer todo, que es justo lo contrario de
+   * lo que espera quien pulsa esto.
+   */
+  function empezarDeNuevo() {
+    setTurnos([]);
+    setEstado({ fase: "libre" });
+    setBorrador("");
+    borrarHistorial();
+    campo.current?.focus();
+  }
+
   if (!abierto) {
     return (
       <button
@@ -186,6 +218,19 @@ export function ChatBot() {
               : `Te quedan ${restantes} ${restantes === 1 ? "mensaje" : "mensajes"} hoy`}
           </p>
         </div>
+        {/* Solo aparece si hay algo que borrar: un boton que no hace nada es peor
+            que no tenerlo. */}
+        {turnos.length > 0 && (
+          <button
+            type="button"
+            onClick={empezarDeNuevo}
+            aria-label="Empezar una conversación nueva"
+            title="Empezar de nuevo"
+            className="rounded-full p-1 transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+          >
+            <HugeiconsIcon icon={Delete02Icon} size={18} strokeWidth={2} />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setAbierto(false)}
