@@ -65,8 +65,10 @@ function json(
 async function chat(req: Request, env: Env): Promise<Response> {
   if (req.method !== "POST") return json(405, { error: "Usa POST." });
 
-  if (!env.CLAVE_IA) {
-    // Configuracion incompleta. Se dice claro en el log y vago al visitante.
+  if (!env.CLAVE_IA?.trim()) {
+    // `?.trim()` y no solo `!env.CLAVE_IA`: un secret que quedo en blanco por
+    // error (solo un espacio) es una cadena no vacia, y sin el trim pasaria este
+    // guardia para fallar mas abajo con un mensaje menos claro.
     console.error("falta el secret CLAVE_IA");
     return json(503, { error: "El asistente todavía no está configurado." });
   }

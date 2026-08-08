@@ -71,7 +71,13 @@ function deBase64Url(s: string): Uint8Array {
  */
 let claveFirmaCache: { secreto: string; clave: CryptoKey } | null = null;
 
-async function claveDeFirma(secreto: string): Promise<CryptoKey> {
+async function claveDeFirma(secretoBruto: string): Promise<CryptoKey> {
+  // `.trim()`: si el secret llega con un espacio o salto de linea de mas, tiene
+  // que dar la MISMA clave derivada aqui y en gemini.ts (que tambien recorta).
+  // Si uno recortara y el otro no, esto seguiria funcionando -- las cookies serian
+  // consistentes consigo mismas -- pero es la misma cadena de origen y no hay
+  // motivo para que dependan de dos criterios distintos.
+  const secreto = secretoBruto.trim();
   if (claveFirmaCache?.secreto === secreto) return claveFirmaCache.clave;
 
   const base = await crypto.subtle.importKey("raw", codificador.encode(secreto), "HKDF", false, [
