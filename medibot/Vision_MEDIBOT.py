@@ -19,12 +19,7 @@ from flask import Flask, Response, render_template_string, jsonify, send_from_di
 # (_DummyGPIO) traduce cada accion a una orden de texto que el hub reenvia.
 # Formato (una por línea):
 #       GPIO,<pin>,<0|1>     -> movimiento   (17=adel,27=atras,22=izq,23=der)
-#   # arm64 (Pi 3/4/5 con SO de 64 bits) — comprueba con: uname -m
-#  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 -o cloudflared
-# 32 bits (armv7l) -> usa cloudflared-linux-arm
-
-sudo install -m 755 cloudflared /usr/local/bin/cloudflared
-cloudflared --version    PWM,<pin>,<duty>     -> servo cámara  (18=pan, 13=tilt; ej. "PWM,18,7.5")
+#       PWM,<pin>,<duty>     -> servo cámara  (18=pan, 13=tilt; ej. "PWM,18,7.5")
 # Si el hub no está disponible, las órdenes se muestran por consola.
 
 
