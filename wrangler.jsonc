@@ -47,6 +47,22 @@
   // Si prefieres no tenerlas en el repositorio, borra las dos lineas y ponlas
   // como variables del Worker en el panel de Cloudflare (Settings > Variables).
   // El codigo no cambia.
+  // NO QUITAR ESTA LINEA: SIN ELLA CADA DESPLIEGUE BORRA LA CLAVE DEL ASISTENTE
+  // ---------------------------------------------------------------------------
+  // Por defecto este fichero es la unica verdad sobre la configuracion del Worker,
+  // y `wrangler deploy` borra del Worker todo binding que no aparezca aqui. Los
+  // secretos incluidos: dentro de wrangler, `keepSecrets` se deriva de `keepVars`,
+  // asi que con esto en false un despliegue elimina CLAVE_IA sin avisar. Paso de
+  // verdad al fusionar el asistente, y el chat dejo de funcionar.
+  //
+  // Con `keep_vars` en true, el despliegue conserva lo que este puesto en el panel
+  // de Cloudflare y sigue aplicando las `vars` de abajo. Es lo que permite que la
+  // clave se ponga una vez, a mano, y no haga falta tocarla nunca mas.
+  //
+  // El precio: quitar una variable de este fichero ya no la borra del Worker. Hay
+  // que borrarla tambien en el panel. Es un precio bajo por no perder la clave.
+  "keep_vars": true,
+
   "vars": {
     // Modelo del asistente. Cambiarlo es editar esta linea: no hay ningun
     // identificador de modelo escrito dentro del codigo.
