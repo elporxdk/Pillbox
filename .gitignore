@@ -17,6 +17,10 @@ data/
 trainer.yml
 trainer_labels.json
 
+# Salida del verificador de WhatsApp (resultados, no codigo)
+verificador-whatsapp/resultados.csv
+verificador-whatsapp/resultados.txt
+
 # CREDENCIALES - nunca al repositorio.
 #  Un token de Cloudflare da permiso de Edit sobre el DNS y los tuneles: quien
 #  lo tenga puede repuntar el dominio a donde quiera. Y un token publicado en
@@ -31,3 +35,7 @@ cf_token*
 cloudflared/
 *.pem
 credenciales*.json
+#  La sesion de whatsapp-web.js (LocalAuth): equivale a tener la cuenta
+#  iniciada, asi que tampoco puede acabar en el repositorio.
+.wwebjs_auth/
+.wwebjs_cache/

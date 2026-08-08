@@ -27,9 +27,9 @@ QUE NECESITAS
 
 USO
 ---
-    python3 cloudflare_tunel.py --dominio tudominio.com --dry-run   # ensayo
-    python3 cloudflare_tunel.py --dominio tudominio.com             # de verdad
-    python3 cloudflare_tunel.py --dominio tudominio.com --verificar # comprobar
+    python3 herramientas/cloudflare_tunel.py --dominio tudominio.com --dry-run   # ensayo
+    python3 herramientas/cloudflare_tunel.py --dominio tudominio.com             # de verdad
+    python3 herramientas/cloudflare_tunel.py --dominio tudominio.com --verificar # comprobar
 
 Los dos tokens se piden POR TECLADO, ocultos, si no estan puestos. No hace
 falta exportarlos: `export CF_API_TOKEN=...` deja la credencial escrita en
@@ -297,7 +297,7 @@ def verificar(dominio, servicios):
         todo_bien &= vivo
         print(f"  {'OK  ' if vivo else 'NO  '} localhost:{puerto} "
               f"({nombre}.{dominio})"
-              + ("" if vivo else "   <- arranca Medibot: python3 main.py"))
+              + ("" if vivo else "   <- arranca Medibot: python3 medibot/main.py"))
 
     for puerto, motivo in PROHIBIDOS.items():
         if puerto_escuchando(puerto, "127.0.0.1"):

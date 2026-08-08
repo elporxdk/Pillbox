@@ -156,7 +156,7 @@ IMAGES_PER_PERSON = 500
 #    3. Ponte tu delante: anota las distancias (seran las BAJAS).
 #       Que se ponga alguien no registrado: anota las suyas (seran ALTAS).
 #    4. Elige un umbral entre ambos grupos, mas cerca del grupo bajo.
-#           MEDIBOT_LBPH_UMBRAL=65 python3 main.py
+#           MEDIBOT_LBPH_UMBRAL=65 python3 medibot/main.py
 #  El valor por defecto es un PUNTO DE PARTIDA conservador, no una verdad
 #  universal: depende de tu camara, tu luz y tus 500 imagenes por persona.
 CONF_LIMIT = float(os.environ.get("MEDIBOT_LBPH_UMBRAL", "80"))
@@ -949,7 +949,7 @@ def initialize_cameras():
         print("Ninguna cámara disponible. Comprueba los dispositivos con:")
         print("    ls /dev/video*")
         print("    v4l2-ctl --list-formats-ext -d /dev/video0")
-        print("Para arrancar sin hardware:  MEDIBOT_CAMARA_FAKE=1 python3 main.py")
+        print("Para arrancar sin hardware:  MEDIBOT_CAMARA_FAKE=1 python3 medibot/main.py")
     return bool(resultados)
 
 
@@ -4486,7 +4486,7 @@ def update_gui():
     #  fluido, y cada pasada ahora es barata), pero fue otro cambio hecho sin
     #  medir en la Raspberry: mas pasadas = mas veces creando la imagen de Tk
     #  en el hilo principal, que es justo lo que compite con la captura.
-    #  Ajustable sin tocar codigo:  MEDIBOT_GUI_MS=33 python3 main.py
+    #  Ajustable sin tocar codigo:  MEDIBOT_GUI_MS=33 python3 medibot/main.py
     root.after(GUI_REFRESCO_MS, update_gui)
 
 def on_closing():

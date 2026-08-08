@@ -17,13 +17,13 @@ respuesta. Asi ambos "hablan por COM" sin pelearse.
 
 COMO SE USA: no hace falta arrancarlo a mano; Vision y Pillbox lo autolanzan
 (medibot_serial.ensure_hub()). Tambien puede correrse solo:
-    python3 serial_hub.py
+    python3 medibot/serial_hub.py
 
 PUERTO SERIE:
   - Por defecto AUTODETECTA el Arduino (ttyUSB*/ttyACM* en la Pi, COMx en
     Windows).
   - Para FIJARLO a mano, define la variable de entorno MEDIBOT_SERIAL_PORT:
-        MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 python3 Pastillero.py
+        MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 python3 medibot/Pastillero.py
   - Si no hay Arduino al arrancar (o se desconecta), el hub REINTENTA
     conectarse cada 2 segundos, no hace falta reiniciar nada.
 

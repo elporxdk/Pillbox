@@ -17,13 +17,13 @@ Raspberry mientras Medibot esta parado.
 USO
 ---
     # Sin hardware (frames sinteticos): funciona en cualquier maquina
-    python3 bench_vision.py --fake
+    python3 herramientas/bench_vision.py --fake
 
     # Con la camara real de la Pi, los tres perfiles, 8 s cada uno
-    python3 bench_vision.py --camara 0 --segundos 8
+    python3 herramientas/bench_vision.py --camara 0 --segundos 8
 
     # Un solo perfil, simulando 2 navegadores conectados
-    python3 bench_vision.py --camara 0 --perfil bajo --clientes 2
+    python3 herramientas/bench_vision.py --camara 0 --perfil bajo --clientes 2
 
 COMO LEER EL RESULTADO
 ----------------------
@@ -51,6 +51,12 @@ except ImportError as e:                                  # pragma: no cover
     print("Instala con:  pip install numpy opencv-python")
     sys.exit(1)
 
+# El motor de video vive en medibot/ y esta herramienta en herramientas/:
+# Python solo mira la carpeta del script, asi que hay que anadir la otra.
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if os.path.join(_RAIZ, "medibot") not in sys.path:
+    sys.path.insert(0, os.path.join(_RAIZ, "medibot"))
+
 import medibot_vision as mv
 
 
@@ -75,7 +81,7 @@ def abrir(indice, ancho, alto, fps, fourcc, fake):
         print(f"\nNo se pudo abrir la camara {indice}.")
         print("  - Comprueba que existe:      ls /dev/video*")
         print(f"  - Y sus modos reales:        v4l2-ctl --list-formats-ext -d /dev/video{indice}")
-        print("  - O corre sin hardware:      python3 bench_vision.py --fake")
+        print("  - O corre sin hardware:      python3 herramientas/bench_vision.py --fake")
         sys.exit(2)
     return cap, info
 
@@ -253,7 +259,7 @@ def main():
         print("    2. Forzar MJPG:   --fourcc MJPG   (YUYV satura el USB 2.0)")
         print("    3. Bajar captura: --ancho 480 --alto 360")
         print("    4. Exposicion automatica: en interiores baja los FPS a la mitad.")
-        print("       MEDIBOT_CAM_AUTOEXP=0 python3 main.py")
+        print("       MEDIBOT_CAM_AUTOEXP=0 python3 medibot/main.py")
     else:
         print(f"  El limite es NUESTRO (etapa '{peor['manda']}'). Que probar:")
         print("    MEDIBOT_DETECT_ROJO=0   (quita ~1,3 ms/frame)")

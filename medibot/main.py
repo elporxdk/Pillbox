@@ -18,7 +18,7 @@ sirviendo la web igual. Solo se cierra todo cuando el usuario cierra la
 ventana de Medibot normalmente o pulsa Ctrl+C.
 
 Uso:
-    python3 main.py
+    python3 medibot/main.py
 
 Si falta algo (un archivo o una libreria), este lanzador lo dice con un
 mensaje claro y como instalarlo, en vez de un traceback.
@@ -146,7 +146,7 @@ def reiniciar_hub(ms):
     else:
         print("Arduino aun no detectado: el hub reintenta cada 2 s.")
         print("(Si conoces el puerto, arranca asi:  "
-              "MEDIBOT_SERIAL_PORT=/dev/ttyACM0 python3 main.py)")
+              "MEDIBOT_SERIAL_PORT=/dev/ttyACM0 python3 medibot/main.py)")
     return True
 
 
@@ -167,7 +167,7 @@ def lanzar_pillbox():
             return proc
         if proc.poll() is not None:
             print("AVISO: Pillbox termino inesperadamente al arrancar; "
-                  "revisa su salida ejecutando:  python3 Pastillero.py")
+                  "revisa su salida ejecutando:  python3 medibot/Pastillero.py")
             return proc
         time.sleep(0.25)
     print("AVISO: Pillbox tarda en responder; sigue arrancando en segundo plano.")

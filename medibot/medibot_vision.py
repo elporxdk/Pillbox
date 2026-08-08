@@ -120,8 +120,8 @@ def ajustar_hilos_opencv(hilos=None):
     automatico de OpenCV, que es como se comportaba el proyecto originalmente.
     Para experimentar sin editar codigo:
 
-        MEDIBOT_CV_THREADS=1 python3 main.py    # un hilo por operacion
-        MEDIBOT_CV_THREADS=4 python3 main.py    # cuatro
+        MEDIBOT_CV_THREADS=1 python3 medibot/main.py    # un hilo por operacion
+        MEDIBOT_CV_THREADS=4 python3 medibot/main.py    # cuatro
         (sin variable)                          # automatico (por defecto)
     """
     try:

@@ -3,8 +3,9 @@
 """
 arduino_falso: un Arduino Medibot simulado, para probar SIN la placa.
 =====================================================================
-QUE ES: reproduce el despachador de comandos del firmware (MEDIBOT.MOVE.)
-hablando por un puerto serie DE VERDAD. En Linux se crea un par de
+QUE ES: reproduce el despachador de comandos del firmware
+(firmware/medibot_movimiento/medibot_movimiento.ino) hablando por un puerto
+serie DE VERDAD. En Linux se crea un par de
 pseudoterminales (pty), asi que el hub abre un `/dev/pts/N` real con pyserial:
 se ejercita el codigo de puerto serie autentico, no una imitacion.
 
@@ -17,12 +18,12 @@ PARA QUE SIRVE
   * Desarrollar la web y la GUI sin arriesgar el hardware.
 
 USO
-    python3 arduino_falso.py                 # crea el pty y espera comandos
-    python3 arduino_falso.py --viejo         # simula el firmware antiguo
-    MEDIBOT_SERIAL_PORT=<el pty que imprime> python3 serial_hub.py
+    python3 herramientas/arduino_falso.py           # crea el pty y espera ordenes
+    python3 herramientas/arduino_falso.py --viejo   # simula el firmware antiguo
+    MEDIBOT_SERIAL_PORT=<el pty que imprime> python3 medibot/serial_hub.py
 
-Tambien se usa desde las pruebas (test_protocolo_serial.py), donde se arranca
-y se para solo.
+Tambien se usa desde las pruebas (pruebas/test_protocolo_serial.py), donde se
+arranca y se para solo.
 """
 
 import argparse
@@ -32,10 +33,18 @@ import sys
 import threading
 import time
 
+# El protocolo vive en medibot/ y esta herramienta en herramientas/: Python solo
+# mira la carpeta del script, asi que hay que anadir la otra a mano.
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if os.path.join(RAIZ, "medibot") not in sys.path:
+    sys.path.insert(0, os.path.join(RAIZ, "medibot"))
+
 import medibot_protocolo as protocolo
 
-RUTA_FIRMWARE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "MEDIBOT.MOVE.")
+# La prueba de paridad lee el sketch de verdad para comprobar que Python y el
+# firmware hablan el mismo idioma. Si mueves el sketch, cambia SOLO esta linea.
+RUTA_FIRMWARE = os.path.join(RAIZ, "firmware", "medibot_movimiento",
+                             "medibot_movimiento.ino")
 
 
 class ArduinoFalso:
@@ -332,7 +341,7 @@ def main():
     print(f"Arduino simulado{' (firmware ANTIGUO)' if args.viejo else ''} en:")
     print(f"    {dispositivo}")
     print("\nArranca el hub apuntando ahi:")
-    print(f"    MEDIBOT_SERIAL_PORT={dispositivo} python3 serial_hub.py")
+    print(f"    MEDIBOT_SERIAL_PORT={dispositivo} python3 medibot/serial_hub.py")
     print("\nCtrl+C para salir.")
     try:
         while True:

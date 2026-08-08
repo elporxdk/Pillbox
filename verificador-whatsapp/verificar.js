@@ -4,9 +4,12 @@ const fs = require('fs');
 const path = require('path');
 
 // ================== CONFIGURACIÓN ==================
-const ARCHIVO_ENTRADA = './doctores.txt';   // un número por línea
-const ARCHIVO_SALIDA_CSV = './resultados.csv';
-const ARCHIVO_SALIDA_TXT = './resultados.txt';
+// Las rutas cuelgan de la carpeta del script (__dirname), no del directorio
+// desde el que se lanza: así `node verificador-whatsapp/verificar.js` funciona
+// igual que entrar en la carpeta y hacer `node verificar.js`.
+const ARCHIVO_ENTRADA = path.join(__dirname, 'doctores.txt');   // un número por línea
+const ARCHIVO_SALIDA_CSV = path.join(__dirname, 'resultados.csv');
+const ARCHIVO_SALIDA_TXT = path.join(__dirname, 'resultados.txt');
 const CODIGO_PAIS = '503';                  // El Salvador
 const PAUSA_MS = 1500;                      // pausa entre consultas (evita bloqueos)
 const TAMANO_LOTE = 150;                    // cada cuántos números hacer una pausa larga
