@@ -1,12 +1,20 @@
 {
-  // Worker de assets estaticos: no hay codigo de servidor, solo el build de
-  // Vite. Por eso no lleva "main" -- Cloudflare sirve `dist/` directamente.
-  //
   // El nombre tiene que coincidir con el Worker que ya existe en la cuenta
   // ("medibot"), o `wrangler deploy` crearia uno nuevo en vez de actualizarlo.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "medibot",
   "compatibility_date": "2026-08-06",
+
+  // Hasta el asistente esto era un Worker de solo assets, sin "main": Cloudflare
+  // servia `dist/` y no habia codigo de servidor. Ahora hay codigo, y el orden
+  // importa: el Worker atiende TODA peticion, responde `/api/chat` y le pasa el
+  // resto a los assets. Ver el comentario de `src/worker/index.ts`.
+  "main": "src/worker/index.ts",
+
+  // No lleva `compatibility_flags: ["nodejs_compat"]`, y no es un olvido: el
+  // Worker importa `@google/genai/web`, el build del SDK que no toca ninguna API
+  // de Node. Una bandera que no hace falta cambia como se resuelven los modulos
+  // y es una fuente de sorpresas gratis.
 
   "assets": {
     "directory": "./dist",
@@ -16,7 +24,35 @@
     // esas rutas devuelve 404 en vez de dejar que el router las resuelva.
     // Sustituye al truco de copiar index.html a 404.html que hace falta en
     // GitHub Pages.
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+
+    // El binding es lo que hace que `env.ASSETS.fetch(req)` funcione desde el
+    // codigo. Sin nombrarlo, con "main" presente el Worker se queda delante de
+    // los assets sin poder llegar a ellos y el sitio entero devuelve 404.
+    "binding": "ASSETS"
+  },
+
+  // CONFIGURACION NO SECRETA
+  // ------------------------
+  // La clave de la API NO esta aqui: es un secret (`wrangler secret put
+  // CLAVE_IA`) y nunca toca el repositorio.
+  //
+  // Las dos de Supabase si estan, y es a proposito: Vite las hornea dentro del
+  // bundle, asi que ya viajan al navegador de cualquier visitante que abra el
+  // sitio. No son secretos, son identificadores publicos; lo que protege la
+  // base de datos es Row Level Security, no ocultarlas. Ponerlas aqui evita un
+  // segundo paso de configuracion que, si se olvida, degrada en silencio a todo
+  // usuario con sesion al cupo de anonimo.
+  //
+  // Si prefieres no tenerlas en el repositorio, borra las dos lineas y ponlas
+  // como variables del Worker en el panel de Cloudflare (Settings > Variables).
+  // El codigo no cambia.
+  "vars": {
+    // Modelo del asistente. Cambiarlo es editar esta linea: no hay ningun
+    // identificador de modelo escrito dentro del codigo.
+    "MODELO_IA": "gemini-3.1-flash-lite",
+    "SUPABASE_URL": "https://kuvpownbspwntjneshtt.supabase.co",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1dnBvd25ic3B3bnRqbmVzaHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTkyMjIsImV4cCI6MjEwMTI5NTIyMn0.cbXcRpDcgXVHGPenaYSF1olCcwSOnAoVzGjDMHkKff4"
   },
 
   "observability": {

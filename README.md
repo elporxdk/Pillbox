@@ -186,6 +186,34 @@ Supabase, no el código de React. **La migración
 Editor de Supabase: sin ella no hay control de acceso.** Todo está explicado en
 [`docs/comunidad.md`](docs/comunidad.md).
 
+#### El asistente del sitio
+
+Un chat flotante responde preguntas sobre el proyecto y sobre las IAAS. Da 5
+mensajes sin cuenta y 40 al día con la sesión abierta. Corre en el Worker, no en el
+navegador, así que la clave de la API no viaja al visitante.
+
+**Hay que configurar una sola cosa, una vez:**
+
+```bash
+npx wrangler secret put CLAVE_IA
+```
+
+La clave se saca gratis y sin tarjeta en
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey). Sin ella la web
+funciona igual y solo el chat responde que no está configurado.
+
+> **No la escribas en `wrangler.jsonc` ni en `.env`**: las dos cosas la publican.
+> `wrangler secret put` la guarda cifrada en Cloudflare.
+
+El asistente **responde solo con lo que hay en `src/data/`** y tiene prohibido
+afirmar los datos que aún no están confirmados (cifras eléctricas, dimensiones,
+precio…). Al confirmar un dato hay que moverlo de `SIN_CONFIRMAR` a
+`HECHOS_HARDWARE` en `src/data/hardware.ts`.
+
+**Sobre privacidad:** en la capa gratuita de Google los mensajes pueden usarse para
+mejorar sus productos y puede verlos una persona. El panel lo avisa en letra
+pequeña. Los detalles y el resto del diseño, en [`docs/chatbot.md`](docs/chatbot.md).
+
 #### Restablecer la contraseña
 
 En `/auth` hay un enlace **«¿Olvidaste tu contraseña?»** que envía un correo con
@@ -224,10 +252,11 @@ sesión y el panel no funcionan.
 #### Comandos
 
 ```bash
-npm run dev      # servidor de desarrollo
-npm run build    # build de producción en dist/
-npm run lint     # eslint
-npm run preview  # previsualizar el build
+npm run dev       # servidor de desarrollo (sin asistente: Vite no ejecuta el Worker)
+npm run dev:chat  # build + wrangler dev, lo único que sí ejecuta /api/chat
+npm run build     # build de producción en dist/
+npm run lint      # eslint
+npm run preview   # previsualizar el build
 ```
 
 #### Nota sobre `public/`

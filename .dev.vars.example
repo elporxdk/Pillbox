@@ -1,0 +1,14 @@
+# Copia este fichero a `.dev.vars` para probar el asistente en local con
+# `npm run dev:chat`. El `.dev.vars` real esta en .gitignore.
+#
+# En produccion esta clave NO se pone aqui ni en wrangler.jsonc: es un secret de
+# Cloudflare y se guarda una sola vez con
+#
+#   npx wrangler secret put CLAVE_IA
+#
+# La clave se saca gratis en https://aistudio.google.com/apikey (no pide tarjeta).
+#
+# `npm run dev` a secas sigue funcionando sin esto: levanta solo la web, sin el
+# endpoint del asistente.
+
+CLAVE_IA=
