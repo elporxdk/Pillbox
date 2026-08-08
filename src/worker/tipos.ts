@@ -23,6 +23,15 @@ export type Env = {
   CLAVE_IA: string;
   /** Identificador del modelo. `var` en wrangler.jsonc, se cambia sin redeploy de codigo. */
   MODELO_IA: string;
+  /**
+   * Modelo al que caer si `MODELO_IA` no existe.
+   *
+   * Existe para que probar un modelo nuevo no pueda tumbar el chat. Un ID mal
+   * escrito o un modelo retirado da 404, y sin esto el asistente se queda muerto
+   * hasta que alguien lo note. Con esto responde igual, con el modelo de siempre,
+   * y deja el aviso en el log.
+   */
+  MODELO_IA_RESERVA?: string;
   /** Proyecto de Supabase, para validar la sesion. Publicos: van en el bundle igual. */
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;

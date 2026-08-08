@@ -66,7 +66,21 @@
   "vars": {
     // Modelo del asistente. Cambiarlo es editar esta linea: no hay ningun
     // identificador de modelo escrito dentro del codigo.
+    //
+    // Para que responda mejor: "gemini-3.6-flash". Razona bastante mejor las
+    // preguntas de "por que", a cambio de costar unas seis veces mas por token y
+    // de tener un limite por minuto mas bajo en la capa gratuita.
     "MODELO_IA": "gemini-3.1-flash-lite",
+
+    // Red de seguridad. Si MODELO_IA no existe -- mal escrito, o retirado por
+    // Google, que pasa: la version "-preview" de este mismo modelo se apago en
+    // mayo de 2026 -- el Worker reintenta con este y deja el aviso en el log.
+    // Sin esto, un ID equivocado deja el asistente muerto hasta que alguien lo
+    // note; probar un modelo nuevo dejaba de ser gratis en riesgo.
+    //
+    // Tiene que ser un modelo que se sepa que funciona. No lo cambies a la vez
+    // que MODELO_IA, o los dos serian una apuesta.
+    "MODELO_IA_RESERVA": "gemini-3.1-flash-lite",
     "SUPABASE_URL": "https://kuvpownbspwntjneshtt.supabase.co",
     "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1dnBvd25ic3B3bnRqbmVzaHR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTkyMjIsImV4cCI6MjEwMTI5NTIyMn0.cbXcRpDcgXVHGPenaYSF1olCcwSOnAoVzGjDMHkKff4"
   },
