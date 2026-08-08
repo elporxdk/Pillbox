@@ -7,9 +7,11 @@ Da **5 mensajes** sin cuenta y **40 al día** con la sesión abierta.
 
 ---
 
-## Lo único que hay que configurar
+## Lo que hay que configurar
 
-Una clave, una vez:
+### 1. La clave (obligatoria)
+
+Una vez:
 
 ```bash
 npx wrangler secret put CLAVE_IA
@@ -57,6 +59,20 @@ si se puso desde el panel o con `wrangler secret put`; el borrado es el mismo.
 Con `keep_vars` en `true`, el despliegue conserva lo que haya en el panel y sigue
 aplicando las `vars` del fichero. El precio es que quitar una variable de
 `wrangler.jsonc` ya no la borra del Worker: hay que borrarla también en el panel.
+
+### 2. La migración del historial (opcional)
+
+Para que quien inicie sesión encuentre su conversación en cualquier dispositivo:
+
+**Panel de Supabase → SQL Editor → pegar `supabase/migraciones/0002_chat.sql` → Run**
+
+Es idempotente y al terminar avisa por sí misma si las políticas RLS no quedaron
+puestas — si dice `0 politicas`, la tabla no tiene control de acceso y hay que
+revisarlo antes de seguir.
+
+**Si no la ejecutas no se rompe nada.** El chat funciona igual y todo el mundo,
+con sesión o sin ella, tendrá el historial en su navegador. Es una mejora, no un
+requisito.
 
 ### Probarlo en local
 
@@ -178,36 +194,74 @@ Llevan una advertencia dentro: *«son ejemplos de criterio y de tono, no de cont
 no cites como dato nada que aparezca solo aquí»*. Sin esa línea, el modelo puede tomar
 el texto de un ejemplo por una fuente de datos.
 
-### El historial
+### El historial: dos sitios según haya sesión
 
-Vive en `localStorage` (`src/lib/historial.ts`), no en Supabase. La conversación
-sobrevive a recargar la página y a moverse entre `/`, `/tecnologia` y `/comunidad`, y
-el visitante la borra con el botón de la papelera del panel.
+Todo en `src/lib/historial.ts`.
 
-Se eligió el navegador y no la base de datos por tres razones, en orden: no añade una
-migración que ejecutar a mano, funciona igual sin cuenta (que es como llega la
-mayoría), y mantiene la propiedad de que el proyecto **no guarda** las conversaciones
-de nadie.
+| | Sin sesión | Con sesión |
+| --- | --- | --- |
+| Dónde | `localStorage` del navegador | Tabla `chat_mensajes` de Supabase |
+| Entre dispositivos | No | **Sí** |
+| Turnos guardados | 40 | 100 (los poda un trigger) |
+| Caducidad | 7 días | No caduca |
+| Turnos que van al modelo | 12 (`MAX_TURNOS_HISTORIAL`) | 12 |
 
-| | |
-| --- | --- |
-| Turnos guardados | 40 |
-| Turnos que se mandan al modelo | 12 (`MAX_TURNOS_HISTORIAL`) |
-| Caducidad | 7 días |
+**A los anónimos no se les guarda en la base de datos, y es deliberado.** Sin sesión no
+hay a quién atar las filas: lo único que habría es una cookie, y eso convierte la tabla
+en conversaciones de desconocidos que no se pueden devolver ni borrar a peticion de
+nadie. En el navegador el historial es del visitante.
 
-Se guardan más turnos de los que se mandan a propósito: el visitante puede leer hacia
-arriba más de lo que el modelo recuerda. Y caduca a los 7 días porque una conversación
-de hace un mes colándose como contexto de la pregunta de hoy hace que el asistente
-responda refiriéndose a algo que el visitante ya olvidó.
+Se guardan más turnos de los que se mandan al modelo a propósito: el visitante lee
+hacia arriba más de lo que el modelo recuerda.
 
-**Nada de lo que sale de `localStorage` es de fiar**: se valida turno por turno, y uno
-con la forma equivocada se descarta sin tumbar el resto de la conversación. Cualquiera
-puede editarlo desde las herramientas del navegador —solo se lo haría a sí mismo—,
-pero un objeto mal formado sí rompería el render.
+#### Al iniciar sesión, lo local sube
 
-Y **nada de esto lanza excepciones**. En Safari en modo privado `localStorage` existe
-pero `setItem` falla, y este sitio se visita sobre todo desde el móvil: quedarse sin
-historial es una molestia, que el chat no abra es un fallo.
+Si alguien preguntaba como anónimo y entra, su conversación **se sube a la cuenta** y
+se borra del navegador. Sin eso desaparecería justo al iniciar sesión, que es el peor
+momento posible. Solo sube si la cuenta no tiene ya historial: intercalar dos
+conversaciones distintas daría un orden que no significa nada.
+
+#### Si la migración no está aplicada, no pasa nada
+
+`leerHistorialRemoto()` devuelve `null` —no una lista vacía— cuando no se pudo
+consultar. Esa distinción es la que importa: `null` significa «no se sabe», y entonces
+manda el `localStorage`. Una lista vacía significaría «esta cuenta no tiene historial»
+y borraría la pantalla.
+
+Por eso un despliegue por delante de la migración no deja a nadie sin chat: quien tenga
+sesión simplemente no tendrá historial entre dispositivos, como un anónimo.
+
+En el componente, `remotoActivo` **se deriva** de comparar el ID de la sesión con el ID
+para el que se confirmó que la tabla responde. No es un booleano en el estado: así, al
+cerrar sesión o cambiar de cuenta, vuelve a `false` solo — sin un `setState` en el
+cuerpo de un efecto (que el compilador de React prohíbe) y sin una ventana de un render
+en la que el historial de la cuenta anterior se siga dando por bueno.
+
+#### Nada de esto es de fiar, y nada de esto lanza
+
+Lo que sale de `localStorage` se valida turno por turno; uno con la forma equivocada se
+descarta sin tumbar el resto. Cualquiera puede editarlo desde las herramientas del
+navegador —solo se lo haría a sí mismo—, pero un objeto mal formado sí rompería el
+render.
+
+Y en Safari en modo privado `localStorage` existe pero `setItem` falla. Este sitio se
+visita sobre todo desde el móvil: quedarse sin historial es una molestia, que el chat
+no abra es un fallo.
+
+### Las acciones de cada mensaje
+
+Copiar (en todos) y volver a enviar (solo en los del visitante).
+
+**Copiar** usa `navigator.clipboard` con respaldo de `textarea` + `execCommand`, porque
+la API puede no existir en contexto no seguro o rechazar por permisos. Y avisa con un
+toast en los dos casos: un botón de copiar que falla en silencio es peor que no tenerlo.
+
+**Volver a enviar** añade la pregunta al final, **no** rehace la conversación desde ese
+punto. Rehacerla obligaría a decidir qué pasa con lo ya guardado en la cuenta, y perder
+respuestas que el visitante quizá quiera releer es peor que repetir una pregunta.
+
+Los botones están siempre en el DOM y siempre alcanzables por teclado; el hover solo
+cambia la opacidad. En móvil no hay hover, y es donde más se usa esto.
 
 ### Cambiar de proveedor es un fichero
 
@@ -288,9 +342,13 @@ Consecuencias prácticas:
 
 - **El asistente no da consejo médico** y el prompt se lo prohíbe. Ante un caso
   personal remite a un profesional.
-- Los mensajes del visitante **no se guardan en ninguna base de datos nuestra**. El
-  historial vive en el `localStorage` de su propio navegador (ver más abajo), así que
-  es suyo: no viaja a ningún servidor del proyecto y lo borra cuando quiera.
+- **Sin sesión, los mensajes no salen del navegador del visitante.** El historial vive
+  en su `localStorage` y no viaja a ningún servidor del proyecto.
+- **Con sesión, la conversación sí se guarda** en la tabla `chat_mensajes` de Supabase,
+  para que la encuentre en cualquier dispositivo. Solo la puede leer su dueño —lo
+  imponen las políticas RLS de `0002_chat.sql`, no el código de React— y la borra
+  entera con el botón de la papelera del panel. Al borrar la cuenta se va con ella
+  (`on delete cascade`).
 - La capa gratuita **no está disponible en la UE, el Reino Unido ni Suiza**. Para el
   público del sitio no es un problema.
 
@@ -331,10 +389,10 @@ sube al iniciar sesión—, y por eso se registra explícitamente.
 - **No escribe la respuesta palabra por palabra** (streaming). Se espera la respuesta
   completa. Con respuestas de dos o tres frases la diferencia es de menos de un
   segundo, y añadirlo obliga a manejar cortes a medias.
-- **El historial no cruza de dispositivo.** Vive en el navegador, así que lo que se
-  preguntó en el teléfono no aparece en la computadora. Para eso habría que guardarlo
-  en Supabase, y sería a cambio de que el proyecto pase a ser depositario de las
-  conversaciones de sus visitantes.
+- **No hay conversaciones separadas.** Es un hilo por persona, no una lista de chats con
+  títulos. Para varios hilos habría que añadir una tabla de conversaciones y una forma
+  de cambiar entre ellas; en un panel flotante de un sitio de proyecto, no compensa.
+- **Sin sesión el historial no cruza de dispositivo.** Eso solo llega al iniciar sesión.
 - **No moderamos lo que escribe el visitante** más allá del filtro de Gemini. Los
   mensajes no se publican en ningún sitio, así que solo se ven a sí mismos.
 
@@ -351,6 +409,7 @@ sube al iniciar sesión—, y por eso se registra explícitamente.
 | `src/worker/sesion.ts` | Comprueba la sesión contra Supabase |
 | `src/worker/tipos.ts` | La costura del proveedor |
 | `src/lib/chat.ts` | El contrato de `/api/chat`, compartido con el navegador |
-| `src/lib/historial.ts` | El historial en `localStorage`, con todas sus validaciones |
+| `src/lib/historial.ts` | El historial: `localStorage` sin sesión, Supabase con ella |
+| `supabase/migraciones/0002_chat.sql` | La tabla del historial y sus políticas RLS |
 | `src/data/hardware.ts` | Lo confirmado y lo prohibido |
 | `src/components/ChatBot.tsx` | El panel |

@@ -220,10 +220,18 @@ Cuando un dato no está confirmado **lo dice y sigue explicando lo que sí sabe*
 parte, en lugar de mandar a todo el mundo al WhatsApp del equipo. El teléfono se
 reserva para cuando de verdad hace falta una persona.
 
-La conversación se guarda en el navegador del visitante (`localStorage`, 40 turnos,
-caduca a los 7 días), así que sobrevive a recargar la página. Se borra desde el botón
-de la papelera del panel. **No se guarda en Supabase**: el proyecto no es depositario
-de las conversaciones de nadie.
+Cada mensaje se puede **copiar**, y las preguntas se pueden **volver a enviar**, desde
+los botones que aparecen debajo.
+
+El historial está en dos sitios según haya sesión: sin cuenta, en el navegador del
+visitante (`localStorage`, 40 turnos, caduca a los 7 días); **con la sesión abierta, en
+Supabase**, así que la conversación aparece igual en el teléfono y en la computadora. Al
+iniciar sesión, lo que se escribió como anónimo se sube a la cuenta. Se borra todo desde
+el botón de la papelera del panel.
+
+> Para el historial entre dispositivos hay que ejecutar **`supabase/migraciones/0002_chat.sql`**
+> a mano en el SQL Editor de Supabase, igual que la de la comunidad. **Si no se ejecuta
+> no se rompe nada**: todo el mundo tendrá el historial en su navegador, sin más.
 
 **Sobre privacidad:** en la capa gratuita de Google los mensajes pueden usarse para
 mejorar sus productos y puede verlos una persona. El panel lo avisa en letra

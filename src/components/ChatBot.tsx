@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import {
   ArrowUp01Icon,
   MessageMultiple02Icon,
   Cancel01Icon,
   Delete02Icon,
+  Copy01Icon,
+  RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
@@ -17,7 +20,51 @@ import {
   type RespuestaChat,
   type Turno,
 } from "@/lib/chat";
-import { borrarHistorial, guardarHistorial, leerHistorial } from "@/lib/historial";
+import {
+  borrarHistorial,
+  borrarHistorialRemoto,
+  guardarHistorial,
+  guardarTurnoRemoto,
+  leerHistorial,
+  leerHistorialRemoto,
+  subirHistorialLocal,
+} from "@/lib/historial";
+
+/**
+ * Copia texto al portapapeles.
+ *
+ * `navigator.clipboard` puede no existir (contexto no seguro) o rechazar sin mas
+ * (permisos del navegador), asi que hay respaldo con un textarea temporal. Se
+ * incluye porque este sitio se usa sobre todo desde el movil, donde el fallo es
+ * menos raro de lo que parece, y porque un boton de copiar que no avisa de que no
+ * copio es peor que no tenerlo.
+ */
+async function copiar(texto: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(texto);
+      return true;
+    }
+  } catch {
+    // Se intenta el respaldo antes de rendirse.
+  }
+
+  try {
+    const area = document.createElement("textarea");
+    area.value = texto;
+    area.setAttribute("readonly", "");
+    // Fuera de la vista pero enfocable: `display:none` no permite seleccionar.
+    area.style.position = "fixed";
+    area.style.top = "-9999px";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * El asistente del sitio.
@@ -46,6 +93,39 @@ const SUGERENCIAS = [
   "¿Cómo se controla el robot?",
 ] as const;
 
+/**
+ * Boton pequeño de accion sobre un mensaje (copiar, reenviar).
+ *
+ * `aria-label` y no solo el icono: un boton cuyo nombre accesible es "" no existe
+ * para un lector de pantalla. `title` da lo mismo con el raton.
+ *
+ * `size-7` y no menos: es el minimo con el que se acierta con el pulgar sin ampliar.
+ */
+function BotonAccion({
+  icono,
+  etiqueta,
+  onClick,
+  desactivado,
+}: {
+  icono: Parameters<typeof HugeiconsIcon>[0]["icon"];
+  etiqueta: string;
+  onClick: () => void;
+  desactivado?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={desactivado}
+      aria-label={etiqueta}
+      title={etiqueta}
+      className="flex size-7 items-center justify-center rounded-md text-ink/50 transition-colors hover:bg-ink/10 hover:text-ink disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand"
+    >
+      <HugeiconsIcon icon={icono} size={15} strokeWidth={2} />
+    </button>
+  );
+}
+
 type Estado =
   | { fase: "libre" }
   | { fase: "enviando" }
@@ -65,6 +145,26 @@ export function ChatBot() {
   const [borrador, setBorrador] = useState("");
   const [estado, setEstado] = useState<Estado>({ fase: "libre" });
   const [restantes, setRestantes] = useState<number | null>(null);
+  /**
+   * Cuenta para la que se confirmo que el historial remoto funciona.
+   *
+   * Se guarda el ID y no un booleano a proposito: `remotoActivo` se DERIVA de
+   * comparar este valor con la sesion actual, asi que al cerrar sesion o cambiar de
+   * cuenta vuelve solo a `false`, sin un `setState` que lo apague. Ese `setState`
+   * tendria que ir en el cuerpo de un efecto, que es justo lo que prohibe el
+   * compilador de React -- y ademas dejaria una ventana de un render en la que el
+   * historial de la cuenta anterior seguiria dandose por bueno.
+   */
+  const [remotoParaUsuario, setRemotoParaUsuario] = useState<string | null>(null);
+
+  const usuarioId = session?.user?.id ?? null;
+
+  /**
+   * `true` cuando el historial vive en Supabase. Si es `false` manda el
+   * `localStorage`, asi que un despliegue por delante de la migracion
+   * `0002_chat.sql` no deja a nadie sin historial.
+   */
+  const remotoActivo = usuarioId !== null && remotoParaUsuario === usuarioId;
 
   const finDelHilo = useRef<HTMLDivElement>(null);
   const campo = useRef<HTMLTextAreaElement>(null);
@@ -79,12 +179,47 @@ export function ChatBot() {
     finDelHilo.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turnos, estado]);
 
-  // Se guarda al cambiar los turnos y no dentro de `enviar()` para que no haya
-  // ningun camino que actualice la conversacion sin persistirla: el estado es la
-  // fuente, el almacenamiento la sigue.
+  // Persistencia LOCAL. Solo cuando el historial no esta en la cuenta: si lo esta,
+  // guardar tambien aqui dejaria dos copias que se separan en cuanto se use otro
+  // dispositivo.
   useEffect(() => {
-    guardarHistorial(turnos);
-  }, [turnos]);
+    if (!remotoActivo) guardarHistorial(turnos);
+  }, [turnos, remotoActivo]);
+
+  /**
+   * Trae el historial de la cuenta al iniciar sesion.
+   *
+   * `setTurnos` se llama tras un `await`, no en el cuerpo del efecto, que es lo que
+   * prohibe el compilador de React. El `cancelado` evita pisar el estado si la
+   * sesion cambia mientras la consulta viaja.
+   */
+  useEffect(() => {
+    // Sin sesion no hay nada que traer, y `remotoActivo` ya vale `false` por
+    // derivacion: no hace falta apagarlo con un setState.
+    if (!usuarioId) return;
+
+    let cancelado = false;
+
+    void (async () => {
+      // Primero se sube lo que el visitante escribio antes de entrar: si no, su
+      // conversacion desapareceria justo al iniciar sesion, que es cuando peor se ve.
+      await subirHistorialLocal(usuarioId);
+
+      const remotos = await leerHistorialRemoto();
+      if (cancelado) return;
+
+      // `null` = no se pudo consultar (falta la migracion, o la red). Se queda con
+      // el historial local en lugar de vaciar la pantalla.
+      if (remotos === null) return;
+
+      setRemotoParaUsuario(usuarioId);
+      setTurnos(remotos);
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [usuarioId]);
 
   useEffect(() => {
     if (!abierto) return;
@@ -99,15 +234,22 @@ export function ChatBot() {
     const limpio = texto.trim().slice(0, MAX_CARACTERES_MENSAJE);
     if (!limpio || estado.fase === "enviando") return;
 
-    // El historial se recorta antes de mandarlo. El Worker lo recorta otra vez,
-    // porque lo que manda el navegador no es de fiar; esto ahorra el viaje.
-    const historial = [...turnos, { rol: "usuario", texto: limpio } as Turno].slice(
-      -MAX_TURNOS_HISTORIAL
-    );
+    const turnoUsuario: Turno = { rol: "usuario", texto: limpio };
 
-    setTurnos(historial);
+    // OJO: `turnos` puede tener mas de los que se mandan (el historial guardado es
+    // mas largo que la ventana del modelo). En pantalla va todo; al modelo, la cola.
+    const completo = [...turnos, turnoUsuario];
+    // El Worker recorta otra vez, porque lo que manda el navegador no es de fiar;
+    // esto ahorra el viaje.
+    const paraElModelo = completo.slice(-MAX_TURNOS_HISTORIAL);
+
+    setTurnos(completo);
     setBorrador("");
     setEstado({ fase: "enviando" });
+
+    // Se guarda antes de esperar la respuesta: si el modelo falla o se cierra la
+    // pestana, la pregunta no se pierde.
+    if (remotoActivo && usuarioId) void guardarTurnoRemoto(usuarioId, turnoUsuario);
 
     try {
       const respuesta = await fetch(RUTA_CHAT, {
@@ -120,7 +262,7 @@ export function ChatBot() {
         },
         // La cookie del cupo la manda el navegador sola por ser del mismo origen.
         credentials: "same-origin",
-        body: JSON.stringify({ turnos: historial }),
+        body: JSON.stringify({ turnos: paraElModelo }),
       });
 
       const cuerpo = (await respuesta.json().catch(() => null)) as
@@ -150,9 +292,12 @@ export function ChatBot() {
       }
 
       const ok = cuerpo as RespuestaChat;
-      setTurnos([...historial, { rol: "bot", texto: ok.texto }]);
+      const turnoBot: Turno = { rol: "bot", texto: ok.texto };
+      setTurnos([...completo, turnoBot]);
       setRestantes(ok.restantes);
       setEstado({ fase: "libre" });
+
+      if (remotoActivo && usuarioId) void guardarTurnoRemoto(usuarioId, turnoBot);
     } catch {
       // Aqui solo se llega si la peticion no salio: sin red, o el visitante en el
       // metro. No es lo mismo que un error del servidor y no se cuenta el mensaje.
@@ -173,17 +318,41 @@ export function ChatBot() {
   }
 
   /**
+   * Vuelve a hacer una pregunta de mas arriba en la conversacion.
+   *
+   * NO borra lo que hay debajo: se anade al final como una pregunta nueva. Rehacer
+   * la conversacion desde ese punto obligaria a decidir qué pasa con el historial
+   * ya guardado en la cuenta, y perder respuestas que el visitante puede querer
+   * releer es peor que repetir una pregunta.
+   */
+  function reenviar(texto: string) {
+    if (estado.fase === "enviando") return;
+    void enviar(texto);
+  }
+
+  /** Copia un mensaje, con aviso de si salio bien o no. */
+  async function copiarMensaje(texto: string) {
+    if (await copiar(texto)) toast.success("Copiado");
+    else toast.error("No se pudo copiar. Selecciona el texto a mano.");
+  }
+
+  /**
    * Empieza una conversacion nueva.
    *
-   * Borra tambien el almacenamiento y no solo el estado: si se limpiara solo la
-   * pantalla, al recargar volveria a aparecer todo, que es justo lo contrario de
-   * lo que espera quien pulsa esto.
+   * Borra el almacenamiento y no solo el estado: si se limpiara solo la pantalla, al
+   * recargar volveria a aparecer todo, que es justo lo contrario de lo que espera
+   * quien pulsa esto.
+   *
+   * Se limpian LOS DOS sitios, no solo el que este activo. Si alguien inicio sesion
+   * a mitad, puede quedar rastro en el navegador aunque ahora manden los remotos, y
+   * "empezar de nuevo" tiene que significar eso de verdad.
    */
   function empezarDeNuevo() {
     setTurnos([]);
     setEstado({ fase: "libre" });
     setBorrador("");
     borrarHistorial();
+    if (usuarioId) void borrarHistorialRemoto(usuarioId);
     campo.current?.focus();
   }
 
@@ -201,13 +370,15 @@ export function ChatBot() {
   }
 
   return (
-    // `inset-x-3` en movil y ancho fijo desde `sm`: en un telefono un panel de
-    // 384 px se sale de la pantalla.
+    // En movil ocupa el ancho completo menos un margen (`inset-x-3`), porque ahi un
+    // panel de ancho fijo se sale de la pantalla. Desde `sm` es mas ancho que antes
+    // (26rem frente a 24rem) y bastante mas alto: con respuestas que ahora explican
+    // de verdad, el alto era lo que se quedaba corto -- se leia todo por una rendija.
     <div
       role="dialog"
       aria-label="Asistente de MEDIBOT"
       aria-modal="false"
-      className="fixed inset-x-3 bottom-3 z-50 flex max-h-[min(80vh,34rem)] flex-col overflow-hidden rounded-2xl border border-ink/10 bg-card shadow-2xl shadow-deep/20 sm:inset-x-auto sm:right-5 sm:bottom-5 sm:w-96"
+      className="fixed inset-x-3 bottom-3 z-50 flex max-h-[min(88vh,44rem)] flex-col overflow-hidden rounded-2xl border border-ink/10 bg-card shadow-2xl shadow-deep/20 sm:inset-x-auto sm:right-5 sm:bottom-5 sm:w-[26rem]"
     >
       <header className="flex items-center gap-3 bg-gradient-to-r from-brand to-deep px-4 py-3 text-white">
         <div className="min-w-0 flex-1">
@@ -275,13 +446,38 @@ export function ChatBot() {
             // El indice como clave vale aqui y solo aqui: los turnos solo se
             // añaden al final y se quitan del final, nunca se reordenan.
             key={i}
-            className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap ${
-              t.rol === "usuario"
-                ? "ml-auto bg-gradient-to-br from-brand to-deep text-white"
-                : "bg-surface text-ink"
-            }`}
+            className={`group flex max-w-[85%] flex-col gap-1 ${t.rol === "usuario" ? "ml-auto items-end" : "items-start"}`}
           >
-            {t.texto}
+            <div
+              className={`rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap ${
+                t.rol === "usuario"
+                  ? "bg-gradient-to-br from-brand to-deep text-white"
+                  : "bg-surface text-ink"
+              }`}
+            >
+              {t.texto}
+            </div>
+
+            {/* Acciones del mensaje.
+                Siempre en el DOM y siempre alcanzables por teclado; lo que cambia
+                con el hover es solo la opacidad. Ocultarlas de verdad las volveria
+                inservibles en movil, que es donde mas se usa esto -- ahi no hay
+                hover, y `opacity-100` en pantallas tactiles las deja visibles. */}
+            <div className="flex gap-1 opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              <BotonAccion
+                icono={Copy01Icon}
+                etiqueta="Copiar este mensaje"
+                onClick={() => void copiarMensaje(t.texto)}
+              />
+              {t.rol === "usuario" && (
+                <BotonAccion
+                  icono={RefreshIcon}
+                  etiqueta="Volver a enviar esta pregunta"
+                  onClick={() => reenviar(t.texto)}
+                  desactivado={estado.fase === "enviando"}
+                />
+              )}
+            </div>
           </div>
         ))}
 

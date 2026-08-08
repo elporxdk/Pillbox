@@ -1,27 +1,38 @@
-import type { Turno } from "./chat";
+import { supabase } from "./supabase";
+import { MAX_CARACTERES_MENSAJE, type Turno } from "./chat";
 
 /**
- * Historial del chat, guardado en el navegador.
+ * Historial del chat. Dos sitios, segun haya sesion o no.
  *
- * POR QUE EN EL NAVEGADOR Y NO EN SUPABASE
- * ----------------------------------------
- * Guardarlo en la base de datos daria historial entre dispositivos, pero a cambio
- * de tres cosas: una migracion mas que ejecutar a mano en Supabase, politicas RLS
- * nuevas que revisar, y -- la que decide -- convertir al sitio en depositario de
- * las conversaciones de sus visitantes. Ahora mismo `docs/chatbot.md` promete que
- * los mensajes no se guardan en ninguna base de datos nuestra, y eso es una
- * propiedad que vale la pena conservar.
+ *   Sin sesion  -> `localStorage`, en el equipo del visitante.
+ *   Con sesion  -> tabla `chat_mensajes` de Supabase, y por tanto entre dispositivos.
  *
- * En `localStorage` el historial es del visitante: vive en su equipo, no viaja a
- * ningun servidor nuestro, y lo borra cuando quiera. Ademas funciona igual sin
- * cuenta, que es como llega la mayoria.
+ * POR QUE NO SE GUARDA A LOS ANONIMOS EN LA BASE DE DATOS
+ * ------------------------------------------------------
+ * Porque no hay a quien atarlo. Sin sesion no existe una identidad: lo unico que
+ * habria seria una cookie, y eso convierte la tabla en un monton de conversaciones
+ * de desconocidos que no se pueden devolver ni borrar a peticion de nadie. En el
+ * navegador el historial es del visitante y lo borra cuando quiera.
  *
- * NADA DE LO QUE HAY AQUI ES DE FIAR
- * ----------------------------------
- * `localStorage` lo puede editar cualquiera desde las herramientas del navegador,
- * asi que lo que se lee se valida como si viniera de fuera. No es un riesgo de
- * seguridad -- solo se lo estaria haciendo a si mismo -- pero un objeto con la
- * forma equivocada romperia el render, y eso si importa.
+ * NADA DE LO QUE SALE DE `localStorage` ES DE FIAR
+ * -----------------------------------------------
+ * Lo puede editar cualquiera desde las herramientas del navegador, asi que se
+ * valida como si viniera de fuera. No es un riesgo de seguridad -- solo se lo
+ * estaria haciendo a si mismo -- pero un objeto con la forma equivocada romperia
+ * el render, y eso si importa.
+ *
+ * LO REMOTO TAMPOCO ES UNA CAPA DE SEGURIDAD
+ * ------------------------------------------
+ * Igual que `comunidad.ts`: la `anon key` viaja en el bundle, asi que cualquiera
+ * puede saltarse este fichero y llamar a la API a mano. Lo que impide leer las
+ * conversaciones de otra persona son las politicas RLS de
+ * `supabase/migraciones/0002_chat.sql`, no el codigo de aqui.
+ *
+ * Y SI LA MIGRACION NO SE HA EJECUTADO, NO PASA NADA
+ * -------------------------------------------------
+ * Todas las funciones remotas fallan hacia "no hay historial": el chat sigue
+ * funcionando con el del navegador. Se eligio asi porque la migracion se aplica a
+ * mano, y un despliegue por delante de ella no puede tumbar el asistente.
  */
 
 const CLAVE = "medibot_chat_historial";
@@ -130,4 +141,101 @@ export function borrarHistorial(): void {
   } catch {
     // Nada que hacer, y nada que romper.
   }
+}
+
+// ---------------------------------------------------------------------------
+//  Historial remoto (solo con sesion)
+// ---------------------------------------------------------------------------
+
+/** Turnos que se traen de Supabase. El trigger de la migracion poda a 100. */
+const MAX_TURNOS_REMOTOS = 100;
+
+type FilaChat = { rol: string; texto: string };
+
+/**
+ * Lee el historial de la cuenta.
+ *
+ * Devuelve `null` -- no una lista vacia -- cuando no se pudo consultar: sin tabla,
+ * sin red, RLS. Quien llama necesita distinguir "esta cuenta no tiene historial"
+ * de "no se sabe", porque en el segundo caso hay que caer al del navegador en vez
+ * de mostrar una conversacion vacia.
+ */
+export async function leerHistorialRemoto(): Promise<Turno[] | null> {
+  try {
+    const { data, error } = await supabase
+      .from("chat_mensajes")
+      .select("rol, texto")
+      .order("creado_en", { ascending: true })
+      .order("id", { ascending: true })
+      .limit(MAX_TURNOS_REMOTOS);
+
+    // No se distingue el tipo de error a proposito: falte la tabla o falle la red,
+    // la respuesta es la misma y el chat sigue con el historial local.
+    if (error) return null;
+
+    return (data ?? [])
+      .filter((f): f is FilaChat => esTurno(f))
+      .map((f) => ({ rol: f.rol, texto: f.texto }) as Turno);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Guarda un turno en la cuenta.
+ *
+ * Se guarda turno a turno, en cuanto ocurre, y no la conversacion entera al final:
+ * asi cerrar la pestana a mitad no pierde lo dicho. Devuelve `false` si no se pudo,
+ * para que quien llame sepa que el historial remoto no esta activo.
+ *
+ * `usuario_id` va explicito aunque RLS lo exija igual: sin el, la insercion
+ * fallaria por la restriccion `not null` con un error mucho menos claro.
+ */
+export async function guardarTurnoRemoto(usuarioId: string, turno: Turno): Promise<boolean> {
+  const texto = turno.texto.trim().slice(0, MAX_CARACTERES_MENSAJE);
+  if (!texto) return false;
+
+  try {
+    const { error } = await supabase
+      .from("chat_mensajes")
+      .insert({ usuario_id: usuarioId, rol: turno.rol, texto });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** Borra el historial de la cuenta. RLS acota el borrado a quien lo pide. */
+export async function borrarHistorialRemoto(usuarioId: string): Promise<void> {
+  try {
+    await supabase.from("chat_mensajes").delete().eq("usuario_id", usuarioId);
+  } catch {
+    // Si falla, el boton ya limpio la pantalla. Se reintentara al volver a pulsarlo.
+  }
+}
+
+/**
+ * Sube a la cuenta la conversacion que estaba en el navegador.
+ *
+ * Es el momento de iniciar sesion: alguien preguntaba como anonimo, entra, y sin
+ * esto su conversacion desapareceria de golpe -- que es justo cuando mas raro se
+ * ve. Solo se sube si la cuenta no tiene ya historial, para no intercalar dos
+ * conversaciones distintas en un orden que no significaria nada.
+ */
+export async function subirHistorialLocal(usuarioId: string): Promise<boolean> {
+  const locales = leerHistorial();
+  if (locales.length === 0) return false;
+
+  const remotos = await leerHistorialRemoto();
+  if (remotos === null || remotos.length > 0) return false;
+
+  // En serie y no en paralelo: `creado_en` es lo que ordena la conversacion al
+  // leerla, y varias inserciones a la vez pueden compartir el mismo `now()`.
+  for (const turno of locales) {
+    if (!(await guardarTurnoRemoto(usuarioId, turno))) return false;
+  }
+
+  // Se borra el local para que no queden dos copias divergentes del mismo hilo.
+  borrarHistorial();
+  return true;
 }
