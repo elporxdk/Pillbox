@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai/web";
+import { ApiError, GoogleGenAI } from "@google/genai/web";
 import { ErrorProveedor, type Proveedor } from "./tipos";
 
 /**
@@ -31,7 +31,11 @@ import { ErrorProveedor, type Proveedor } from "./tipos";
 const ROL_GEMINI = { usuario: "user", bot: "model" } as const;
 
 export const gemini: Proveedor = async (peticion, env) => {
-  const ai = new GoogleGenAI({ apiKey: env.CLAVE_IA });
+  // `.trim()`: un secret pegado desde el movil puede traer un salto de linea o un
+  // espacio de mas sin que se note en el panel de Cloudflare, y eso basta para que
+  // Google la rechace como si estuviera mal. Da igual como se guardo -- esto lo
+  // corrige en cada peticion, sin tener que volver a pegarla.
+  const ai = new GoogleGenAI({ apiKey: env.CLAVE_IA.trim() });
 
   let respuesta;
   try {
@@ -75,17 +79,35 @@ export const gemini: Proveedor = async (peticion, env) => {
 /**
  * Traduce el error del SDK a algo sobre lo que se pueda decidir.
  *
- * Se mira el codigo de estado dentro del mensaje porque el SDK no expone una
- * clase por estado. Es fragil por naturaleza, asi que el caso por defecto es
- * "otro" y nunca se pierde el detalle original: sin el, un 401 por clave mal
- * pegada se veria igual que un 429 y se depuraria en la direccion equivocada.
+ * `ApiError` (exportada por el propio SDK) trae el codigo HTTP real en `.status`:
+ * no hace falta adivinarlo buscando "404" dentro del texto. La primera version de
+ * esto lo hacia por regex sobre el mensaje, y funcionaba solo porque el mensaje de
+ * error de Google resulta ser el JSON entero -- fragil por accidente, no por
+ * diseño. Con el numero de verdad no hay ambiguedad posible entre un 401 y un 404.
+ *
+ * Cualquier otra cosa -- sin red, tiempo de espera agotado -- no es un ApiError y
+ * cae al "otro" con el mensaje tal cual, recortado.
+ *
+ * Exportada solo para poder probarla contra la `ApiError` real del SDK sin tener
+ * que provocar una llamada de red de verdad.
  */
-function clasificar(error: unknown): ConstructorParameters<typeof ErrorProveedor>[0] {
+export function clasificar(error: unknown): ConstructorParameters<typeof ErrorProveedor>[0] {
+  if (error instanceof ApiError) {
+    if (error.status === 429) return { tipo: "limite_proveedor" };
+    if (error.status === 401 || error.status === 403) return { tipo: "credenciales" };
+    if (error.status === 404) return { tipo: "modelo" };
+
+    // Comprobado contra la API real: una clave invalida no da 401, da 400 con
+    // "API key not valid" dentro del mensaje. Google usa el mismo 400 para
+    // peticiones mal formadas y para una clave mala, asi que aqui el numero no
+    // alcanza y hace falta mirar el texto.
+    if (error.status === 400 && /api key/i.test(error.message)) {
+      return { tipo: "credenciales" };
+    }
+
+    return { tipo: "otro", detalle: `HTTP ${error.status}: ${error.message.slice(0, 280)}` };
+  }
+
   const mensaje = error instanceof Error ? error.message : String(error);
-
-  if (/\b429\b|RESOURCE_EXHAUSTED|quota/i.test(mensaje)) return { tipo: "limite_proveedor" };
-  if (/\b401\b|\b403\b|API key|PERMISSION_DENIED/i.test(mensaje)) return { tipo: "credenciales" };
-  if (/\b404\b|NOT_FOUND|is not found/i.test(mensaje)) return { tipo: "modelo" };
-
   return { tipo: "otro", detalle: mensaje.slice(0, 300) };
 }
