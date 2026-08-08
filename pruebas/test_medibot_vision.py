@@ -6,9 +6,9 @@ Pruebas del motor de video de Medibot.  SIN CAMARA FISICA.
 Todo lo que se prueba aqui usa frames sinteticos o la CamaraSintetica, asi
 que corre igual en la Raspberry, en un portatil sin webcam o en un servidor.
 
-    python3 test_medibot_vision.py           # todas
-    python3 test_medibot_vision.py -v        # detallado
-    python3 -m unittest test_medibot_vision.PruebasFrameHub -v
+    python3 pruebas/test_medibot_vision.py           # todas
+    python3 pruebas/test_medibot_vision.py -v        # detallado
+    python3 -m unittest discover -s pruebas -p 'test_medibot_vision.py' -v
 
 Necesita: numpy y opencv (cv2). NO necesita flask, tkinter, pyserial ni el
 Arduino: este fichero no importa Vision_MEDIBOT.py, que al importarse abriria
@@ -35,6 +35,11 @@ import unittest
 
 import cv2
 import numpy as np
+
+# Las pruebas viven en pruebas/ y el codigo en medibot/ y herramientas/.
+# Python solo mira la carpeta del script, asi que hay que anadir las otras.
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(_RAIZ, "medibot"), os.path.join(_RAIZ, "herramientas")]
 
 import medibot_vision as mv
 

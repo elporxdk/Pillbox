@@ -7,6 +7,77 @@ made by 2027 ECA/CDB.
 
 ---
 
+## Mapa del repositorio
+
+Cada carpeta es una **frontera real**, no un cajon: lo que esta junto es porque
+se necesita entre si.
+
+```
+medibot/         El sistema que corre en la Raspberry Pi.
+                 Van JUNTOS porque se importan entre si: Python solo busca
+                 modulos en la carpeta del programa que arrancas, asi que
+                 separarlos rompe los import.
+herramientas/    Utilidades de desarrollo. NO hacen falta para que el robot
+                 funcione; sirven para probarlo y publicarlo.
+pruebas/         Pruebas automaticas. Ninguna necesita camara, placa ni robot.
+firmware/        Lo que se sube al Arduino / ESP, un sketch por carpeta
+                 (el IDE de Arduino exige que la carpeta se llame igual que
+                 el .ino, si no, no lo abre).
+verificador-whatsapp/  Herramienta aparte, sin relacion con el robot.
+legado/          Versiones sustituidas. Se guardan por referencia; no se usan.
+```
+
+### Quien usa a quien
+
+El nucleo es `medibot_protocolo.py`: **la** definicion del idioma que hablan
+Python y el Arduino. Todo lo demas cuelga de ahi.
+
+```
+                       medibot_protocolo.py   <-- LA definicion del protocolo
+                                |
+        +-----------------------+------------------------+
+        |                       |                        |
+   serial_hub.py         medibot_serial.py     firmware/medibot_movimiento/
+   (abre el puerto)      (cliente del hub)      (lo implementa en C++)
+        ^                       ^
+        |  TCP 127.0.0.1:5055   |
+        +-----------+-----------+
+                    |
+        +-----------+-----------+
+        |                       |
+  Vision_MEDIBOT.py       Pastillero.py
+  (camaras + chasis)      (web del pastillero, :5001)
+        |
+        +-- medibot_vision.py   (motor de video: buzon de frames, detectores)
+        +-- medibot_audio.py    (microfono de la camara)
+        +-- medibot_red.py      (IPs reales de la LAN)   <-- tambien Pastillero
+```
+
+`main.py` es el lanzador: arranca el hub, luego Pastillero y luego Vision. Por
+eso los cinco ficheros que comprueba al arrancar (`medibot_serial.py`,
+`medibot_red.py`, `serial_hub.py`, `Pastillero.py` y `Vision_MEDIBOT.py`) tienen
+que seguir siendo **hermanos suyos** dentro de `medibot/`.
+
+### Que prueba cada prueba
+
+| Prueba | Sobre que | Como |
+|---|---|---|
+| `pruebas/test_protocolo_serial.py` | `medibot_protocolo.py` **y** el firmware | lee el sketch y comprueba que implementa cada comando; y hace ida y vuelta real contra `herramientas/arduino_falso.py` por un pseudoterminal |
+| `pruebas/test_medibot_vision.py` | `medibot_vision.py` | fotogramas sinteticos, sin camara |
+| `pruebas/test_medibot_audio.py` | `medibot_audio.py` | sin microfono |
+| `pruebas/test_web_template.py` | el HTML de `Vision_MEDIBOT.py` y `Pastillero.py` | los **lee** (no los importa: importarlos abriria una ventana y un servidor) |
+| `pruebas/test_cloudflare_tunel.py` | `herramientas/cloudflare_tunel.py` | sin tocar la red |
+
+La primera fila es la union importante: **el firmware y Python se comprueban el
+uno contra el otro**. Si alguien anade un comando en un lado y se olvida del
+otro, esa prueba falla sin necesidad de tener el robot delante.
+
+```bash
+for t in pruebas/test_*.py; do python3 "$t"; done    # las 265, ~2 s
+```
+
+---
+
 #MEDIBOT
 ```
 Vision (Medibot) ---+
@@ -27,7 +98,7 @@ Pillbox ------------+
 
 ```bash
 pip install flask pyserial
-python3 main.py
+python3 medibot/main.py
 ```
 
 `main.py` arranca todo en orden y coexistiendo: apaga cualquier hub viejo en
@@ -39,8 +110,8 @@ dice con un mensaje claro y como instalarlo.
 Tambien se puede arrancar cada pieza por separado si hace falta:
 
 ```bash
-python3 Pastillero.py        # solo Pillbox (el hub arranca solo)
-python3 Vision_MEDIBOT.py    # solo Medibot (usa el mismo hub)
+python3 medibot/Pastillero.py        # solo Pillbox (el hub arranca solo)
+python3 medibot/Vision_MEDIBOT.py    # solo Medibot (usa el mismo hub)
 ```
 
 ### Entrar desde el movil u otro PC (no solo desde la Pi)
@@ -141,7 +212,7 @@ Para comprobarlo sin adivinar, cada interfaz publica la **huella** de su HTML,
 que cambia en cuanto cambia una letra:
 
 ```bash
-python3 Pastillero.py                       # imprime "Version de la interfaz: ac596cd2"
+python3 medibot/Pastillero.py                       # imprime "Version de la interfaz: ac596cd2"
 curl -sI http://<ip>:5001/ | grep -i build  # X-Pillbox-Build: ac596cd2
 curl -sI http://<ip>:5000/ | grep -i build  # X-Medibot-Build: ...
 ```
@@ -175,7 +246,7 @@ entorno y no se abre sin que lo pidas.
 ```bash
 sudo apt install alsa-utils          # si no esta ya
 arecord -l                           # ver que microfonos hay
-MEDIBOT_AUDIO=1 python3 main.py
+MEDIBOT_AUDIO=1 python3 medibot/main.py
 ```
 
 En la web, el boton del **altavoz** encima del video: solo el icono, sin texto.
@@ -230,9 +301,9 @@ sudo cloudflared service install eyJhIjoi...
 del propio token del tunel, asi que solo hay que anadir un API token:
 
 ```bash
-python3 cloudflare_tunel.py --dominio tudominio.com --dry-run   # ensayo
-python3 cloudflare_tunel.py --dominio tudominio.com             # aplicar
-python3 cloudflare_tunel.py --dominio tudominio.com --verificar # comprobar
+python3 herramientas/cloudflare_tunel.py --dominio tudominio.com --dry-run   # ensayo
+python3 herramientas/cloudflare_tunel.py --dominio tudominio.com             # aplicar
+python3 herramientas/cloudflare_tunel.py --dominio tudominio.com --verificar # comprobar
 ```
 
 Los dos tokens se piden **por teclado y ocultos** si no estan puestos. El API
@@ -305,9 +376,9 @@ movil una version mas ligera, sin tocar el reconocimiento ni la grabacion.
 
 | Perfil | Comando | Emite | Calidad | Tope FPS |
 |---|---|---|---|---|
-| **Calidad** | `MEDIBOT_WEB_QUALITY=85 MEDIBOT_WEB_FPS=25 python3 main.py` | resolucion nativa | 85 | 25 |
-| **Balanceado** (por defecto) | `python3 main.py` | resolucion nativa | 70 | 15 |
-| **Bajo ancho de banda** | `MEDIBOT_WEB_W=480 MEDIBOT_WEB_QUALITY=50 MEDIBOT_WEB_FPS=10 python3 main.py` | 480x360 | 50 | 10 |
+| **Calidad** | `MEDIBOT_WEB_QUALITY=85 MEDIBOT_WEB_FPS=25 python3 medibot/main.py` | resolucion nativa | 85 | 25 |
+| **Balanceado** (por defecto) | `python3 medibot/main.py` | resolucion nativa | 70 | 15 |
+| **Bajo ancho de banda** | `MEDIBOT_WEB_W=480 MEDIBOT_WEB_QUALITY=50 MEDIBOT_WEB_FPS=10 python3 medibot/main.py` | 480x360 | 50 | 10 |
 
 Medido con `bench_vision.py` sobre una fuente de 640x480 a 30 FPS (un solo
 cliente): **calidad** ~2290 kbit/s, **balanceado** ~1120 kbit/s, **bajo**
@@ -317,9 +388,9 @@ manteniendo la proporcion real, para que un 4:3 no salga estirado.
 Antes de decidir, **mide en tu equipo**:
 
 ```bash
-python3 bench_vision.py --fake                 # sin camara (cualquier maquina)
-python3 bench_vision.py --camara 0 --segundos 8   # con la camara real
-python3 bench_vision.py --camara 0 --perfil bajo --clientes 2
+python3 herramientas/bench_vision.py --fake                 # sin camara (cualquier maquina)
+python3 herramientas/bench_vision.py --camara 0 --segundos 8   # con la camara real
+python3 herramientas/bench_vision.py --camara 0 --perfil bajo --clientes 2
 ```
 
 La tabla que imprime dice, por perfil, los milisegundos de cada etapa, los FPS
@@ -379,13 +450,13 @@ publica en `/api/all` (`controles_camara`). Ejemplo — subir la saturacion de
 una C270 sin tocar nada mas:
 
 ```bash
-MEDIBOT_CAM_SATURACION=60 python3 main.py
+MEDIBOT_CAM_SATURACION=60 python3 medibot/main.py
 ```
 
 ### Arrancar sin camara (demo o desarrollo)
 
 ```bash
-MEDIBOT_CAMARA_FAKE=1 python3 main.py
+MEDIBOT_CAMARA_FAKE=1 python3 medibot/main.py
 ```
 
 Genera fotogramas sinteticos con un cuadrado rojo en movimiento: sirve para
@@ -413,7 +484,7 @@ calibrarlo **con datos de tu equipo**, no copiando un numero de internet:
    (distancias **altas**).
 4. Elige un umbral entre ambos grupos, mas cerca del grupo bajo:
    ```bash
-   MEDIBOT_LBPH_UMBRAL=65 python3 main.py
+   MEDIBOT_LBPH_UMBRAL=65 python3 medibot/main.py
    ```
 
 La etiqueta en pantalla dice ahora `sim 0..100` ("cerca del umbral esta la
@@ -429,8 +500,8 @@ avisa al arrancar: vuelve a entrenar una vez para generar el mapa.
 ### Pruebas automatizadas (no necesitan camara)
 
 ```bash
-python3 test_medibot_vision.py       # 53 pruebas, ~1 s
-python3 test_medibot_vision.py -v    # detallado
+python3 pruebas/test_medibot_vision.py       # 66 pruebas, ~1 s
+python3 pruebas/test_medibot_vision.py -v    # detallado
 ```
 
 Cubren el buzon de fotogramas (cache de JPEG, carreras entre clientes,
@@ -483,9 +554,9 @@ que capturar en MJPG**. Los mismos datos salen en `/api/all` →
 Ajustes que se pueden probar sin editar codigo:
 
 ```bash
-MEDIBOT_CV_THREADS=1 python3 main.py   # hilos internos de OpenCV (def.: automatico)
-MEDIBOT_GUI_MS=33 python3 main.py      # refresco de la interfaz (def.: 50 ms)
-MEDIBOT_PERF_SEG=2 python3 main.py     # cada cuanto se imprime la medicion
+MEDIBOT_CV_THREADS=1 python3 medibot/main.py   # hilos internos de OpenCV (def.: automatico)
+MEDIBOT_GUI_MS=33 python3 medibot/main.py      # refresco de la interfaz (def.: 50 ms)
+MEDIBOT_PERF_SEG=2 python3 medibot/main.py     # cada cuanto se imprime la medicion
 ```
 
 ### La ruleta del dispensador (28BYJ-48 + ULN2003)
@@ -654,7 +725,7 @@ Al arrancar, el Arduino emite `READY,MEDIBOT,2`, lo que permite detectar que
 se reinicio (por ejemplo, por un bajon de tension al arrancar los motores).
 
 ```bash
-python3 medibot_protocolo.py     # imprime la tabla completa
+python3 medibot/medibot_protocolo.py     # imprime la tabla completa
 ```
 
 ### Comprobar que ambos lados hablan lo mismo
@@ -676,11 +747,11 @@ en consola en vez de descubrirlo porque un comando concreto no hace nada.
 (pseudoterminal), asi que se ejercita el codigo de pyserial autentico:
 
 ```bash
-python3 arduino_falso.py                     # imprime el /dev/pts/N a usar
-python3 arduino_falso.py --viejo             # simula el firmware ANTIGUO
+python3 herramientas/arduino_falso.py                     # imprime el /dev/pts/N a usar
+python3 herramientas/arduino_falso.py --viejo             # simula el firmware ANTIGUO
 
 # en otra terminal, con el puerto que imprimio:
-MEDIBOT_SERIAL_PORT=/dev/pts/5 python3 serial_hub.py
+MEDIBOT_SERIAL_PORT=/dev/pts/5 python3 medibot/serial_hub.py
 ```
 
 Con `--viejo` se reproduce el fallo original (el robot se para ante `SPINL`
@@ -689,12 +760,12 @@ mientras responde `OK`), util para comprobar que ahora **si** se detecta.
 ### Pruebas del protocolo
 
 ```bash
-python3 test_protocolo_serial.py       # 50 pruebas, sin placa
+python3 pruebas/test_protocolo_serial.py       # 74 pruebas, sin placa
 ```
 
 Cubren dos caminos independientes:
 
-1. **Paridad con el firmware**: lee el propio `MEDIBOT.MOVE.` y comprueba que
+1. **Paridad con el firmware**: lee el propio `firmware/medibot_movimiento/medibot_movimiento.ino` y comprueba que
    implementa cada comando y cada movimiento de la tabla, que los baudios
    coinciden y que la version de protocolo es la misma. Sin placa y sin
    compilador de Arduino.
@@ -707,7 +778,7 @@ Cubren dos caminos independientes:
 Fija el puerto a mano con una variable de entorno antes de arrancar:
 
 ```bash
-MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 python3 Pastillero.py    # Pi
+MEDIBOT_SERIAL_PORT=/dev/ttyUSB0 python3 medibot/Pastillero.py    # Pi
 set MEDIBOT_SERIAL_PORT=COM3 && python Pastillero.py      # Windows
 ```
 

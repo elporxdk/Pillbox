@@ -8,14 +8,21 @@ enrutado, normalizar el dominio y el veto al puerto del hub serial. Las
 llamadas a la API no se prueban aqui porque harian cambios de verdad en una
 cuenta real; para eso esta  --dry-run,  que tambien se comprueba.
 
-    python3 test_cloudflare_tunel.py
+    python3 pruebas/test_cloudflare_tunel.py
 """
 
 import base64
 import io
 import json
+import os
+import sys
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
+
+# Las pruebas viven en pruebas/ y el codigo en medibot/ y herramientas/.
+# Python solo mira la carpeta del script, asi que hay que anadir las otras.
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(_RAIZ, "medibot"), os.path.join(_RAIZ, "herramientas")]
 
 import cloudflare_tunel as ct
 

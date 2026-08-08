@@ -8,14 +8,20 @@ modulo `wave` de la libreria estandar, no a ojo), la deteccion de microfonos
 a partir de la salida real de `arecord -l`, la orden que se ejecuta, y que
 cuando falta algo se diga POR QUE en vez de fallar en silencio.
 
-    python3 test_medibot_audio.py
+    python3 pruebas/test_medibot_audio.py
 """
 
 import io
 import os
 import struct
+import sys
 import unittest
 import wave
+
+# Las pruebas viven en pruebas/ y el codigo en medibot/ y herramientas/.
+# Python solo mira la carpeta del script, asi que hay que anadir las otras.
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(_RAIZ, "medibot"), os.path.join(_RAIZ, "herramientas")]
 
 import medibot_audio as ma
 

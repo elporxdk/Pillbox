@@ -18,15 +18,16 @@ las respuestas del Arduino:
 
 Estas pruebas cierran ese agujero por dos caminos independientes:
 
-  1. PARIDAD CON EL FIRMWARE: se lee el propio MEDIBOT.MOVE. y se comprueba
+  1. PARIDAD CON EL FIRMWARE: se lee el propio sketch (RUTA_FIRMWARE, o sea
+     firmware/medibot_movimiento/medibot_movimiento.ino) y se comprueba
      que implementa cada comando y cada movimiento de la tabla del protocolo.
      Esto se ejecuta sin placa y sin compilador.
   2. IDA Y VUELTA REAL: se levanta un Arduino simulado detras de un par de
      pseudoterminales, o sea un puerto serie de verdad, y se comprueba que un
      comando llega, se interpreta, se ejecuta y su respuesta vuelve.
 
-    python3 test_protocolo_serial.py
-    python3 test_protocolo_serial.py -v
+    python3 pruebas/test_protocolo_serial.py
+    python3 pruebas/test_protocolo_serial.py -v
 
 Solo necesita la libreria estandar; las pruebas de ida y vuelta requieren
 pyserial y openpty (Unix) y se saltan solas si no estan.
@@ -39,9 +40,15 @@ import threading
 import time
 import unittest
 
+# Las pruebas viven en pruebas/ y el codigo en medibot/ y herramientas/.
+# Python solo mira la carpeta del script, asi que hay que anadir las otras.
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(_RAIZ, "medibot"), os.path.join(_RAIZ, "herramientas")]
+
 import medibot_protocolo as protocolo
-from arduino_falso import (ArduinoFalso, PuertoSimulado, comandos_del_firmware,
-                           direcciones_del_firmware, version_del_firmware)
+from arduino_falso import (RUTA_FIRMWARE, ArduinoFalso, PuertoSimulado,
+                           comandos_del_firmware, direcciones_del_firmware,
+                           version_del_firmware)
 
 try:
     import serial            # noqa: F401
@@ -92,20 +99,20 @@ class PruebasParidadFirmware(unittest.TestCase):
             "Python: uno de los dos se quedó atrás.")
 
     def test_los_baudios_coinciden(self):
-        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+        with open(RUTA_FIRMWARE, encoding="utf-8", errors="ignore") as f:
             codigo = f.read()
         self.assertIn(f"Serial.begin({protocolo.BAUDIOS})", codigo,
                       f"El firmware no arranca a {protocolo.BAUDIOS} baud")
 
     def test_el_firmware_termina_las_lineas_en_LF(self):
-        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+        with open(RUTA_FIRMWARE, encoding="utf-8", errors="ignore") as f:
             codigo = f.read()
         self.assertIn(r"if (c == '\n')", codigo,
                       "El firmware debe cortar los comandos por LF")
 
     def test_el_firmware_acota_la_longitud_de_linea(self):
         """Sin tope, un flujo sin '\\n' agota los 2 KB de RAM del Arduino."""
-        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+        with open(RUTA_FIRMWARE, encoding="utf-8", errors="ignore") as f:
             codigo = f.read()
         self.assertIn("LINEA_MAX", codigo)
 
@@ -121,7 +128,7 @@ class PruebasEncoders(unittest.TestCase):
     prueba lo para antes de que llegue al robot."""
 
     def setUp(self):
-        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+        with open(RUTA_FIRMWARE, encoding="utf-8", errors="ignore") as f:
             self.codigo = f.read()
         # Numero de motor de cada encoder instanciado: QGPMaker_Encoder encoderN(N)
         import re
@@ -184,7 +191,7 @@ class PruebasRuleta(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open("MEDIBOT.MOVE.", encoding="utf-8", errors="ignore") as f:
+        with open(RUTA_FIRMWARE, encoding="utf-8", errors="ignore") as f:
             cls.codigo = f.read()
         m = re.search(r'SECUENCIA_PASOS\[4\]\s*=\s*\{([^}]*)\}', cls.codigo)
         assert m, "No se encontro la tabla SECUENCIA_PASOS en el firmware"

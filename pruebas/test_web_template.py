@@ -25,8 +25,8 @@ Lo insidioso: el fichero .py compila perfectamente y el HTML "se ve bien".
 Solo se nota abriendo la consola del navegador. Estas pruebas lo detectan
 sin navegador y en menos de un segundo.
 
-    python3 test_web_template.py
-    python3 test_web_template.py -v
+    python3 pruebas/test_web_template.py
+    python3 pruebas/test_web_template.py -v
 
 Solo necesita la libreria estandar. Si hay 'node' instalado, ademas valida
 la sintaxis del JavaScript de verdad; si no, esa prueba se salta sola (en una
@@ -40,7 +40,12 @@ import subprocess
 import tempfile
 import unittest
 
-RUTA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Vision_MEDIBOT.py")
+# Esta prueba no importa el codigo: lo LEE. Las dos interfaces viven en medibot/
+# y estas pruebas en pruebas/, asi que se sube un nivel para llegar.
+_MEDIBOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "medibot")
+
+RUTA = os.path.join(_MEDIBOT, "Vision_MEDIBOT.py")
 
 
 def fuente():
@@ -316,8 +321,7 @@ class PruebasCacheDeLaInterfaz(unittest.TestCase):
 
 # =============================================================================
 def fuente_pastillero():
-    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "Pastillero.py")
+    ruta = os.path.join(_MEDIBOT, "Pastillero.py")
     with open(ruta, encoding="utf-8") as f:
         return f.read()
 

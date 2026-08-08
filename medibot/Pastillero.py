@@ -24,7 +24,7 @@ Puerto serial (COM):
     Vision le envian sus ordenes por TCP, asi comparten el mismo Arduino.
   - El hub se autolanza si no esta corriendo.
 Requisitos:  pip install flask pyserial
-Ejecutar:    python3 Pastillero.py   ->   http://<ip>:5001
+Ejecutar:    python3 medibot/Pastillero.py   ->   http://<ip>:5001
 """
 
 import hashlib
