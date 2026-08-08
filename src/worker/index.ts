@@ -28,7 +28,18 @@ import { ErrorProveedor, type Env } from "./tipos";
  */
 
 /** Tope de salida por respuesta. Acota coste y evita respuestas kilometricas. */
-const MAX_TOKENS_SALIDA = 400;
+/**
+ * Tope de salida por respuesta.
+ *
+ * Subido de 400 a 700 al permitirle explicar de verdad las preguntas que lo
+ * piden. No es un objetivo, es un techo: el prompt le dice que ajuste el largo a
+ * la pregunta, y la mayoria de respuestas siguen siendo de una o dos frases. Esto
+ * solo evita que una explicacion buena se corte a medias.
+ *
+ * Cuidado al subirlo mas: la salida cuesta unas seis veces mas que la entrada por
+ * token, asi que este numero es el que manda en el coste por mensaje.
+ */
+const MAX_TOKENS_SALIDA = 700;
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {

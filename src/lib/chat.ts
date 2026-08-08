@@ -55,5 +55,15 @@ export const RUTA_CHAT = "/api/chat";
  */
 export const MAX_CARACTERES_MENSAJE = 1000;
 
-/** Turnos de historial que se reenvian al modelo. Sin tope, la entrada crece sin freno. */
-export const MAX_TURNOS_HISTORIAL = 6;
+/**
+ * Turnos de historial que se reenvian al modelo. Sin tope, la entrada crece sin freno.
+ *
+ * Subido de 6 a 12 (unas seis preguntas con su respuesta). Con 6 el asistente
+ * perdia el hilo justo cuando la conversacion se ponia interesante: alguien
+ * pregunta por el control termico, luego "¿y por que no un ventilador nada mas?",
+ * y a la tercera repregunta ya no recordaba de que se hablaba.
+ *
+ * Cuesta poco: son ~900 tokens de entrada en el peor caso, frente a los ~3.900
+ * del prompt del sistema que se reenvia siempre. El historial no es lo que pesa.
+ */
+export const MAX_TURNOS_HISTORIAL = 12;

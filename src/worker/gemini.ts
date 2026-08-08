@@ -1,5 +1,5 @@
 import { ApiError, GoogleGenAI } from "@google/genai/web";
-import { ErrorProveedor, type Proveedor } from "./tipos";
+import { ErrorProveedor, type Env, type Proveedor } from "./tipos";
 
 /**
  * Adaptador de Google Gemini.
@@ -30,7 +30,13 @@ import { ErrorProveedor, type Proveedor } from "./tipos";
 /** Gemini llama `model` a lo que el resto del mundo llama `assistant`. */
 const ROL_GEMINI = { usuario: "user", bot: "model" } as const;
 
-export const gemini: Proveedor = async (peticion, env) => {
+/**
+ * Pide una respuesta a un modelo concreto.
+ *
+ * Recibe el modelo como argumento en vez de leerlo de `env` para que `gemini`
+ * pueda llamarla dos veces con modelos distintos.
+ */
+async function pedir(modelo: string, peticion: Parameters<Proveedor>[0], env: Env) {
   // `.trim()`: un secret pegado desde el movil puede traer un salto de linea o un
   // espacio de mas sin que se note en el panel de Cloudflare, y eso basta para que
   // Google la rechace como si estuviera mal. Da igual como se guardo -- esto lo
@@ -40,7 +46,7 @@ export const gemini: Proveedor = async (peticion, env) => {
   let respuesta;
   try {
     respuesta = await ai.models.generateContent({
-      model: env.MODELO_IA,
+      model: modelo,
       contents: peticion.turnos.map((t) => ({
         role: ROL_GEMINI[t.rol],
         parts: [{ text: t.texto }],
@@ -48,8 +54,9 @@ export const gemini: Proveedor = async (peticion, env) => {
       config: {
         systemInstruction: peticion.sistema,
         maxOutputTokens: peticion.maxTokensSalida,
-        // Sin `thinkingConfig`: para preguntas cortas sobre datos que ya estan en
-        // el prompt no aporta, y es lo mas barato y rapido.
+        // Sin `thinkingConfig`: los tokens de razonamiento se cobran como salida y
+        // consumen el cupo por minuto de la capa gratuita. Para preguntas sobre
+        // datos que ya estan enteros en el prompt, no compensa.
       },
     });
   } catch (error) {
@@ -69,11 +76,44 @@ export const gemini: Proveedor = async (peticion, env) => {
   if (!texto) {
     throw new ErrorProveedor({
       tipo: "otro",
-      detalle: `respuesta vacía (finishReason: ${motivo ?? "desconocido"})`,
+      detalle: `respuesta vacía (modelo: ${modelo}, finishReason: ${motivo ?? "desconocido"})`,
     });
   }
 
   return { texto, bloqueado: false };
+}
+
+export const gemini: Proveedor = async (peticion, env) => {
+  const preferido = env.MODELO_IA?.trim();
+  const reserva = env.MODELO_IA_RESERVA?.trim();
+
+  if (!preferido) {
+    throw new ErrorProveedor({ tipo: "modelo", detalle: "MODELO_IA está vacío" });
+  }
+
+  try {
+    return await pedir(preferido, peticion, env);
+  } catch (error) {
+    // SOLO el fallo de "modelo" (404) justifica reintentar con otro. Una clave
+    // rechazada o un limite de cuota fallarian igual con cualquier modelo, y
+    // reintentar solo gastaria otra peticion del cupo para nada.
+    if (
+      !(error instanceof ErrorProveedor) ||
+      error.fallo.tipo !== "modelo" ||
+      !reserva ||
+      reserva === preferido
+    ) {
+      throw error;
+    }
+
+    // Se registra fuerte porque esto significa que la configuracion esta mal: el
+    // chat sigue funcionando, asi que sin este aviso nadie se enteraria de que
+    // lleva semanas contestando con el modelo de reserva.
+    console.error(
+      `MODELO_IA "${preferido}" no existe o fue retirado; usando la reserva "${reserva}". Corrige MODELO_IA en wrangler.jsonc.`
+    );
+    return await pedir(reserva, peticion, env);
+  }
 };
 
 /**

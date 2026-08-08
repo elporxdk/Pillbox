@@ -157,6 +157,53 @@ tarjeta**, y este es un proyecto de instituto. El modelo se cambia editando
 `MODELO_IA` en `wrangler.jsonc`; no hay ningún nombre de modelo escrito dentro del
 código.
 
+### Cambiar de modelo, y por qué es seguro hacerlo
+
+Hay dos variables, no una:
+
+| Variable | Para qué |
+| --- | --- |
+| `MODELO_IA` | El que se usa |
+| `MODELO_IA_RESERVA` | Al que se cae si el primero no existe |
+
+Si `MODELO_IA` está mal escrito o Google lo retira, la API devuelve 404 y el Worker
+**reintenta solo con la reserva**, deja el aviso en el log y el visitante ni se
+entera. Eso no es hipotético: la variante `-preview` de este mismo modelo se apagó en
+mayo de 2026. Sin la reserva, un ID equivocado deja el asistente muerto hasta que
+alguien lo note.
+
+La reserva tiene que ser un modelo que **se sepa** que funciona, y no se cambia a la
+vez que `MODELO_IA` — si se cambian las dos, las dos son una apuesta.
+
+El reintento solo ocurre con el fallo de modelo. Una clave rechazada o un límite de
+cuota fallarían igual con cualquier modelo, así que ahí no se reintenta: sería gastar
+otra petición del cupo para nada.
+
+**Para que responda mejor:** `MODELO_IA = "gemini-3.6-flash"`. Razona bastante mejor
+las preguntas de «por qué», a cambio de costar unas seis veces más por token y de
+tener un límite por minuto más bajo en la capa gratuita.
+
+### Lo que cuesta
+
+El prompt del sistema son ~4.150 tokens y **se reenvía completo en cada mensaje** —
+la mitad son las noticias. Eso, no el historial, es lo que domina el coste.
+
+Con precios de agosto de 2026 (los de terceros, porque la página de Google no
+siempre es accesible; conviene comprobarlos):
+
+| Modelo | Coste medio por mensaje | Mensajes por cada $10 |
+| --- | --- | --- |
+| `gemini-3.1-flash-lite` | ~$0,0015 | ~6.500 |
+| `gemini-3.6-flash` | ~$0,0089 | ~1.100 |
+
+**Pero en la capa gratuita no se paga nada.** El límite ahí no es de dinero sino de
+peticiones por minuto y por día; al pasarse, Google devuelve 429 y el chat responde
+«Hay muchas consultas ahora mismo». Vincular facturación **no añade** al cupo
+gratuito: lo sustituye por tarifa de pago desde el primer token.
+
+Si algún día hiciera falta abaratarlo, lo que más pesa es recortar las noticias del
+prompt: quitarlas lo bajaría a ~1.900 tokens y duplicaría los mensajes por dólar.
+
 ---
 
 ## Privacidad — lo que hay que saber antes de publicarlo
@@ -199,8 +246,9 @@ Qué buscar:
 | En el log | Qué pasa | Arreglo |
 | --- | --- | --- |
 | `falta el secret CLAVE_IA` | No se configuró la clave —o un despliegue la borró, ver `keep_vars` arriba | Volver a ponerla |
-| `proveedor: { tipo: 'credenciales' }` | Clave mal pegada, borrada o caducada | Volver a poner el secret |
-| `proveedor: { tipo: 'modelo' }` | `MODELO_IA` no existe o se retiró | Corregir el valor en `wrangler.jsonc` |
+| `proveedor: { tipo: 'credenciales' }` | Clave mal pegada, borrada o caducada. **Mira el campo `detalle`**: «API key not valid» es una clave mal copiada; «Expected OAuth 2 access token» es que lo guardado no tiene forma de clave de API (una clave de Gemini empieza por `AIzaSy`) | Volver a poner el secret |
+| `MODELO_IA "..." no existe o fue retirado` | Está respondiendo con la reserva, no con el modelo que crees | Corregir `MODELO_IA` en `wrangler.jsonc` |
+| `proveedor: { tipo: 'modelo' }` | Ni `MODELO_IA` ni la reserva existen | Corregir las dos en `wrangler.jsonc` |
 | `proveedor: { tipo: 'limite_proveedor' }` | Demasiadas consultas a la vez | Esperar; se recupera solo |
 | `faltan SUPABASE_URL y/o SUPABASE_ANON_KEY` | Falta config: **todo usuario con sesión cuenta como anónimo** | Revisar `vars` en `wrangler.jsonc` |
 
