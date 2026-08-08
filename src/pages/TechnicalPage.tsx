@@ -29,7 +29,6 @@ const NAV_LINKS = [
   { label: "Quiénes somos", href: "/#nosotros" },
   { label: "Beneficios", href: "/#beneficios" },
   { label: "Cómo funciona", href: "/#como-funciona" },
-  { label: "Testimonios", href: "/#testimonios" },
   { label: "Tecnología", href: "/tecnologia" },
   { label: "Comunidad", href: "/comunidad" },
   { label: "Contacto", href: "/#contacto" },

@@ -1,4 +1,4 @@
-import { CheckCircle2, MessageCircle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { MedibotLogo } from "./MedibotLogo";
 
 /**
@@ -50,14 +50,8 @@ const ENLACES_NAV = [
   { label: "Quiénes somos", href: "/#nosotros" },
   { label: "Beneficios", href: "/#beneficios" },
   { label: "Cómo funciona", href: "/#como-funciona" },
-  { label: "Testimonios", href: "/#testimonios" },
   { label: "Tecnología", href: "/tecnologia" },
-];
-
-const ENLACES_LEGAL = [
-  { label: "Términos de uso", href: "#" },
-  { label: "Privacidad", href: "#" },
-  { label: "Aviso médico", href: "#" },
+  { label: "Comunidad", href: "/comunidad" },
 ];
 
 /** Una columna de enlaces. Evita repetir el mismo <ul> tres veces. */
@@ -136,7 +130,7 @@ export function SiteFooter({
       className="bg-footer px-6 lg:px-10 py-12 lg:py-16"
     >
       {!compact && (
-        <div className="max-w-7xl mx-auto grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="max-w-7xl mx-auto grid gap-10 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <div className="mb-4">
               <MedibotLogo markClassName="w-9 h-9" wordmarkClassName="text-lg" onDark />
@@ -149,7 +143,6 @@ export function SiteFooter({
           </div>
 
           <ColumnaEnlaces titulo="Navegación" enlaces={ENLACES_NAV} />
-          <ColumnaEnlaces titulo="Legal" enlaces={ENLACES_LEGAL} />
           <ContactoWhatsApp />
         </div>
       )}
@@ -167,12 +160,6 @@ export function SiteFooter({
           © {anio} MEDIBOT. Todos los derechos reservados.
         </p>
 
-        {!compact && (
-          <p className="flex items-center gap-1.5 text-white/70">
-            <CheckCircle2 className="w-4 h-4 text-mint shrink-0" />
-            Plataforma verificada
-          </p>
-        )}
       </div>
     </footer>
   );
