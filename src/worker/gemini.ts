@@ -88,24 +88,34 @@ export const gemini: Proveedor = async (peticion, env) => {
  * Cualquier otra cosa -- sin red, tiempo de espera agotado -- no es un ApiError y
  * cae al "otro" con el mensaje tal cual, recortado.
  *
+ * `detalle` se guarda SIEMPRE, tambien en "credenciales" y "modelo". La primera
+ * version solo lo guardaba para "otro", por parecer mas limpio, y eso costo una
+ * ronda entera de ida y vuelta depurando en produccion: "credenciales" cubre por
+ * igual una clave mal escrita, una revocada y una sin permiso para el modelo, y
+ * sin el texto real de Google no hay forma de distinguirlas desde el log. El
+ * mensaje de Google nunca repite la clave que se mando (Google no hace eco de
+ * credenciales en sus errores), asi que guardarlo en el log no expone nada.
+ *
  * Exportada solo para poder probarla contra la `ApiError` real del SDK sin tener
  * que provocar una llamada de red de verdad.
  */
 export function clasificar(error: unknown): ConstructorParameters<typeof ErrorProveedor>[0] {
   if (error instanceof ApiError) {
-    if (error.status === 429) return { tipo: "limite_proveedor" };
-    if (error.status === 401 || error.status === 403) return { tipo: "credenciales" };
-    if (error.status === 404) return { tipo: "modelo" };
+    const detalle = `HTTP ${error.status}: ${error.message.slice(0, 280)}`;
+
+    if (error.status === 429) return { tipo: "limite_proveedor", detalle };
+    if (error.status === 401 || error.status === 403) return { tipo: "credenciales", detalle };
+    if (error.status === 404) return { tipo: "modelo", detalle };
 
     // Comprobado contra la API real: una clave invalida no da 401, da 400 con
     // "API key not valid" dentro del mensaje. Google usa el mismo 400 para
     // peticiones mal formadas y para una clave mala, asi que aqui el numero no
     // alcanza y hace falta mirar el texto.
     if (error.status === 400 && /api key/i.test(error.message)) {
-      return { tipo: "credenciales" };
+      return { tipo: "credenciales", detalle };
     }
 
-    return { tipo: "otro", detalle: `HTTP ${error.status}: ${error.message.slice(0, 280)}` };
+    return { tipo: "otro", detalle };
   }
 
   const mensaje = error instanceof Error ? error.message : String(error);

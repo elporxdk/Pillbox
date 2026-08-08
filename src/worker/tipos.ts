@@ -42,11 +42,20 @@ export type Respuesta = {
   bloqueado: boolean;
 };
 
-/** Motivo por el que una peticion no se pudo atender, ya clasificado. */
+/**
+ * Motivo por el que una peticion no se pudo atender, ya clasificado.
+ *
+ * `detalle` es opcional en todos los casos, no solo en "otro". La primera version
+ * solo lo guardaba para "otro", y eso costo caro depurando en vivo: "credenciales"
+ * cubre tanto una clave mal escrita como una revocada como una sin permiso para
+ * este modelo, y sin el texto real de Google no hay forma de saber cual de las
+ * tres es sin adivinar. `tipo` sigue siendo lo unico que decide la respuesta al
+ * visitante; `detalle` es solo para el log.
+ */
 export type FalloProveedor =
-  | { tipo: "limite_proveedor" } // 429: demasiadas peticiones al modelo
-  | { tipo: "credenciales" } //     401/403: clave mala o sin permiso
-  | { tipo: "modelo" } //           404: el identificador del modelo no existe
+  | { tipo: "limite_proveedor"; detalle?: string } // 429: demasiadas peticiones al modelo
+  | { tipo: "credenciales"; detalle?: string } //     401/403/400: clave mala, revocada o sin permiso
+  | { tipo: "modelo"; detalle?: string } //           404: el identificador del modelo no existe
   | { tipo: "otro"; detalle: string };
 
 export class ErrorProveedor extends Error {
