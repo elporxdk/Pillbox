@@ -92,17 +92,6 @@ export default function AuthPage() {
             </CardContent>
           </Card>
 
-          <p className="text-center text-xs text-ink/40 mt-6">
-            Al continuar aceptas nuestros{" "}
-            <a href="#" className="underline hover:text-ink/60">
-              Términos de uso
-            </a>{" "}
-            y{" "}
-            <a href="#" className="underline hover:text-ink/60">
-              Aviso de privacidad
-            </a>
-            .
-          </p>
         </div>
       </div>
     </div>
