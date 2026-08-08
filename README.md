@@ -203,7 +203,13 @@ La clave se saca gratis y sin tarjeta en
 funciona igual y solo el chat responde que no está configurado.
 
 > **No la escribas en `wrangler.jsonc` ni en `.env`**: las dos cosas la publican.
-> `wrangler secret put` la guarda cifrada en Cloudflare.
+> `wrangler secret put` la guarda cifrada en Cloudflare. También sirve el panel:
+> **Workers & Pages → medibot → Settings → Variables and Secrets**, tipo *Secret*.
+
+> ⚠️ `wrangler.jsonc` lleva `"keep_vars": true` y **no se puede quitar**. Sin esa
+> línea, `wrangler deploy` borra la clave del Worker en cada despliegue, porque
+> trata el fichero como la única verdad y `keepSecrets` se deriva de `keepVars`.
+> Está explicado en [`docs/chatbot.md`](docs/chatbot.md).
 
 El asistente **responde solo con lo que hay en `src/data/`** y tiene prohibido
 afirmar los datos que aún no están confirmados (cifras eléctricas, dimensiones,

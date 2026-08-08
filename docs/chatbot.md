@@ -30,6 +30,34 @@ la configuración ya está en `wrangler.jsonc`.
 > `proveedor: { tipo: 'credenciales' }`. Se arregla volviendo a ejecutar el mismo
 > comando.
 
+También se puede poner desde el panel de Cloudflare (**Workers & Pages → medibot →
+Settings → Variables and Secrets → Add**, tipo **Secret**). Da igual cuál de las dos
+formas se use.
+
+### `keep_vars` y por qué no se puede quitar
+
+`wrangler.jsonc` lleva `"keep_vars": true`. **Sin esa línea, cada despliegue borra
+esta clave.**
+
+Por defecto la configuración del Worker se trata como un fichero de Terraform: este
+archivo es la única verdad, y `wrangler deploy` elimina del Worker cualquier binding
+que no aparezca en él. Y no distingue entre variables y secretos — dentro de wrangler
+la bandera `keepSecrets` se deriva de `keepVars`:
+
+```js
+// wrangler deploy
+keepSecrets: keepVars || !!props.secretsFile,
+```
+
+Con `keep_vars` sin poner, eso es `false`, y el despliegue borra `CLAVE_IA` en
+silencio. Pasó de verdad: la clave se puso, el chat funcionó, se fusionó la rama, el
+despliegue se la llevó y el chat empezó a decir que no estaba configurado. Da igual
+si se puso desde el panel o con `wrangler secret put`; el borrado es el mismo.
+
+Con `keep_vars` en `true`, el despliegue conserva lo que haya en el panel y sigue
+aplicando las `vars` del fichero. El precio es que quitar una variable de
+`wrangler.jsonc` ya no la borra del Worker: hay que borrarla también en el panel.
+
 ### Probarlo en local
 
 ```bash
@@ -170,7 +198,7 @@ Qué buscar:
 
 | En el log | Qué pasa | Arreglo |
 | --- | --- | --- |
-| `falta el secret CLAVE_IA` | No se configuró la clave | `npx wrangler secret put CLAVE_IA` |
+| `falta el secret CLAVE_IA` | No se configuró la clave —o un despliegue la borró, ver `keep_vars` arriba | Volver a ponerla |
 | `proveedor: { tipo: 'credenciales' }` | Clave mal pegada, borrada o caducada | Volver a poner el secret |
 | `proveedor: { tipo: 'modelo' }` | `MODELO_IA` no existe o se retiró | Corregir el valor en `wrangler.jsonc` |
 | `proveedor: { tipo: 'limite_proveedor' }` | Demasiadas consultas a la vez | Esperar; se recupera solo |
