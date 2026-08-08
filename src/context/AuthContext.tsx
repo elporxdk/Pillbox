@@ -16,6 +16,10 @@ interface AuthContextValue {
     password: string
   ) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  /** Envia el correo con el enlace para poner una contrasena nueva. */
+  pedirRestablecer: (email: string) => Promise<{ error: string | null }>;
+  /** Cambia la contrasena de la sesion abierta (o de la del enlace del correo). */
+  cambiarContrasena: (nueva: string) => Promise<{ error: string | null }>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -72,6 +76,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  /**
+   * Correo de restablecimiento.
+   *
+   * `redirectTo` tiene que apuntar a /restablecer, y ese origen debe estar en la
+   * lista de "Redirect URLs" de Supabase (Authentication -> URL Configuration).
+   * Si no esta, el enlace del correo lleva al sitio pero sin la sesion temporal y
+   * no se puede cambiar nada.
+   *
+   * No se distingue si el correo existe o no: el mensaje de la interfaz es el
+   * mismo en ambos casos, a proposito. Decir "ese correo no esta registrado"
+   * convierte el formulario en una forma de averiguar quien tiene cuenta.
+   */
+  const pedirRestablecer: AuthContextValue["pedirRestablecer"] = async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/restablecer`,
+    });
+    return { error: error ? traducirError(error.message) : null };
+  };
+
+  /**
+   * Cambio de contrasena.
+   *
+   * Sirve para los dos casos, porque los dos son lo mismo para Supabase: hay una
+   * sesion abierta y se actualiza al usuario de esa sesion. Al llegar desde el
+   * enlace del correo, `detectSessionInUrl` ya ha canjeado el token por una
+   * sesion antes de que esto se llame.
+   */
+  const cambiarContrasena: AuthContextValue["cambiarContrasena"] = async (nueva) => {
+    const { error } = await supabase.auth.updateUser({ password: nueva });
+    return { error: error ? traducirError(error.message) : null };
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -81,6 +117,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signIn,
         signOut,
+        pedirRestablecer,
+        cambiarContrasena,
       }}
     >
       {children}
@@ -104,6 +142,12 @@ function traducirError(message: string): string {
     "Email not confirmed": "Debes confirmar tu correo antes de iniciar sesión.",
     "Password should be at least 6 characters":
       "La contraseña debe tener al menos 6 caracteres.",
+    "New password should be different from the old password.":
+      "La contraseña nueva tiene que ser distinta de la actual.",
+    "Auth session missing!":
+      "El enlace ha caducado o ya se usó. Pide otro correo de restablecimiento.",
+    "For security purposes, you can only request this after 60 seconds.":
+      "Por seguridad, espera un minuto antes de pedir otro correo.",
   };
   return mapa[message] ?? message;
 }

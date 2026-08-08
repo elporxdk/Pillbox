@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { LogOut, Settings, FileText, Bell, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -5,6 +6,7 @@ import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { IaasPortal } from "@/components/IaasPortal";
 import { PortalNoticias } from "@/components/comunidad/PortalNoticias";
+import { CambiarContrasena } from "@/components/CambiarContrasena";
 
 
 // Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales
@@ -12,6 +14,7 @@ import { PortalNoticias } from "@/components/comunidad/PortalNoticias";
 export default function DashboardPage() {
   //Corroboración de sesión de usuario mediante el hook useAuth, que proporciona información sobre el usuario autenticado y funciones para cerrar sesión
   const { user, signOut } = useAuth();
+  const [cambiandoContrasena, setCambiandoContrasena] = useState(false);
   const handleLogout = async () => {
     await signOut();
   };
@@ -29,7 +32,12 @@ export default function DashboardPage() {
             <button className="w-10 h-10 rounded-full bg-ink/5 flex items-center justify-center hover:bg-ink/10 transition-colors">
               <Bell className="w-5 h-5 text-ink" />
             </button>
-            <button className="w-10 h-10 rounded-full bg-ink/5 flex items-center justify-center hover:bg-ink/10 transition-colors">
+            <button
+              onClick={() => setCambiandoContrasena(true)}
+              aria-label="Cambiar contraseña"
+              title="Cambiar contraseña"
+              className="w-10 h-10 rounded-full bg-ink/5 flex items-center justify-center hover:bg-ink/10 transition-colors"
+            >
               <Settings className="w-5 h-5 text-ink" />
             </button>
             <button
@@ -159,6 +167,10 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
+
+      {cambiandoContrasena && (
+        <CambiarContrasena onCerrar={() => setCambiandoContrasena(false)} />
+      )}
 
       {/* Footer */}
       <SiteFooter compact />

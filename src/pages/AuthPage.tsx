@@ -1,14 +1,13 @@
 import React, { useState } from "react";
 import { Navigate, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Mail, Lock, User as UserIcon, Loader2, ArrowLeft } from "lucide-react";
+import { Mail, Lock, User as UserIcon, Loader2, ArrowLeft, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo } from "@/components/MedibotLogo";
-import { ProjectDataPanel } from "@/components/ProjectDataPanel";
   //Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales 
 //Función principal de la página de autenticación (login/registro) trabaja con funciones propias de supabase y su SDK 
 export default function AuthPage() {
@@ -48,14 +47,12 @@ export default function AuthPage() {
         Volver al inicio
       </Link>
 
-      {/* Dos columnas desde `lg`: el incentivo a la izquierda y el formulario a
-          la derecha. Por debajo de `lg` el incentivo se oculta y queda solo el
-          formulario: en movil, cualquier cosa encima lo empuja fuera de la
-          pantalla y hay que hacer scroll para poder escribir. */}
-      <div className="relative z-10 grid w-full max-w-5xl items-center gap-12 lg:grid-cols-2">
-        <ProjectDataPanel />
-
-        <div className="w-full max-w-md mx-auto lg:mx-0">
+      {/* Una sola columna centrada. Antes habia un panel con las cifras del
+          proyecto al lado, y se quito por lo mismo que en el panel: contaba como
+          se construyo el robot, no para que sirve. Sin el, el formulario queda en
+          el centro, que es donde se espera encontrarlo. */}
+      <div className="relative z-10 w-full max-w-md">
+        <div className="w-full">
           <div className="flex items-center justify-center mb-8">
             <MedibotLogo markClassName="w-11 h-11" wordmarkClassName="text-2xl" />
           </div>
@@ -118,6 +115,7 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recuperando, setRecuperando] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -132,6 +130,18 @@ function LoginForm() {
     toast.success("¡Bienvenido de nuevo!");
     navigate("/dashboard");
   }
+
+  // El correo escrito se arrastra al formulario de recuperacion, para no tener
+  // que teclearlo dos veces.
+  if (recuperando) {
+    return (
+      <RecuperarForm
+        correoInicial={email}
+        onVolver={() => setRecuperando(false)}
+      />
+    );
+  }
+
   return (
     <>
       <div className="mb-6 text-center">
@@ -161,6 +171,13 @@ function LoginForm() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="login-password">Contraseña</Label>
+            <button
+              type="button"
+              onClick={() => setRecuperando(true)}
+              className="text-xs font-semibold text-brand transition-opacity hover:opacity-80"
+            >
+              ¿Olvidaste tu contraseña?
+            </button>
           </div>
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/40" />
@@ -315,6 +332,115 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
             "Crear cuenta"
           )}
         </Button>
+      </form>
+    </>
+  );
+}
+
+/* ========================= RECUPERAR CONTRASEÑA ========================= */
+/**
+ * Pide el correo y manda el enlace para poner una contrasena nueva.
+ *
+ * El mensaje de exito es el MISMO exista o no la cuenta, y eso es a proposito:
+ * si dijese "ese correo no esta registrado", el formulario se convertiria en una
+ * forma comoda de averiguar quien tiene cuenta en el sitio. Supabase tampoco
+ * distingue en su respuesta, por el mismo motivo.
+ */
+function RecuperarForm({
+  correoInicial,
+  onVolver,
+}: {
+  correoInicial: string;
+  onVolver: () => void;
+}) {
+  const { pedirRestablecer } = useAuth();
+  const [email, setEmail] = useState(correoInicial);
+  const [enviando, setEnviando] = useState(false);
+  const [enviado, setEnviado] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    const { error } = await pedirRestablecer(email);
+    setEnviando(false);
+
+    if (error) {
+      toast.error("No se pudo enviar el correo", { description: error });
+      return;
+    }
+    setEnviado(true);
+  }
+
+  if (enviado) {
+    return (
+      <div className="text-center">
+        <MailCheck className="mx-auto mb-3 h-10 w-10 text-mint" />
+        <h3 className="mb-2 text-xl font-bold text-ink">Revisa tu correo</h3>
+        <p className="mb-6 text-sm leading-relaxed text-ink/60">
+          Si existe una cuenta con{" "}
+          <span className="font-semibold text-ink">{email}</span>, te llegará un
+          enlace para poner una contraseña nueva. Caduca en una hora y solo se
+          puede usar una vez.
+        </p>
+        <button
+          type="button"
+          onClick={onVolver}
+          className="text-sm font-semibold text-brand transition-opacity hover:opacity-80"
+        >
+          Volver a iniciar sesión
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="mb-6 text-center">
+        <h3 className="text-xl font-bold text-ink">Recuperar contraseña</h3>
+        <p className="text-sm text-ink/60">
+          Te enviamos un enlace para poner una nueva.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="recuperar-email">Correo electrónico</Label>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink/40" />
+            <Input
+              id="recuperar-email"
+              type="email"
+              placeholder="tu@correo.com"
+              className="pl-9"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+            />
+          </div>
+        </div>
+
+        <Button
+          type="submit"
+          disabled={enviando}
+          className="h-11 w-full rounded-full bg-gradient-to-r from-brand to-deep text-white hover:opacity-90"
+        >
+          {enviando ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Enviando…
+            </>
+          ) : (
+            "Enviar enlace"
+          )}
+        </Button>
+
+        <button
+          type="button"
+          onClick={onVolver}
+          className="w-full text-sm font-medium text-ink/60 transition-colors hover:text-ink"
+        >
+          Volver
+        </button>
       </form>
     </>
   );

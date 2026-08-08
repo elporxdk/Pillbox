@@ -186,6 +186,24 @@ Supabase, no el código de React. **La migración
 Editor de Supabase: sin ella no hay control de acceso.** Todo está explicado en
 [`docs/comunidad.md`](docs/comunidad.md).
 
+#### Restablecer la contraseña
+
+En `/auth` hay un enlace **«¿Olvidaste tu contraseña?»** que envía un correo con
+un enlace a `/restablecer`. Con la sesión abierta, la contraseña también se cambia
+desde el engranaje del panel.
+
+> Para que el correo funcione, el origen del sitio tiene que estar en la lista de
+> **Redirect URLs** de Supabase (**Authentication → URL Configuration**). Hacen
+> falta las dos entradas, la de producción y la de desarrollo:
+>
+> ```
+> https://medi-bot.net/restablecer
+> http://localhost:5173/restablecer
+> ```
+>
+> Sin ellas el enlace lleva al sitio, pero sin la sesión temporal, y la página
+> dice que el enlace ya no sirve.
+
 #### Levantarlo en local
 
 ```bash
