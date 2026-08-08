@@ -216,6 +216,15 @@ afirmar los datos que aún no están confirmados (cifras eléctricas, dimensione
 precio…). Al confirmar un dato hay que moverlo de `SIN_CONFIRMAR` a
 `HECHOS_HARDWARE` en `src/data/hardware.ts`.
 
+Cuando un dato no está confirmado **lo dice y sigue explicando lo que sí sabe** de esa
+parte, en lugar de mandar a todo el mundo al WhatsApp del equipo. El teléfono se
+reserva para cuando de verdad hace falta una persona.
+
+La conversación se guarda en el navegador del visitante (`localStorage`, 40 turnos,
+caduca a los 7 días), así que sobrevive a recargar la página. Se borra desde el botón
+de la papelera del panel. **No se guarda en Supabase**: el proyecto no es depositario
+de las conversaciones de nadie.
+
 **Sobre privacidad:** en la capa gratuita de Google los mensajes pueden usarse para
 mejorar sus productos y puede verlos una persona. El panel lo avisa en letra
 pequeña. Los detalles y el resto del diseño, en [`docs/chatbot.md`](docs/chatbot.md).

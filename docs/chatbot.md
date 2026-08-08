@@ -146,6 +146,69 @@ Para comprobar que el anclaje aguanta, pregúntale algo que no esté en los dato
 —por ejemplo el voltaje de la celda Peltier— y mira que diga que no lo sabe. Si se
 lo inventa, el anclaje no está bien.
 
+### Por qué no manda a WhatsApp a todo el mundo
+
+La primera versión del prompt traía un guion literal —«eso no lo tengo confirmado,
+pregúntale al equipo por WhatsApp al …»— y `SIN_CONFIRMAR` cubre casi cualquier
+pregunta técnica con un número. Resultado: el asistente contestaba con el teléfono a
+media feria. El anclaje funcionaba; la utilidad, no.
+
+La regla ahora es **redirigir, no cerrar**: cuando falta un dato concreto lo dice en
+una frase y sigue con lo que sí sabe de esa parte —cómo está montada, qué decisión de
+diseño hay detrás, por qué importa—. El teléfono se reserva para cuando de verdad es
+el siguiente paso (quieren hablar con el equipo, insisten en el dato después de la
+explicación, o piden algo que solo una persona autoriza), y **no se repite** dentro de
+la misma conversación.
+
+El número aparece **una sola vez** en todo el prompt, en la sección de criterio. Si
+alguien lo vuelve a meter en la regla general, el asistente volverá a usarlo como
+salida para todo.
+
+Lo que **no** cambió: sigue sin poder inventar cifras. La mejora es que dejar de
+inventar ya no significa dejar al visitante sin respuesta.
+
+### Los ejemplos del prompt
+
+Hay cuatro, y son la parte que más mueve el comportamiento: pregunta directa →
+respuesta corta; pregunta de «por qué» → el razonamiento; dato sin confirmar → se
+dice y se sigue con lo que sí hay, **sin dar el teléfono**; pregunta amplia → algo
+útil y una salida concreta.
+
+Llevan una advertencia dentro: *«son ejemplos de criterio y de tono, no de contenido:
+no cites como dato nada que aparezca solo aquí»*. Sin esa línea, el modelo puede tomar
+el texto de un ejemplo por una fuente de datos.
+
+### El historial
+
+Vive en `localStorage` (`src/lib/historial.ts`), no en Supabase. La conversación
+sobrevive a recargar la página y a moverse entre `/`, `/tecnologia` y `/comunidad`, y
+el visitante la borra con el botón de la papelera del panel.
+
+Se eligió el navegador y no la base de datos por tres razones, en orden: no añade una
+migración que ejecutar a mano, funciona igual sin cuenta (que es como llega la
+mayoría), y mantiene la propiedad de que el proyecto **no guarda** las conversaciones
+de nadie.
+
+| | |
+| --- | --- |
+| Turnos guardados | 40 |
+| Turnos que se mandan al modelo | 12 (`MAX_TURNOS_HISTORIAL`) |
+| Caducidad | 7 días |
+
+Se guardan más turnos de los que se mandan a propósito: el visitante puede leer hacia
+arriba más de lo que el modelo recuerda. Y caduca a los 7 días porque una conversación
+de hace un mes colándose como contexto de la pregunta de hoy hace que el asistente
+responda refiriéndose a algo que el visitante ya olvidó.
+
+**Nada de lo que sale de `localStorage` es de fiar**: se valida turno por turno, y uno
+con la forma equivocada se descarta sin tumbar el resto de la conversación. Cualquiera
+puede editarlo desde las herramientas del navegador —solo se lo haría a sí mismo—,
+pero un objeto mal formado sí rompería el render.
+
+Y **nada de esto lanza excepciones**. En Safari en modo privado `localStorage` existe
+pero `setItem` falla, y este sitio se visita sobre todo desde el móvil: quedarse sin
+historial es una molestia, que el chat no abra es un fallo.
+
 ### Cambiar de proveedor es un fichero
 
 Todo el Worker habla con la firma `Proveedor` de `src/worker/tipos.ts`. El único
@@ -185,16 +248,21 @@ tener un límite por minuto más bajo en la capa gratuita.
 
 ### Lo que cuesta
 
-El prompt del sistema son ~4.150 tokens y **se reenvía completo en cada mensaje** —
-la mitad son las noticias. Eso, no el historial, es lo que domina el coste.
+El prompt del sistema son ~5.040 tokens y **se reenvía completo en cada mensaje** —
+las noticias y los ejemplos son la mayor parte. Eso, no el historial, es lo que
+domina el coste: una respuesta corta y una larga cuestan casi lo mismo.
 
 Con precios de agosto de 2026 (los de terceros, porque la página de Google no
 siempre es accesible; conviene comprobarlos):
 
 | Modelo | Coste medio por mensaje | Mensajes por cada $10 |
 | --- | --- | --- |
-| `gemini-3.1-flash-lite` | ~$0,0015 | ~6.500 |
-| `gemini-3.6-flash` | ~$0,0089 | ~1.100 |
+| `gemini-3.1-flash-lite` | ~$0,0018 | ~5.700 |
+| `gemini-3.6-flash` | ~$0,0102 | ~1.000 |
+
+Los ejemplos del prompt cuestan ~880 tokens por mensaje (un 20 % más que sin ellos).
+Se quedan porque son lo que evita que el asistente conteste «pregúntale al equipo» a
+todo, y eso vale más que el 20 %.
 
 **Pero en la capa gratuita no se paga nada.** El límite ahí no es de dinero sino de
 peticiones por minuto y por día; al pasarse, Google devuelve 429 y el chat responde
@@ -220,8 +288,9 @@ Consecuencias prácticas:
 
 - **El asistente no da consejo médico** y el prompt se lo prohíbe. Ante un caso
   personal remite a un profesional.
-- Los mensajes del visitante **no se guardan** en ninguna base de datos nuestra: la
-  conversación vive en la memoria de la pestaña y desaparece al recargar.
+- Los mensajes del visitante **no se guardan en ninguna base de datos nuestra**. El
+  historial vive en el `localStorage` de su propio navegador (ver más abajo), así que
+  es suyo: no viaja a ningún servidor del proyecto y lo borra cuando quiera.
 - La capa gratuita **no está disponible en la UE, el Reino Unido ni Suiza**. Para el
   público del sitio no es un problema.
 
@@ -262,7 +331,10 @@ sube al iniciar sesión—, y por eso se registra explícitamente.
 - **No escribe la respuesta palabra por palabra** (streaming). Se espera la respuesta
   completa. Con respuestas de dos o tres frases la diferencia es de menos de un
   segundo, y añadirlo obliga a manejar cortes a medias.
-- **No guarda la conversación.** Al recargar la página se empieza de cero.
+- **El historial no cruza de dispositivo.** Vive en el navegador, así que lo que se
+  preguntó en el teléfono no aparece en la computadora. Para eso habría que guardarlo
+  en Supabase, y sería a cambio de que el proyecto pase a ser depositario de las
+  conversaciones de sus visitantes.
 - **No moderamos lo que escribe el visitante** más allá del filtro de Gemini. Los
   mensajes no se publican en ningún sitio, así que solo se ven a sí mismos.
 
@@ -279,5 +351,6 @@ sube al iniciar sesión—, y por eso se registra explícitamente.
 | `src/worker/sesion.ts` | Comprueba la sesión contra Supabase |
 | `src/worker/tipos.ts` | La costura del proveedor |
 | `src/lib/chat.ts` | El contrato de `/api/chat`, compartido con el navegador |
+| `src/lib/historial.ts` | El historial en `localStorage`, con todas sus validaciones |
 | `src/data/hardware.ts` | Lo confirmado y lo prohibido |
 | `src/components/ChatBot.tsx` | El panel |
