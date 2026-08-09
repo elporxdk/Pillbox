@@ -2,7 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- `?v=2` no es decorativo: el favicon anterior era el de la plantilla de
+         Vite, y los navegadores lo cachean con mucha mano larga. Sin cambiar la
+         URL, quien ya visito el sitio seguiria viendo el rayo morado. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <!-- iOS no acepta SVG aqui, tiene que ser PNG. Y no puede ser transparente:
+         iOS lo compone sobre negro y la rueda cian clara se perderia, asi que el
+         PNG lleva el degradado de marca de fondo. Es lo que se ve al anadir el
+         sitio a la pantalla de inicio. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MEDIBOT — Transporte hospitalario seguro y teleoperado</title>
     <meta
