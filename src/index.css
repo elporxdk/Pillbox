@@ -240,6 +240,11 @@ body {
   width: 100%;
 }
 
+/* CUIDADO: esta regla anula los `mt-*` y `mb-*` de Tailwind en cualquier <p>.
+   Esta fuera de todo `@layer`, y en Tailwind v4 el CSS sin capa gana siempre al de
+   las capas, sin importar la especificidad -- asi que `<p className="mt-4">` no
+   separa nada y no da ningun aviso. Costo un rato averiguarlo en el panel del chat.
+   Para separar un <p>, usa `gap` en el contenedor o relleno en el propio <p>. */
 p {
   margin: 0;
 }

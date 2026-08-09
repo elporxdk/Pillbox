@@ -179,6 +179,23 @@ export function ChatBot() {
     finDelHilo.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turnos, estado]);
 
+  /**
+   * El campo crece con el texto, hasta el tope del CSS.
+   *
+   * Con `rows={1}` fijo, escribir tres lineas dejaba un hueco de una linea con
+   * scroll dentro: no se veia lo que se acababa de escribir. Va en un efecto y no
+   * en `onChange` para que tambien encoja al vaciarse el campo tras enviar.
+   *
+   * `height = "auto"` antes de medir: si no, `scrollHeight` devuelve el alto que ya
+   * tiene y el campo no puede volver a encoger nunca.
+   */
+  useEffect(() => {
+    const el = campo.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [borrador]);
+
   // Persistencia LOCAL. Solo cuando el historial no esta en la cuenta: si lo esta,
   // guardar tambien aqui dejaria dos copias que se separan en cuanto se use otro
   // dispositivo.
@@ -520,50 +537,70 @@ export function ChatBot() {
         <div ref={finDelHilo} />
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void enviar(borrador);
-        }}
-        className="flex items-end gap-2 border-t border-ink/10 px-3 pt-3"
-      >
-        <textarea
-          ref={campo}
-          rows={1}
-          value={borrador}
-          maxLength={MAX_CARACTERES_MENSAJE}
-          onChange={(e) => setBorrador(e.target.value)}
-          onKeyDown={(e) => {
-            // Enter envia, Mayus+Enter hace salto de linea: lo que espera
-            // cualquiera que haya usado un chat.
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void enviar(borrador);
-            }
+      {/* El pie entero en un contenedor con su propio relleno.
+          Antes el formulario no tenia relleno inferior y el aviso no tenia superior,
+          asi que el texto del aviso quedaba pegado al campo -- se leian como una sola
+          cosa y en movil parecia que se solapaban. */}
+      {/* `flex flex-col gap-2.5` y NO un `mt-*` en el aviso, aunque seria lo obvio:
+          `index.css` declara `p { margin: 0 }` FUERA de todo `@layer`, y en Tailwind
+          v4 el CSS sin capa gana siempre a las utilidades, pase lo que pase con la
+          especificidad. Cualquier `mt-*` sobre un `<p>` de este proyecto no hace
+          nada -- y no avisa. El `gap` del contenedor no depende de eso. */}
+      <div className="flex flex-col gap-2.5 border-t border-ink/10 px-3 pt-3 pb-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void enviar(borrador);
           }}
-          placeholder="Escribe tu pregunta…"
-          aria-label="Tu pregunta"
-          className="max-h-24 flex-1 resize-none bg-transparent text-sm text-ink placeholder:text-ink/40 focus:outline-none"
-        />
-        <button
-          type="submit"
-          disabled={!borrador.trim() || estado.fase === "enviando"}
-          aria-label="Enviar"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-deep text-white transition-opacity disabled:opacity-40"
+          /* El campo y el boton van DENTRO de una caja con borde, no suelos sobre el
+             fondo del panel. Antes el campo no tenia contorno, asi que el boton
+             redondo flotaba al lado de nada y no se entendia que fueran un mismo
+             control. `focus-within` marca el foco en toda la caja: en movil no habia
+             ninguna senal de que el campo estuviera activo. */
+          className="flex items-end gap-2 rounded-2xl border border-ink/15 bg-surface/60 px-3 py-2 transition-colors focus-within:border-brand/60"
         >
-          <HugeiconsIcon icon={ArrowUp01Icon} size={18} strokeWidth={2} />
-        </button>
-      </form>
+          <textarea
+            ref={campo}
+            rows={1}
+            value={borrador}
+            maxLength={MAX_CARACTERES_MENSAJE}
+            onChange={(e) => setBorrador(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter envia, Mayus+Enter hace salto de linea: lo que espera
+              // cualquiera que haya usado un chat.
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void enviar(borrador);
+              }
+            }}
+            placeholder="Escribe tu pregunta…"
+            aria-label="Tu pregunta"
+            /* `text-base` en movil y `text-sm` desde `sm` NO es un capricho de
+               tamano: iOS Safari hace zoom a la pagina entera al enfocar un campo
+               con letra menor de 16px, y no lo desahace al salir. Era la causa de
+               que el chat se sintiera raro en el telefono. 16px lo evita. */
+            className="max-h-[7.5rem] min-h-[1.5rem] flex-1 resize-none bg-transparent py-1 text-base leading-snug text-ink placeholder:text-ink/40 focus:outline-none sm:text-sm"
+          />
+          <button
+            type="submit"
+            disabled={!borrador.trim() || estado.fase === "enviando"}
+            aria-label="Enviar"
+            className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-deep text-white transition-opacity disabled:opacity-40"
+          >
+            <HugeiconsIcon icon={ArrowUp01Icon} size={17} strokeWidth={2.5} />
+          </button>
+        </form>
 
-      {/* Aviso permanente, no solo al abrir el chat. El asistente corre sobre la capa
-          gratuita de Google, y ahi lo que se escribe puede usarse para mejorar sus
-          productos y puede verlo una persona. Quien escriba en un sitio publico tiene
-          derecho a saberlo, y un aviso que desaparece tras el primer mensaje no
-          cumple. Ver docs/chatbot.md. */}
-      <p className="px-3 pb-2.5 text-[11px] leading-snug text-ink/45">
-        Google procesa los mensajes y puede usarlos para mejorar sus servicios. No
-        escribas datos personales ni médicos.
-      </p>
+        {/* Aviso permanente, no solo al abrir el chat. El asistente corre sobre la
+            capa gratuita de Google, y ahi lo que se escribe puede usarse para mejorar
+            sus productos y puede verlo una persona. Quien escriba en un sitio publico
+            tiene derecho a saberlo, y un aviso que desaparece tras el primer mensaje
+            no cumple. Ver docs/chatbot.md. */}
+        <p className="text-[11px] leading-relaxed text-ink/45">
+          Google procesa los mensajes y puede usarlos para mejorar sus servicios. No
+          escribas datos personales ni médicos.
+        </p>
+      </div>
     </div>
   );
 }
