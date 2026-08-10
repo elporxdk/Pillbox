@@ -89,6 +89,7 @@ async function copiar(texto: string): Promise<boolean> {
 /** Preguntas de arranque. Delante de un jurado, la pantalla en blanco es el enemigo. */
 const SUGERENCIAS = [
   "¿Qué es MEDIBOT?",
+  "¿Quiénes lo hicieron?",
   "¿Qué son las IAAS?",
   "¿Cómo se controla el robot?",
 ] as const;

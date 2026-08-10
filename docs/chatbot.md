@@ -158,6 +158,44 @@ Al añadir un dato al sitio, **quítalo de `SIN_CONFIRMAR` y ponlo en
 `HECHOS_HARDWARE`**. Es lo único que hay que hacer para que el asistente empiece a
 contarlo.
 
+### El equipo, el anteproyecto y el repositorio
+
+Todo en `src/data/equipo.ts`: los cuatro creadores, los dos maestros tutores, la
+institución, las secciones reales del anteproyecto y las dos ramas del repositorio.
+
+**`MedicalLandingPage.tsx` importa `CREADORES` de ahí; no tiene su propia copia.**
+Los nombres vivían solo en la página, y para que el asistente los supiera había dos
+caminos: copiarlos o mover el dato. Copiarlos habría repetido letra por letra el
+fallo del ESP32 — y con nombres de personas es peor: un integrante que entra o sale,
+o un apellido mal escrito, se queda mal en un sitio y bien en el otro sin que nadie
+lo note. La página solo conserva lo que es suyo: qué foto va con quién, asociada por
+carné para que reordenar el equipo no le cambie la cara a nadie.
+
+#### Los carnés no están en el prompt
+
+El prompt le dice que no dé los códigos de estudiante —son menores de edad— pero
+además **los códigos no entran en el prompt**. No puede revelarlos porque no los
+tiene. Una instrucción se puede sortear con la pregunta correcta; un dato ausente,
+no. La web sí los muestra junto a las fotos, que es una decisión distinta y anterior.
+
+#### El anteproyecto está desactualizado, y el asistente lo dice
+
+`public/AnteproyectoMEDIBOT.docx` menciona **ESP32 veinte veces** y un módulo de
+reloj **DS3231**, y las dos cosas están corregidas en el sitio: es un Arduino y no
+hay módulo de reloj.
+
+El asistente conoce esa discrepancia y **avisa de ella sin que se la pregunten**
+cuando sale el tema del documento. Un jurado que lea el anteproyecto y hable con el
+asistente va a encontrar la contradicción de todos modos; es mejor que la explique el
+asistente que que lo pillen en ella.
+
+Cuando el documento se actualice, hay que vaciar `ANTEPROYECTO.desactualizado`. Si no,
+el asistente seguirá avisando de un problema que ya no existe.
+
+El documento tiene una sección de cotización, así que el asistente puede decir dónde
+está el presupuesto — pero **no cita cifras de precio**: son de una cotización de
+planificación y el precio sigue en `SIN_CONFIRMAR`.
+
 Para comprobar que el anclaje aguanta, pregúntale algo que no esté en los datos
 —por ejemplo el voltaje de la celda Peltier— y mira que diga que no lo sabe. Si se
 lo inventa, el anclaje no está bien.
@@ -302,21 +340,23 @@ tener un límite por minuto más bajo en la capa gratuita.
 
 ### Lo que cuesta
 
-El prompt del sistema son ~5.040 tokens y **se reenvía completo en cada mensaje** —
-las noticias y los ejemplos son la mayor parte. Eso, no el historial, es lo que
-domina el coste: una respuesta corta y una larga cuestan casi lo mismo.
+El prompt del sistema son ~6.170 tokens y **se reenvía completo en cada mensaje** —
+las noticias, los ejemplos y el anteproyecto son la mayor parte. Eso, no el
+historial, es lo que domina el coste: una respuesta corta y una larga cuestan casi
+lo mismo.
 
 Con precios de agosto de 2026 (los de terceros, porque la página de Google no
 siempre es accesible; conviene comprobarlos):
 
 | Modelo | Coste medio por mensaje | Mensajes por cada $10 |
 | --- | --- | --- |
-| `gemini-3.1-flash-lite` | ~$0,0018 | ~5.700 |
-| `gemini-3.6-flash` | ~$0,0102 | ~1.000 |
+| `gemini-3.1-flash-lite` | ~$0,0020 | ~4.900 |
+| `gemini-3.6-flash` | ~$0,0119 | ~840 |
 
-Los ejemplos del prompt cuestan ~880 tokens por mensaje (un 20 % más que sin ellos).
-Se quedan porque son lo que evita que el asistente conteste «pregúntale al equipo» a
-todo, y eso vale más que el 20 %.
+El prompt ha crecido en dos tandas y las dos se pagan en cada mensaje: los ejemplos
+(~880 tokens) y el bloque de equipo, anteproyecto y repositorio (~1.135). Si algún
+día hay que recortar, lo que más pesa siguen siendo las noticias: quitarlas bajaría
+el prompt casi a la mitad.
 
 **Pero en la capa gratuita no se paga nada.** El límite ahí no es de dinero sino de
 peticiones por minuto y por día; al pasarse, Google devuelve 429 y el chat responde
@@ -412,4 +452,5 @@ sube al iniciar sesión—, y por eso se registra explícitamente.
 | `src/lib/historial.ts` | El historial: `localStorage` sin sesión, Supabase con ella |
 | `supabase/migraciones/0002_chat.sql` | La tabla del historial y sus políticas RLS |
 | `src/data/hardware.ts` | Lo confirmado y lo prohibido |
+| `src/data/equipo.ts` | Creadores, tutores, anteproyecto y repositorio |
 | `src/components/ChatBot.tsx` | El panel |

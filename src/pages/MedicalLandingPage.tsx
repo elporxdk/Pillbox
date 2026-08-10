@@ -12,6 +12,7 @@ import carlosPhoto from "../media/CarlosVindel.png";
 // cualquier valor puesto por el setter estatico, asi que tiene que existir antes
 // de que se cree el primer elemento. Se configura en el <head> de index.html.
 import "@google/model-viewer";
+import { CREADORES } from "@/data/equipo";
 import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
@@ -88,13 +89,28 @@ const NAV_LINKS = [
   { label: "Comunidad", href: "/comunidad" },
   { label: "Contacto", href: "#contacto" },
 ];
-//cambiar acá por si se le van a poner más fotos respectivametne 
-const TEAM = [
-  { name: "Julio Alexander Sura Pineda", code: "20251031" },
-  { name: "Elian Alexander Torres Lemus", code: "20250166", photo: elianPhoto },
-  { name: "Carlos Andrés Vindel García", code: "20250471", photo: carlosPhoto },
-  { name: "Diego Alejandro Yanes Gómez", code: "20250870", photo: diegoPhoto },
-];
+/**
+ * Los nombres YA NO SE EDITAN AQUI: viven en `src/data/equipo.ts`, porque el
+ * asistente del chat tambien los necesita y dos copias del mismo dato es como
+ * nacio el error del ESP32 (una se corrige, la otra sigue diciendo lo viejo).
+ *
+ * Aqui solo queda lo que es exclusivo de esta pagina: que foto va con quien. Se
+ * asocia por carne y no por posicion en la lista, para que reordenar el equipo en
+ * `equipo.ts` no le cambie la cara a nadie.
+ *
+ * Quien no tenga foto sale con sus iniciales; es el comportamiento que ya habia.
+ */
+const FOTOS: Record<string, string> = {
+  "20250166": elianPhoto,
+  "20250471": carlosPhoto,
+  "20250870": diegoPhoto,
+};
+
+const TEAM = CREADORES.map((c) => ({
+  name: c.nombre,
+  code: c.carne,
+  photo: FOTOS[c.carne],
+}));
 //Porcentaje mayor de contenido, si se quiere cambiar el contenido solo se reescribe acá siempre que este dentro de los ""
 const OBJETIVOS_ESPECIFICOS = [
   "Diseñar un sistema de control de temperatura de precisión con celda Peltier y sensores térmicos, para que los medicamentos termolábiles mantengan su cadena de frío durante el traslado interno.",
