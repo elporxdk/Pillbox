@@ -178,6 +178,34 @@ además **los códigos no entran en el prompt**. No puede revelarlos porque no l
 tiene. Una instrucción se puede sortear con la pregunta correcta; un dato ausente,
 no. La web sí los muestra junto a las fotos, que es una decisión distinta y anterior.
 
+#### El plano técnico, y el peso
+
+`public/PlanoMEDIBOT.pdf` es el plano de ingeniería del robot (dibujo n.º 3, rev. 1,
+de Elian Alexander): vista isométrica más dos ortográficas en proyección de tercer
+ángulo, escala 1:20. Se ve en `/tecnologia` como imagen y se abre en PDF vectorial
+para leer el cajetín ampliado.
+
+La imagen es un WebP de 2112 px renderizado del PDF, y va **sobre fondo blanco fijo,
+no sobre un token de tema**: el plano es línea negra sobre blanco, y en modo oscuro
+sobre `bg-card` sería negro sobre azul oscuro.
+
+**El peso es el punto delicado.** El cajetín indica **23,5 kg**, y el peso seguía en
+`SIN_CONFIRMAR`. No es contradicción: esa cifra la calcula el CAD a partir del
+modelo, no es una medición del prototipo armado — y las dos pueden diferir bastante
+por tornillería, cables, adhesivos y piezas sustituidas.
+
+Así que el asistente **puede citarla, pero siempre diciendo de dónde sale**. Lo que
+no puede es decir «el robot pesa 23,5 kg» a secas: un jurado que lo suba a una
+balanza y vea otra cosa tendría razón. La entrada de `SIN_CONFIRMAR` se reescribió
+para decir exactamente eso — que lo que falta es el peso *medido*.
+
+El día que alguien lo pese, ese número entra en `HECHOS_HARDWARE` y esta distinción
+desaparece.
+
+Tampoco da dimensiones: el plano está a escala pero sin cotas legibles, y medir
+sobre el dibujo es justo lo que prohíbe el «DO NOT SCALE DRAWING» de su propio
+cajetín.
+
 #### El anteproyecto está desactualizado, y el asistente lo dice
 
 `public/AnteproyectoMEDIBOT.docx` menciona **ESP32 veinte veces** y un módulo de
@@ -452,5 +480,5 @@ sube al iniciar sesión—, y por eso se registra explícitamente.
 | `src/lib/historial.ts` | El historial: `localStorage` sin sesión, Supabase con ella |
 | `supabase/migraciones/0002_chat.sql` | La tabla del historial y sus políticas RLS |
 | `src/data/hardware.ts` | Lo confirmado y lo prohibido |
-| `src/data/equipo.ts` | Creadores, tutores, anteproyecto y repositorio |
+| `src/data/equipo.ts` | Creadores, tutores, plano, anteproyecto y repositorio |
 | `src/components/ChatBot.tsx` | El panel |

@@ -18,6 +18,8 @@ import {
 import hardware1 from "../media/hardware1.png";
 import hardware2 from "../media/hardware2.png";
 import hardware3 from "../media/hardware3.png";
+import planoMedibot from "../media/plano-medibot.webp";
+import { PLANO } from "@/data/equipo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -347,6 +349,52 @@ export default function TechnicalPage() {
               Accede a la documentación completa del proyecto.
             </p>
           </div>
+
+          {/* Plano tecnico.
+              Va ANTES del anteproyecto porque es lo unico de esta seccion que se
+              puede mirar sin descargar nada, y un plano se entiende viendolo.
+
+              La imagen es un WebP del PDF (2112 px de ancho) y el enlace lleva al
+              PDF vectorial: quien quiera leer el cajetin lo amplia sin que se
+              pixele. El fondo va blanco fijo y no con un token de tema, porque el
+              plano es linea negra sobre blanco -- en modo oscuro, sobre `bg-card`,
+              se veria negro sobre azul oscuro. */}
+          <figure className="mb-8 overflow-hidden rounded-3xl border border-ink/10 bg-card">
+            <a
+              href={PLANO.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block bg-white p-4 transition-opacity hover:opacity-90"
+              title="Abrir el plano en PDF, a tamaño completo"
+            >
+              <img
+                src={planoMedibot}
+                alt={`${PLANO.titulo}: vista isométrica y dos vistas ortográficas del robot, con el cajetín de datos`}
+                width={2112}
+                height={1632}
+                loading="lazy"
+                className="h-auto w-full"
+              />
+            </a>
+            <figcaption className="flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-ink">{PLANO.titulo}</h3>
+                <p className="mt-1 text-sm text-ink/60">
+                  Escala {PLANO.escala} · proyección de {PLANO.proyeccion} · dibujo n.º{" "}
+                  {PLANO.numeroDibujo}, rev. {PLANO.revision} · {PLANO.dibujadoPor}
+                </p>
+              </div>
+              <a
+                href={PLANO.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex shrink-0 items-center gap-2 rounded-xl border border-brand/30 px-5 py-2.5 text-sm font-semibold text-brand transition-colors hover:bg-brand/10"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Ver el PDF
+              </a>
+            </figcaption>
+          </figure>
 
           {/* Anteproyecto Featured Section */}
           <div className="bg-gradient-to-r from-brand/10 to-mint/10 rounded-3xl p-8 border border-brand/20">

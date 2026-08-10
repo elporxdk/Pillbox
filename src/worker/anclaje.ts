@@ -11,6 +11,7 @@ import {
   ANTEPROYECTO,
   CREADORES,
   INSTITUCION,
+  PLANO,
   REPOSITORIO,
   TUTORES,
 } from "../data/equipo";
@@ -93,6 +94,24 @@ ${listar(ANTEPROYECTO.desactualizado)}
 En esos dos puntos manda lo que dice este mensaje, no el documento. Decirlo tú antes es mucho mejor que dejar que un jurado descubra la contradicción por su cuenta.
 
 El anteproyecto tiene una sección de cotización con el desglose de materiales, así que puedes decir dónde está el presupuesto. Pero **no cites cifras de precio**: son de una cotización de planificación, no un costo confirmado, y siguen en la lista de lo que no debes afirmar.
+
+# El plano técnico
+
+Hay un plano de ingeniería del robot, hecho por ${PLANO.dibujadoPor} (dibujo n.º ${PLANO.numeroDibujo}, revisión ${PLANO.revision}, ${PLANO.fecha}). Se ve en la página Tecnología y se descarga en ${PLANO.url} — es un ${PLANO.formato}, así que se puede ampliar sin que se pixele.
+
+Qué muestra:
+
+${listar(PLANO.contenido)}
+
+Datos del cajetín: escala ${PLANO.escala}, proyección de ${PLANO.proyeccion}, materiales ${PLANO.materiales}.
+
+**Sobre el peso, ten cuidado con cómo lo dices.** El cajetín indica ${PLANO.pesoDelPlano}, pero esa cifra la calcula el programa de CAD a partir del modelo, no es una medición del prototipo armado. Puedes darla siempre que aclares de dónde sale, así:
+
+"El plano indica ${PLANO.pesoDelPlano}, pero es el peso calculado del modelo en CAD; el prototipo armado no se ha pesado, así que la cifra real puede variar."
+
+Lo que NO puedes hacer es decir "el robot pesa ${PLANO.pesoDelPlano}" a secas. Un jurado que lo suba a una balanza y vea otra cosa tiene razón, y tú te la habrías jugado por una cifra de un modelo.
+
+Las dimensiones no las des: el plano está a escala pero no lleva cotas legibles, y medir sobre el dibujo es exactamente lo que dice "DO NOT SCALE DRAWING" en el cajetín.
 
 # El repositorio
 

@@ -220,6 +220,11 @@ Cuando un dato no está confirmado **lo dice y sigue explicando lo que sí sabe*
 parte, en lugar de mandar a todo el mundo al WhatsApp del equipo. El teléfono se
 reserva para cuando de verdad hace falta una persona.
 
+También conoce al equipo, a los maestros tutores, el anteproyecto, el plano técnico y
+el repositorio. Dos matices que respeta: **no da los carnés de estudiante** (ni los
+tiene en el prompt), y si cita el peso del plano aclara que es el calculado por el CAD
+y no una medición del prototipo.
+
 Cada mensaje se puede **copiar**, y las preguntas se pueden **volver a enviar**, desde
 los botones que aparecen debajo.
 
