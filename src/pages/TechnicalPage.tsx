@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
@@ -32,6 +32,12 @@ const NAV_LINKS = [
   { label: "Beneficios", href: "/#beneficios" },
   { label: "Cómo funciona", href: "/#como-funciona" },
   { label: "Tecnología", href: "/tecnologia" },
+  // La seccion de Documentacion (plano y anteproyecto) esta al final de esta
+  // pagina y no tenia ningun enlace: la unica forma de llegar era bajar hasta
+  // abajo. Se añadio al descubrir que ni sabiendo que el plano estaba ahi se
+  // encontraba. Es un ancla dentro de esta misma pagina; el desplazamiento lo
+  // hace el `useEffect` de mas abajo, porque react-router no lo hace solo.
+  { label: "Documentación", href: "/tecnologia#documentacion" },
   { label: "Comunidad", href: "/comunidad" },
   { label: "Contacto", href: "/#contacto" },
 ];
@@ -68,6 +74,26 @@ export default function TechnicalPage() {
   const pageRef = useRef<HTMLDivElement>(null);
   const wheelRef = useRef<SVGGElement>(null);
   const [currentHardwareIndex, setCurrentHardwareIndex] = useState(0);
+  const { hash } = useLocation();
+
+  /**
+   * Desplaza hasta el ancla de la URL (#documentacion).
+   *
+   * Hace falta porque react-router NO desplaza al cambiar solo el hash: cambia la
+   * URL y deja la pagina donde estaba. Sin esto, el enlace de "Documentación"
+   * parece no hacer nada, que es peor que no tenerlo.
+   *
+   * Solo toca el DOM, no llama a setState. El desfase por la barra fija lo resuelve
+   * `scroll-mt-*` en la seccion, no un calculo aqui.
+   */
+  useEffect(() => {
+    if (!hash) return;
+    // Se espera un fotograma: al montar, la seccion todavia no esta en el DOM.
+    const id = requestAnimationFrame(() => {
+      document.querySelector(hash)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [hash]);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -336,7 +362,10 @@ export default function TechnicalPage() {
       </section>
 
       {/* ================= DOCUMENTATION ================= */}
-      <section id="documentacion" className="px-6 lg:px-10 py-24 lg:py-32 bg-card">
+      {/* `scroll-mt-16`: la barra de navegacion es fija y mide 4rem, asi que sin
+          este margen el titulo de la seccion queda debajo de ella al llegar por el
+          ancla. */}
+      <section id="documentacion" className="scroll-mt-16 px-6 lg:px-10 py-24 lg:py-32 bg-card">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-16 section-title">
             <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
