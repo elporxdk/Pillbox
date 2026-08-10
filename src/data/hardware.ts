@@ -52,7 +52,10 @@ export const SIN_CONFIRMAR = [
   "El modelo exacto de la placa de potencia que conmuta la celda Peltier y el ventilador. Las fotos del prototipo y el texto del sitio no coinciden, así que no se afirma ninguno.",
   "El modelo exacto del sensor o control de temperatura.",
   "Voltajes, corrientes, consumo, autonomía de batería y cualquier cifra eléctrica.",
-  "Dimensiones, peso y capacidad de carga del robot.",
+  // El plano tecnico si trae un peso (23,5 kg), pero es el que calcula el CAD, no
+  // una medicion del prototipo armado. Se puede citar diciendo de donde sale -- eso
+  // lo explica la seccion del plano en el prompt -- pero no como peso del robot.
+  "Dimensiones y capacidad de carga del robot. El peso medido del prototipo armado tampoco: nadie lo ha pesado.",
   "Velocidad de desplazamiento y tiempos de recorrido.",
   "Cifras de rendimiento, de eficiencia o de uso: no hay mediciones publicadas.",
   "Precio, coste de fabricación o plazos de disponibilidad.",

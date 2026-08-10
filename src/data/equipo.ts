@@ -91,6 +91,51 @@ export const ANTEPROYECTO = {
 } as const;
 
 /**
+ * El plano tecnico del robot.
+ *
+ * Es un dibujo de ingenieria de verdad, con cajetin: vista isometrica mas dos
+ * ortograficas en proyeccion de tercer angulo. Los datos de aqui se leyeron del
+ * propio cajetin, no se supusieron.
+ *
+ * EL PESO ES EL PUNTO DELICADO
+ * ----------------------------
+ * El cajetin dice 23,5 kg, y el peso estaba (y sigue estando) en `SIN_CONFIRMAR`.
+ * No es una contradiccion: esa cifra es la que calcula el programa de CAD a partir
+ * del modelo, no una medicion del prototipo armado. Las dos cosas pueden diferir
+ * bastante -- tornilleria, cables, adhesivos, piezas sustituidas.
+ *
+ * Asi que el asistente puede citarla, pero SIEMPRE diciendo de donde sale. Lo que
+ * no puede es presentarla como el peso medido del robot. El dia que alguien lo
+ * suba a una balanza, ese numero si entra en `HECHOS_HARDWARE`.
+ */
+export const PLANO = {
+  titulo: "Plano técnico de MEDIBOT",
+  /** Titulo literal del cajetin, en ingles y con su errata original. */
+  tituloOriginal: 'Sketch of the parts that compose the medical assistent "MEDIBOT"',
+  url: "/PlanoMEDIBOT.pdf",
+  formato: "PDF vectorial de una hoja, tamaño A horizontal",
+
+  dibujadoPor: "Elian Alexander",
+  fecha: "10 de agosto de 2026",
+  numeroDibujo: "3",
+  revision: "1",
+  escala: "1:20",
+  proyeccion: "tercer ángulo",
+
+  /** Lo que se ve en la hoja. */
+  contenido: [
+    "Una vista isométrica del robot con los tres compartimentos y la base de tracción.",
+    "Dos vistas ortográficas, de costado y de frente, con las cuatro ruedas mecanum.",
+    "El cajetín con materiales, escala, peso, número de dibujo y revisión.",
+  ] as const,
+
+  materiales: "PLA, PETG, caucho, forro de PEVA, aluminio y metal, entre otros",
+
+  /** Peso del cajetin. Calculado por el CAD, NO medido. Ver el comentario de arriba. */
+  pesoDelPlano: "23,5 kg",
+} as const;
+
+/**
  * El repositorio del proyecto.
  *
  * Dos ramas con contenidos distintos, y conviene decirlo: quien entre buscando el
