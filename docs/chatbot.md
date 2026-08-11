@@ -427,6 +427,49 @@ un botón de reintentar, y la web sigue funcionando con normalidad.
 
 ---
 
+## HTTPS y `run_worker_first`
+
+El Worker redirige a HTTPS cuando el visitante llega por HTTP, y añade
+`Strict-Transport-Security` (180 días, **sin** `includeSubDomains` — el túnel del
+robot puede vivir en un subdominio). Sin esto, quien escribía «medi-bot.net» en el
+móvil se quedaba en HTTP y el navegador avisaba, con razón, de que la conexión no
+estaba cifrada.
+
+**Cloudflare sirve los ficheros que existen sin ejecutar el Worker.** Eso es bueno
+—más rápido, y un error del código no puede tumbar una imagen— pero significaba que
+`/` (que es `index.html`, y existe) tampoco lo ejecutaba, justo donde entra casi
+todo el mundo. De ahí `run_worker_first: ["/", "/api/*"]` en `wrangler.jsonc`.
+
+> **`/api/*` en esa lista no es decorativo.** La lista es una lista *blanca*: en
+> cuanto se pone algo, lo que no esté dentro deja de pasar por el Worker — incluidas
+> rutas que antes llegaban solas por no existir como fichero. Con solo `["/"]`, un
+> POST a `/api/chat` lo contestaba el servidor de assets con un 405 y **el chat
+> quedaba muerto**. Está comprobado; si se toca esa lista, hay que volver a probar el
+> chat.
+
+No se usa `true` a propósito: pondría toda petición —el modelo 3D de 4,9 MB
+incluido— a través del Worker, y un error del código pasaría de romper solo el chat a
+romper el sitio entero.
+
+Como consecuencia, la cabecera HSTS solo sale en `/`. Basta: HSTS es por dominio, así
+que en cuanto el navegador la ve una vez sobre HTTPS, sube a HTTPS todas las
+peticiones al dominio durante los 180 días.
+
+**Además conviene activar «Always Use HTTPS»** en Cloudflare (SSL/TLS → Edge
+Certificates). Redirige en el borde, antes de llegar a cualquier código, y cubre
+también los ficheros que no pasan por el Worker. El redirect del Worker es la red de
+seguridad, no el mecanismo principal.
+
+### Probar el redirect en local no sirve
+
+El proxy de `wrangler dev` **reescribe la cabecera `Location` a http**, así que una
+prueba de punta a punta ahí mide el proxy y no el Worker. La primera versión de esto
+parecía estar mal cuando ya calculaba bien la URL.
+
+Por eso `destinoHttps()` está exportada y es una función pura del texto de entrada:
+se comprueba sin navegador y sin proxy. Entre los casos está el que evita un bucle
+infinito (cabecera que dice `http` cuando la URL ya es `https`).
+
 ## Si algo se rompe
 
 El Worker está escrito para que **un fallo del asistente no tumbe la web**. Antes de

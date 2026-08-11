@@ -27,7 +27,6 @@ import { ErrorProveedor, type Env } from "./tipos";
  * sigue en pie.
  */
 
-/** Tope de salida por respuesta. Acota coste y evita respuestas kilometricas. */
 /**
  * Tope de salida por respuesta.
  *
@@ -41,8 +40,75 @@ import { ErrorProveedor, type Env } from "./tipos";
  */
 const MAX_TOKENS_SALIDA = 700;
 
+/**
+ * Cuanto tiempo recuerda el navegador que este sitio es solo HTTPS.
+ *
+ * 180 dias. SIN `includeSubDomains` a proposito: el robot se expone por un tunel de
+ * Cloudflare que puede vivir en un subdominio, y meterlo aqui obligaria a que ese
+ * subdominio tambien fuera HTTPS o dejaria de responder.
+ */
+const HSTS = "max-age=15552000";
+
+/**
+ * Redirige a HTTPS si el visitante llego por HTTP.
+ *
+ * POR QUE HACE FALTA
+ * ------------------
+ * Cloudflare sirve HTTPS desde el primer dia, pero no fuerza el cambio: quien
+ * escribe "medi-bot.net" en el movil sale por HTTP y ahi se queda. El navegador
+ * entonces avisa de que "la conexion no esta cifrada", y tiene razon -- lo que se
+ * escriba en el chat o en el formulario de acceso viaja en claro.
+ *
+ * Se hace en el Worker y no solo con el interruptor "Always Use HTTPS" del panel
+ * porque un ajuste del panel se olvida, y porque ya sabemos lo que pasa con la
+ * configuracion que solo vive alli (ver `keep_vars` en wrangler.jsonc).
+ *
+ * NO PUEDE FALLAR EN LOCAL
+ * ------------------------
+ * `wrangler dev` sirve por HTTP en localhost. Sin el guardia del `cf-visitor`,
+ * esto redirigiria a https://127.0.0.1 y el desarrollo se rompe. Esa cabecera solo
+ * la pone el borde de Cloudflare, asi que en local nunca entra aqui.
+ */
+/**
+ * Decide el destino HTTPS de una peticion, o `null` si no hay que redirigir.
+ *
+ * Esta separada de la respuesta, y exportada, porque el proxy de `wrangler dev`
+ * REESCRIBE la cabecera `Location` a http en local: una prueba de punta a punta ahi
+ * mide el proxy, no el Worker, y la primera version de esto parecia estar mal
+ * cuando en realidad ya calculaba bien la URL. Siendo una funcion pura del texto
+ * de entrada, se comprueba sin navegador y sin proxy de por medio.
+ */
+export function destinoHttps(urlPeticion: string, cabeceraVisitante: string | null): string | null {
+  if (!cabeceraVisitante) return null; // no viene del borde de Cloudflare: local o pruebas
+
+  // `cf-visitor` es JSON, y un JSON.parse suelto en el camino de los assets seria
+  // exactamente el fallo que este Worker evita: si viene raro, no se redirige.
+  let esquema: string | undefined;
+  try {
+    esquema = (JSON.parse(cabeceraVisitante) as { scheme?: string }).scheme;
+  } catch {
+    return null;
+  }
+  if (esquema !== "http") return null;
+
+  const url = new URL(urlPeticion);
+  if (url.protocol !== "http:") return null;
+  url.protocol = "https:";
+  return url.toString();
+}
+
+function redirigirAHttps(req: Request): Response | null {
+  const destino = destinoHttps(req.url, req.headers.get("cf-visitor"));
+  if (!destino) return null;
+  // 301 y no 302: es permanente y asi el navegador lo recuerda sin volver a pedirlo.
+  return Response.redirect(destino, 301);
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    const aHttps = redirigirAHttps(req);
+    if (aHttps) return aHttps;
+
     if (new URL(req.url).pathname === RUTA_CHAT) {
       try {
         return await chat(req, env);
@@ -51,7 +117,18 @@ export default {
         return json(500, { error: "El asistente no está disponible ahora mismo." });
       }
     }
-    return env.ASSETS.fetch(req);
+    const respuesta = await env.ASSETS.fetch(req);
+
+    // HSTS: el navegador deja de intentar HTTP en este dominio, asi que el aviso de
+    // "conexion no cifrada" no puede volver ni siquiera en la primera visita futura.
+    //
+    // Se envuelve la respuesta porque las cabeceras de la original son inmutables.
+    // `new Response(body, respuesta)` conserva estado y cabeceras, incluidos el 206 y
+    // el Content-Range de una peticion por rango -- que importa: el modelo 3D pesa
+    // 4,9 MB y se pide a trozos.
+    const conHsts = new Response(respuesta.body, respuesta);
+    conHsts.headers.set("Strict-Transport-Security", HSTS);
+    return conHsts;
   },
 };
 
