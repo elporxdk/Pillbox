@@ -29,7 +29,27 @@
     // El binding es lo que hace que `env.ASSETS.fetch(req)` funcione desde el
     // codigo. Sin nombrarlo, con "main" presente el Worker se queda delante de
     // los assets sin poder llegar a ellos y el sitio entero devuelve 404.
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+
+    // POR QUE SOLO LA RAIZ
+    // --------------------
+    // Cloudflare sirve los ficheros que existen SIN ejecutar el Worker. Eso esta
+    // bien -- es mas rapido y un fallo del codigo no puede tumbar una imagen --
+    // pero significa que "/" (que es index.html, y existe) tampoco lo ejecutaba, y
+    // ahi es justo donde entra casi todo el mundo. Sin esta linea, el redirect a
+    // HTTPS y la cabecera HSTS no se aplicaban en la portada: se comprobo, y la
+    // portada era el unico sitio donde faltaban.
+    //
+    // No se pone `true` a proposito: con `true`, TODA peticion pasaria por el
+    // Worker -- el modelo 3D de 4,9 MB incluido -- y un error del codigo dejaria de
+    // romper solo el chat para romper el sitio entero.
+    //
+    // "/api/*" NO ES OPCIONAL, aunque parezca que sobra. Esta lista es una lista
+    // BLANCA: en cuanto se pone algo, lo que no este dentro deja de pasar por el
+    // Worker, y eso incluye rutas que antes llegaban solas por no existir como
+    // fichero. Con solo ["/"], un POST a /api/chat lo contestaba el servidor de
+    // assets con un 405 y el chat quedaba muerto. Se comprobo.
+    "run_worker_first": ["/", "/api/*"]
   },
 
   // CONFIGURACION NO SECRETA
