@@ -99,8 +99,19 @@
  *
  *  El cableado real NO coincide con la logica ingenua: M1 y M3 giran al reves
  *  y los lados son M1/M3 contra M2/M4. Se corrige por software en las seis
- *  funciones de movimiento; no hay que tocar ningun cable. Si los giros
- *  izquierda/derecha salen cambiados, pon INVERTIR_GIRO a true.
+ *  funciones de movimiento; no hay que tocar ningun cable. Ademas los motores
+ *  llegan al shield en orden invertido, lo que se arregla en las cuatro lineas
+ *  de getMotor() (ver "Motores DC").
+ *
+ *  En el robot montado la izquierda y la derecha salian cambiadas, y eso
+ *  afecta a DOS movimientos distintos, cada uno con su bandera:
+ *    INVERTIR_GIRO    -> el giro sobre el eje   (PAD IZQ/DER, W+A/W+D)
+ *    INVERTIR_LATERAL -> el desplazamiento      (L1/R1, A/D sueltas)
+ *  Las dos estan ya en true y quedan bien. Son independientes: cada funcion
+ *  mira SOLO la suya, asi que si algun dia se recablea y solo uno de los dos
+ *  vuelve a salir del reves, se corrige ese y nada mas. El adelante/atras no
+ *  lleva bandera porque no puede salir invertido: manda los cuatro motores a
+ *  empujar igual, asi que da lo mismo cual este en cada sitio.
  *
  *  Respuestas del Arduino:
  *   LISTO          al arrancar
