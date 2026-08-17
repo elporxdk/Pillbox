@@ -211,9 +211,16 @@ class PruebasBanderasDeInversion(unittest.TestCase):
         return ([int(x) for x in m.group(1).split(",")],
                 [int(x) for x in m.group(2).split(",")])
 
-    # ---- las dos banderas existen, una sola vez, y estan puestas ----
-    def test_las_dos_banderas_se_declaran_una_sola_vez(self):
-        for bandera in ("INVERTIR_GIRO", "INVERTIR_LATERAL"):
+    # Lo que se midio sobre el robot montado. Si se recablea, se cambia AQUI y
+    # en el sketch: tenerlo en dos sitios es justo lo que hace que la prueba
+    # sirva de algo (avisa de un cambio hecho sin querer).
+    VALORES = {"INVERTIR_AVANCE": "true",
+               "INVERTIR_GIRO": "true",
+               "INVERTIR_LATERAL": "false"}
+
+    # ---- las tres banderas existen, una sola vez, y estan como toca ----
+    def test_las_tres_banderas_se_declaran_una_sola_vez(self):
+        for bandera in self.VALORES:
             with self.subTest(bandera=bandera):
                 declaraciones = re.findall(
                     r"^const\s+bool\s+%s\s*=" % bandera, self.codigo, re.M)
@@ -222,34 +229,47 @@ class PruebasBanderasDeInversion(unittest.TestCase):
                     f"{bandera} debe declararse exactamente una vez "
                     f"(hay {len(declaraciones)}).")
 
-    def test_este_robot_tiene_las_dos_en_true(self):
-        """El robot montado tiene izquierda y derecha cambiadas de verdad, y eso
-        afecta a los DOS movimientos. Con solo una en true, la tecla A desplaza
-        bien pero W+A sigue girando al lado contrario."""
-        for bandera in ("INVERTIR_GIRO", "INVERTIR_LATERAL"):
+    def test_este_robot_tiene_los_valores_medidos(self):
+        """Los tres se ajustaron probando el robot, no por teoria.
+
+        El avance y el giro salian del reves; el desplazamiento lateral, una vez
+        arreglado el avance, quedo bien solo. Ojo con ese ultimo: mientras el
+        avance estuvo invertido, el lateral PARECIA invertido tambien y llego a
+        ponerse en true. Es el motivo de que el orden para ajustarlas sea
+        siempre avance -> giro -> lateral."""
+        for bandera, esperado in self.VALORES.items():
             with self.subTest(bandera=bandera):
                 m = re.search(r"const\s+bool\s+%s\s*=\s*(\w+)\s*;" % bandera,
                               self.codigo)
                 self.assertEqual(
-                    m.group(1), "true",
-                    f"{bandera} deberia estar en true en este robot.")
+                    m.group(1), esperado,
+                    f"{bandera} deberia estar en {esperado} en este robot.")
 
     # ---- INDEPENDENCIA: cada funcion mira SOLO su bandera ----
-    def test_el_giro_no_mira_la_bandera_del_lateral(self):
-        for funcion in ("turnLeft", "turnRight"):
-            with self.subTest(funcion=funcion):
-                self.assertNotIn(
-                    "INVERTIR_LATERAL", self._cuerpo(funcion),
-                    f"{funcion}() no debe depender de INVERTIR_LATERAL: el giro "
-                    "sobre el eje es inmune al mapeo de motores.")
+    #  Que funcion le toca a cada bandera.
+    DUENO = {"INVERTIR_AVANCE": ("forward", "backward"),
+             "INVERTIR_GIRO": ("turnLeft", "turnRight"),
+             "INVERTIR_LATERAL": ("moveLeft", "moveRight")}
 
-    def test_el_lateral_no_mira_la_bandera_del_giro(self):
-        for funcion in ("moveLeft", "moveRight"):
-            with self.subTest(funcion=funcion):
-                self.assertNotIn(
-                    "INVERTIR_GIRO", self._cuerpo(funcion),
-                    f"{funcion}() no debe depender de INVERTIR_GIRO: son dos "
-                    "sintomas con causas distintas.")
+    def test_cada_funcion_mira_solo_su_bandera(self):
+        """LA propiedad que permite ajustarlas de una en una probando el robot.
+
+        Si una funcion mirara dos banderas, corregir un movimiento descolocaria
+        otro y no habria forma de dejar los tres bien a la vez."""
+        for bandera, funciones in self.DUENO.items():
+            ajenas = [b for b in self.DUENO if b != bandera]
+            for funcion in funciones:
+                cuerpo = self._cuerpo(funcion)
+                with self.subTest(funcion=funcion):
+                    self.assertIn(
+                        bandera, cuerpo,
+                        f"{funcion}() deberia mirar {bandera}")
+                    for otra in ajenas:
+                        self.assertNotIn(
+                            otra, cuerpo,
+                            f"{funcion}() no debe depender de {otra}: son "
+                            "movimientos distintos con causas distintas, y "
+                            "acoplarlos impide corregirlos por separado.")
 
     # ---- cada bandera es un INTERCAMBIO de verdad, no un apano ----
     def test_invertir_giro_intercambia_izquierda_con_derecha(self):
@@ -296,58 +316,47 @@ class PruebasBanderasDeInversion(unittest.TestCase):
     #  siendo s_i lo que se le manda con patron().
     POLARIDAD = (-1, +1, -1, +1)
 
-    def _patron_suelto(self, funcion):
-        """El patron() de una funcion que no tiene bandera (forward/backward).
-        No se ancla al final de linea: estas llevan comentario detras."""
-        m = re.search(r"^void\s+%s\s*\(\s*\)\s*\{\s*patron\(([^)]*)\)\s*;\s*\}"
-                      % funcion, self.codigo, re.M)
-        self.assertIsNotNone(
-            m, f"{funcion}() ya no es un patron() suelto. Si ahora tiene "
-               "bandera, revisa que siga sin depender de las otras dos.")
-        return [int(x) for x in m.group(1).split(",")]
-
     def _empuje(self, patron):
         return [p * s for p, s in zip(self.POLARIDAD, patron)]
 
-    def test_el_adelante_atras_no_mira_ninguna_bandera(self):
-        """Ni INVERTIR_GIRO ni INVERTIR_LATERAL pueden arrastrar el avance."""
+    def test_el_avance_empuja_los_cuatro_motores_igual(self):
+        """LA propiedad que hace que el avance sea inmune al REPARTO de motores:
+        si los cuatro EMPUJAN igual, da lo mismo cual este a la izquierda, a la
+        derecha, delante o detras. Ninguna de las 24 reordenaciones posibles
+        puede darle la vuelta; solo puede invertirlo que la polaridad de los
+        cuatro este del reves, que es para lo que esta INVERTIR_AVANCE.
+
+        Se comprueba en las DOS ramas de la bandera. Es ademas la regresion
+        historica del sketch: alguien "arreglo" forward() a patron(+1,+1,+1,+1)
+        pensando que era lo natural y, como M1/M3 giran al reves, los dos lados
+        se oponian y el robot GIRABA sobre su eje en vez de avanzar."""
         for funcion in ("forward", "backward"):
-            with self.subTest(funcion=funcion):
-                m = re.search(r"^void\s+%s\s*\(\s*\)\s*\{([^}]*)\}" % funcion,
-                              self.codigo, re.M)
-                cuerpo = m.group(1)
-                for bandera in ("INVERTIR_GIRO", "INVERTIR_LATERAL"):
-                    self.assertNotIn(
-                        bandera, cuerpo,
-                        f"{funcion}() no debe depender de {bandera}: el avance "
-                        "es un movimiento aparte del giro y del lateral.")
+            for rama in self._ramas(funcion, "INVERTIR_AVANCE"):
+                empuje = self._empuje(rama)
+                with self.subTest(funcion=funcion, rama=rama):
+                    self.assertEqual(
+                        len(set(empuje)), 1,
+                        f"{funcion}() deberia empujar los cuatro motores al "
+                        f"mismo lado y da {empuje}. Con empujes mezclados el "
+                        "robot gira o se tuerce en vez de ir recto.")
 
-    def test_el_adelante_atras_empuja_los_cuatro_motores_igual(self):
-        """LA propiedad que hace imposible que el avance salga invertido por un
-        error de cableado: si los cuatro motores EMPUJAN igual, da lo mismo cual
-        este a la izquierda, a la derecha, delante o detras. Ninguna de las 24
-        reordenaciones posibles de los motores puede darle la vuelta.
-
-        Es tambien la regresion historica del sketch: alguien "arreglo" forward()
-        a patron(+1,+1,+1,+1) pensando que era lo natural, y como M1/M3 giran al
-        reves los dos lados se oponian y el robot GIRABA sobre su eje en vez de
-        avanzar."""
-        for funcion, esperado in (("forward", +1), ("backward", -1)):
-            with self.subTest(funcion=funcion):
-                empuje = self._empuje(self._patron_suelto(funcion))
-                self.assertEqual(
-                    empuje, [esperado] * 4,
-                    f"{funcion}() deberia empujar los cuatro motores hacia "
-                    f"{'adelante' if esperado > 0 else 'atras'} y da {empuje}. "
-                    "Con empujes mezclados el robot gira o se tuerce en vez de "
-                    "ir recto.")
+    def test_invertir_avance_intercambia_adelante_con_atras(self):
+        """Igual que en las otras dos: lo que hace forward con la bandera puesta
+        tiene que ser exactamente lo que hace backward sin ella."""
+        ade_si, ade_no = self._ramas("forward", "INVERTIR_AVANCE")
+        atr_si, atr_no = self._ramas("backward", "INVERTIR_AVANCE")
+        self.assertEqual(ade_si, atr_no, "forward(true) != backward(false)")
+        self.assertEqual(ade_no, atr_si, "forward(false) != backward(true)")
 
     def test_adelante_y_atras_son_opuestos_exactos(self):
         """Si alguien toca uno y se olvida del otro, dejan de ser simetricos."""
-        adelante = self._patron_suelto("forward")
-        atras = self._patron_suelto("backward")
-        self.assertEqual([-x for x in adelante], atras,
-                         "backward() deberia ser exactamente forward() al reves")
+        for i, rama in enumerate(("con la bandera", "sin la bandera")):
+            adelante = self._ramas("forward", "INVERTIR_AVANCE")[i]
+            atras = self._ramas("backward", "INVERTIR_AVANCE")[i]
+            with self.subTest(rama=rama):
+                self.assertEqual(
+                    [-x for x in adelante], atras,
+                    "backward() deberia ser exactamente forward() al reves")
 
 
 # =============================================================================

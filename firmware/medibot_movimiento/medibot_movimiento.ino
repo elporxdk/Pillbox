@@ -103,15 +103,21 @@
  *  llegan al shield en orden invertido, lo que se arregla en las cuatro lineas
  *  de getMotor() (ver "Motores DC").
  *
- *  En el robot montado la izquierda y la derecha salian cambiadas, y eso
- *  afecta a DOS movimientos distintos, cada uno con su bandera:
- *    INVERTIR_GIRO    -> el giro sobre el eje   (PAD IZQ/DER, W+A/W+D)
- *    INVERTIR_LATERAL -> el desplazamiento      (L1/R1, A/D sueltas)
- *  Las dos estan ya en true y quedan bien. Son independientes: cada funcion
- *  mira SOLO la suya, asi que si algun dia se recablea y solo uno de los dos
- *  vuelve a salir del reves, se corrige ese y nada mas. El adelante/atras no
- *  lleva bandera porque no puede salir invertido: manda los cuatro motores a
- *  empujar igual, asi que da lo mismo cual este en cada sitio.
+ *  TRES BANDERAS DE INVERSION, una por movimiento, INDEPENDIENTES entre si.
+ *  Cada funcion mira SOLO la suya, asi que se ajustan de una en una probando
+ *  el robot, sin que tocar una descoloque a las otras:
+ *
+ *    bandera             movimiento                gestos            valor
+ *    ------------------  ------------------------  ----------------  -----
+ *    INVERTIR_AVANCE     adelante / atras          W/S, PAD ARR/AB   true
+ *    INVERTIR_GIRO       giro sobre el eje         W+A/W+D, PAD I/D  true
+ *    INVERTIR_LATERAL    desplazamiento lateral    A/D solas, L1/R1  false
+ *
+ *  Los valores son los del ROBOT MONTADO, sacados de probarlo. Ojo al ajustar:
+ *  empieza SIEMPRE por el avance. Con el avance del reves, el desplazamiento
+ *  lateral parece invertido aunque no lo este, y se acaba corrigiendo dos veces
+ *  lo que era un solo fallo (aqui paso: INVERTIR_LATERAL estuvo en true hasta
+ *  que se arreglo el avance, y entonces quedo bien solo).
  *
  *  Respuestas del Arduino:
  *   LISTO          al arrancar
@@ -347,32 +353,37 @@ uint8_t movComandado = 0;   // 0 = MOVC_STOP. Lo aplica el loop.
 //  Si algun dia se recablea, solo hay que corregir estas seis lineas.
 // ═════════════════════════════════════════════════════════════
 
-// ── LAS DOS BANDERAS DE INVERSION (independientes a proposito) ───────────
-//  "Izquierda" NO llega a los motores por un solo camino: segun el gesto pasa
-//  por turnLeft() o por moveLeft(), que son movimientos fisicos distintos.
+// ── LAS TRES BANDERAS DE INVERSION (independientes a proposito) ──────────
+//  Un mismo gesto NO llega a los motores por un solo camino. "Izquierda", sin
+//  ir mas lejos, pasa por turnLeft() o por moveLeft() segun si vas pisando W:
 //
 //     gesto                  codigo         funcion        bandera
 //     ---------------------  -------------  -------------  -----------------
+//     W / PAD ARRIBA         MOVC_FWD       forward()      INVERTIR_AVANCE
 //     A sola / L1            MOVC_MOVEL     moveLeft()     INVERTIR_LATERAL
 //     W+A / PAD IZQ          MOVC_TURNL     turnLeft()     INVERTIR_GIRO
 //
-//  Por eso hacen falta DOS banderas y por eso, cuando el robot tiene la
-//  izquierda y la derecha cambiadas de verdad, hay que poner LAS DOS en true:
-//  con solo INVERTIR_LATERAL, la tecla A desplaza bien pero W+A sigue girando
-//  al lado contrario, o sea que la misma tecla se porta distinto segun si vas
-//  pisando W. Ese era el sintoma.
+//  Son TRES movimientos fisicos distintos con TRES causas distintas, y por eso
+//  no se pueden fundir en una sola bandera:
 //
-//  SIGUEN SIENDO INDEPENDIENTES, y conviene entender por que no se pueden
-//  fundir en una sola:
-//    - turnLeft/turnRight mandan el MISMO sentido a los cuatro motores, asi que
-//      el ORDEN de los argumentos de patron() les da igual: son inmunes al
+//    - forward/backward mandan a los cuatro motores a EMPUJAR IGUAL. Ninguna
+//      reordenacion de los motores puede darles la vuelta (si los cuatro
+//      empujes valen lo mismo, su orden da igual). Lo unico que los invierte es
+//      que la POLARIDAD de los cuatro este del reves a la vez.
+//    - turnLeft/turnRight mandan el MISMO sentido a los cuatro, asi que el
+//      ORDEN de los argumentos de patron() tambien les da igual: son inmunes al
 //      mapeo de motores (los DCMotor_N invertidos 4,3,2,1 mas arriba).
 //    - moveLeft/moveRight mandan sentidos distintos por lado, asi que SI
 //      dependen del mapeo: invertirlo ya intercambia una con otra.
-//  Son dos causas distintas. Cada funcion mira SOLO su bandera, de modo que
-//  cambiar una no toca el comportamiento de la otra. Si algun dia se recablea y
-//  solo uno de los dos vuelve a salir del reves, se corrige ese y nada mas.
+//
+//  Cada funcion mira SOLO su bandera, de modo que cambiar una no toca a las
+//  otras. Si algun dia se recablea y solo uno de los tres sale del reves, se
+//  corrige ese y nada mas.
 //  (Lo comprueba PruebasBanderasDeInversion en pruebas/test_protocolo_serial.py)
+//
+//  AL AJUSTARLAS, EMPIEZA POR EL AVANCE. Con el avance invertido, el
+//  desplazamiento lateral PARECE invertido aunque no lo este, y se corrige dos
+//  veces lo que era un solo fallo. Aqui paso exactamente eso.
 
 //  YA PROBADO EN EL ROBOT MONTADO: el giro sobre el eje salia al reves ("giro
 //  izq." giraba a la derecha), asi que va en true.
@@ -397,8 +408,25 @@ void patron(int8_t m1, int8_t m2, int8_t m3, int8_t m4) {
   ponerMotor(DCMotor_4, m4);
 }
 
-void forward()  { patron(-1, +1, -1, +1); }   // los 4 hacia adelante de verdad
-void backward() { patron(+1, -1, +1, -1); }
+//  TERCERA BANDERA: el avance.
+//  El adelante/atras NO puede salir cambiado por como esten repartidos los
+//  motores entre las salidas del shield: manda a los cuatro a empujar IGUAL, y
+//  cuando los cuatro empujes valen lo mismo da lo mismo cual este delante,
+//  detras, a la izquierda o a la derecha. Por eso no hacia falta bandera... si
+//  el unico problema fuera el reparto.
+//
+//  Pero hay otra averia que si lo invierte: que la POLARIDAD de los cuatro
+//  motores este del reves a la vez (los cuatro conectores al contrario). Ahi
+//  los cuatro siguen empujando igual entre si, solo que hacia el otro lado, y
+//  el robot va hacia atras cuando se le pide adelante. Es justo lo que pasa en
+//  este robot, asi que la bandera va en true.
+//
+//  Es INDEPENDIENTE de las otras dos, igual que ellas entre si: cada funcion
+//  mira SOLO la suya. Poner o quitar esta no toca el giro ni el desplazamiento.
+const bool INVERTIR_AVANCE = true;
+
+void forward()  { if (INVERTIR_AVANCE) patron(+1, -1, +1, -1); else patron(-1, +1, -1, +1); }
+void backward() { if (INVERTIR_AVANCE) patron(-1, +1, -1, +1); else patron(+1, -1, +1, -1); }
 
 // Giro sobre su propio eje: un lado adelante y el otro atras.
 void turnLeft()  { if (INVERTIR_GIRO) patron(-1,-1,-1,-1); else patron(+1,+1,+1,+1); }
@@ -411,15 +439,17 @@ void turnRight() { if (INVERTIR_GIRO) patron(+1,+1,+1,+1); else patron(-1,-1,-1,
 //  patron(-1,-1,+1,+1) repartido al reves da exactamente patron(+1,+1,-1,-1).
 //  Ver la nota de las DOS BANDERAS junto a INVERTIR_GIRO.
 //
-//  YA PROBADO EN EL ROBOT MONTADO: salia al reves. En el mando, L1 desplazaba a
-//  la DERECHA y R1 a la IZQUIERDA; con las teclas, A a la derecha y D a la
-//  izquierda. Por eso va en true.
+//  YA PROBADO EN EL ROBOT MONTADO: con el avance corregido (INVERTIR_AVANCE),
+//  el desplazamiento sale BIEN tal cual, asi que esta bandera va en false. Se
+//  llego aqui probando: primero se puso en true, porque con el avance todavia
+//  del reves L1 parecia mover a la derecha; una vez arreglado el avance, el
+//  lateral quedo correcto solo.
 //
 //  Cubre los tres caminos del desplazamiento, porque los tres acaban aqui:
 //    - mando PS2:  L1 -> MOVC_MOVEL,  R1 -> MOVC_MOVER
 //    - teclas:     GPIO,22 (A) -> MOVC_MOVEL,  GPIO,23 (D) -> MOVC_MOVER
 //    - texto:      MOVE,LEFT / MOVE,RIGHT
-const bool INVERTIR_LATERAL = true;
+const bool INVERTIR_LATERAL = false;
 
 void moveLeft()  { if (INVERTIR_LATERAL) patron(+1, +1, -1, -1); else patron(-1, -1, +1, +1); }
 void moveRight() { if (INVERTIR_LATERAL) patron(-1, -1, +1, +1); else patron(+1, +1, -1, -1); }
