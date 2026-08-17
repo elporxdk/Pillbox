@@ -368,8 +368,29 @@ void turnLeft()  { if (INVERTIR_GIRO) patron(-1,-1,-1,-1); else patron(+1,+1,+1,
 void turnRight() { if (INVERTIR_GIRO) patron(+1,+1,+1,+1); else patron(-1,-1,-1,-1); }
 
 // Desplazamiento lateral, sin cambiar de orientacion (necesita ruedas mecanum).
-void moveLeft()  { patron(-1, -1, +1, +1); }
-void moveRight() { patron(+1, +1, -1, -1); }
+//  OJO, ESTOS SI DEPENDEN DEL MAPEO DE MOTORES, al reves que los giros de
+//  arriba: aqui los cuatro argumentos NO valen lo mismo, asi que su orden
+//  importa. Invertir el mapeo (4,3,2,1) intercambia moveLeft con moveRight,
+//  porque patron(-1,-1,+1,+1) repartido al reves da exactamente
+//  patron(+1,+1,-1,-1). Es un efecto colateral de haber invertido los motores
+//  para arreglar el adelante/atras.
+//
+//  Por eso hay una bandera propia y separada de INVERTIR_GIRO: son dos
+//  sintomas independientes con dos causas distintas, y mezclarlos en una sola
+//  bandera obligaria a elegir cual de los dos queda mal.
+//
+//  YA PROBADO EN EL ROBOT MONTADO: salian cambiados. En el mando, L1 movia a la
+//  DERECHA y R1 a la IZQUIERDA; con las teclas, A movia a la derecha y D a la
+//  izquierda. Por eso esto va en true.
+//
+//  Arregla los tres caminos de una vez, porque los tres acaban aqui:
+//    - mando PS2:  L1 -> MOVC_MOVEL,  R1 -> MOVC_MOVER
+//    - teclas:     GPIO,22 (A) -> MOVC_MOVEL,  GPIO,23 (D) -> MOVC_MOVER
+//    - texto:      MOVE,LEFT / MOVE,RIGHT
+const bool INVERTIR_LATERAL = true;
+
+void moveLeft()  { if (INVERTIR_LATERAL) patron(+1, +1, -1, -1); else patron(-1, -1, +1, +1); }
+void moveRight() { if (INVERTIR_LATERAL) patron(-1, -1, +1, +1); else patron(+1, +1, -1, -1); }
 
 // Giros amplios: solo empuja un lado, el otro queda suelto (L2/R2 del mando).
 void arcoLadoA(int8_t s) { patron(-s, 0, -s, 0); }   // lado M1/M3 (van invertidos)
