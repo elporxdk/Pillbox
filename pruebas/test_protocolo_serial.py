@@ -290,6 +290,65 @@ class PruebasBanderasDeInversion(unittest.TestCase):
                         f"{funcion} ya no manda el mismo sentido a los cuatro "
                         "motores: ahora SI depende del mapeo.")
 
+    # ---- el adelante/atras NO puede verse arrastrado por las banderas ----
+    #  M1 y M3 giran al reves de lo que dice run(FORWARD) (ver la cabecera del
+    #  sketch), asi que el EMPUJE fisico de cada motor es  T_i = POLARIDAD_i * s_i
+    #  siendo s_i lo que se le manda con patron().
+    POLARIDAD = (-1, +1, -1, +1)
+
+    def _patron_suelto(self, funcion):
+        """El patron() de una funcion que no tiene bandera (forward/backward).
+        No se ancla al final de linea: estas llevan comentario detras."""
+        m = re.search(r"^void\s+%s\s*\(\s*\)\s*\{\s*patron\(([^)]*)\)\s*;\s*\}"
+                      % funcion, self.codigo, re.M)
+        self.assertIsNotNone(
+            m, f"{funcion}() ya no es un patron() suelto. Si ahora tiene "
+               "bandera, revisa que siga sin depender de las otras dos.")
+        return [int(x) for x in m.group(1).split(",")]
+
+    def _empuje(self, patron):
+        return [p * s for p, s in zip(self.POLARIDAD, patron)]
+
+    def test_el_adelante_atras_no_mira_ninguna_bandera(self):
+        """Ni INVERTIR_GIRO ni INVERTIR_LATERAL pueden arrastrar el avance."""
+        for funcion in ("forward", "backward"):
+            with self.subTest(funcion=funcion):
+                m = re.search(r"^void\s+%s\s*\(\s*\)\s*\{([^}]*)\}" % funcion,
+                              self.codigo, re.M)
+                cuerpo = m.group(1)
+                for bandera in ("INVERTIR_GIRO", "INVERTIR_LATERAL"):
+                    self.assertNotIn(
+                        bandera, cuerpo,
+                        f"{funcion}() no debe depender de {bandera}: el avance "
+                        "es un movimiento aparte del giro y del lateral.")
+
+    def test_el_adelante_atras_empuja_los_cuatro_motores_igual(self):
+        """LA propiedad que hace imposible que el avance salga invertido por un
+        error de cableado: si los cuatro motores EMPUJAN igual, da lo mismo cual
+        este a la izquierda, a la derecha, delante o detras. Ninguna de las 24
+        reordenaciones posibles de los motores puede darle la vuelta.
+
+        Es tambien la regresion historica del sketch: alguien "arreglo" forward()
+        a patron(+1,+1,+1,+1) pensando que era lo natural, y como M1/M3 giran al
+        reves los dos lados se oponian y el robot GIRABA sobre su eje en vez de
+        avanzar."""
+        for funcion, esperado in (("forward", +1), ("backward", -1)):
+            with self.subTest(funcion=funcion):
+                empuje = self._empuje(self._patron_suelto(funcion))
+                self.assertEqual(
+                    empuje, [esperado] * 4,
+                    f"{funcion}() deberia empujar los cuatro motores hacia "
+                    f"{'adelante' if esperado > 0 else 'atras'} y da {empuje}. "
+                    "Con empujes mezclados el robot gira o se tuerce en vez de "
+                    "ir recto.")
+
+    def test_adelante_y_atras_son_opuestos_exactos(self):
+        """Si alguien toca uno y se olvida del otro, dejan de ser simetricos."""
+        adelante = self._patron_suelto("forward")
+        atras = self._patron_suelto("backward")
+        self.assertEqual([-x for x in adelante], atras,
+                         "backward() deberia ser exactamente forward() al reves")
+
 
 # =============================================================================
 class PruebasRuleta(unittest.TestCase):
