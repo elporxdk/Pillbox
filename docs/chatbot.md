@@ -168,15 +168,18 @@ Los nombres vivían solo en la página, y para que el asistente los supiera hab�
 caminos: copiarlos o mover el dato. Copiarlos habría repetido letra por letra el
 fallo del ESP32 — y con nombres de personas es peor: un integrante que entra o sale,
 o un apellido mal escrito, se queda mal en un sitio y bien en el otro sin que nadie
-lo note. La página solo conserva lo que es suyo: qué foto va con quién, asociada por
-carné para que reordenar el equipo no le cambie la cara a nadie.
+lo note.
 
-#### Los carnés no están en el prompt
+#### Ni carnés ni fotos, en ninguna parte
 
-El prompt le dice que no dé los códigos de estudiante —son menores de edad— pero
-además **los códigos no entran en el prompt**. No puede revelarlos porque no los
-tiene. Una instrucción se puede sortear con la pregunta correcta; un dato ausente,
-no. La web sí los muestra junto a las fotos, que es una decisión distinta y anterior.
+Estuvieron: la web mostraba la foto y el código de estudiante de cada integrante.
+Se quitaron los dos a petición del equipo, y **se quitaron del repositorio**, no
+solo de la pantalla — los archivos de las fotos están borrados y los carnés ya no
+existen en `equipo.ts`. Ahora cada integrante sale con sus iniciales.
+
+Eso deja el prompt en la mejor situación posible: le dice que no dé códigos de
+estudiante, pero **además no los tiene**. Una instrucción se puede sortear con la
+pregunta correcta; un dato ausente, no.
 
 #### El plano técnico, y el peso
 

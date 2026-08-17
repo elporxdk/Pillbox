@@ -19,7 +19,7 @@ import hardware1 from "../media/hardware1.png";
 import hardware2 from "../media/hardware2.png";
 import hardware3 from "../media/hardware3.png";
 import planoMedibot from "../media/plano-medibot.webp";
-import { PLANO } from "@/data/equipo";
+import { PLANO, REPOSITORIO } from "@/data/equipo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -346,7 +346,7 @@ export default function TechnicalPage() {
 
               <div className="mt-8 pt-6 border-t border-ink/10">
                 <a
-                  href="https://github.com/elporxdk/Proyects"
+                  href={REPOSITORIO.urlCodigo}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-3 w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-brand to-deep text-white font-semibold hover:opacity-90 transition-opacity"

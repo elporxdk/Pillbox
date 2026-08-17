@@ -39,7 +39,7 @@ export const HECHOS_HARDWARE = [
   "Hay cámara HD y audio de doble vía, para confirmar la entrega y hablar con el paciente sin acercarse.",
   "La Raspberry Pi graba el vídeo del trayecto con la fecha y la hora en el nombre del archivo. No hay módulo de reloj: la marca de tiempo la pone el reloj de la propia Raspberry Pi.",
   "El robot se conduce a distancia desde el navegador, por la red del hospital.",
-  "Es un prototipo académico de cuatro estudiantes de Electrónica del Colegio Don Bosco, para la feria de innovación CREA-J 2026. Está en fase de construcción e integración, antes de las pruebas finales.",
+  "Es un prototipo académico de cuatro estudiantes de Electrónica del Colegio Don Bosco, que participa en las ferias de innovación CREA-J 2026 y Eureka 2026. Está en fase de construcción e integración, antes de las pruebas finales.",
 ] as const;
 
 /**

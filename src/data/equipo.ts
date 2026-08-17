@@ -17,23 +17,21 @@
  * sitio donde se editan.
  */
 
-/** Un integrante del equipo. */
-export type Creador = {
-  nombre: string;
-  /** Carne del colegio. Lo muestra la web; el asistente NO lo dice (ver anclaje.ts). */
-  carne: string;
-};
-
 /**
  * Los cuatro creadores.
  *
- * El orden es el que ya tenia la web, para no cambiar como se ven las tarjetas.
+ * Solo los nombres. Los carnes estuvieron aqui y se quitaron a peticion del equipo,
+ * junto con las fotos: son menores de edad y un numero de carne no aporta nada a
+ * quien visita el sitio. Ya no estan en el repositorio, asi que no hay forma de que
+ * vuelvan a aparecer por descuido.
+ *
+ * El orden es el que ya tenia la web.
  */
-export const CREADORES: readonly Creador[] = [
-  { nombre: "Julio Alexander Sura Pineda", carne: "20251031" },
-  { nombre: "Elian Alexander Torres Lemus", carne: "20250166" },
-  { nombre: "Carlos Andrés Vindel García", carne: "20250471" },
-  { nombre: "Diego Alejandro Yanes Gómez", carne: "20250870" },
+export const CREADORES: readonly string[] = [
+  "Julio Alexander Sura Pineda",
+  "Elian Alexander Torres Lemus",
+  "Carlos Andrés Vindel García",
+  "Diego Alejandro Yanes Gómez",
 ] as const;
 
 /**
@@ -52,8 +50,12 @@ export const INSTITUCION = {
   nombre: "Colegio Don Bosco",
   /** Tal como lo dice la propia web. */
   descripcionEquipo: "estudiantes de Electrónica de segundo año",
-  feria: "CREA-J 2026",
+  /** Ferias en las que participa el proyecto. Se listan las dos, no una. */
+  ferias: ["CREA-J 2026", "Eureka 2026"] as const,
 } as const;
+
+/** Las ferias en una frase, para meterla en prosa sin repetir el `join` cada vez. */
+export const FERIAS_TEXTO = INSTITUCION.ferias.join(" y ");
 
 /**
  * El anteproyecto: que es, donde esta y en que NO se puede confiar.
@@ -143,6 +145,16 @@ export const PLANO = {
  */
 export const REPOSITORIO = {
   url: "https://github.com/elporxdk/Proyects",
+
+  /**
+   * A donde lleva el boton "Ver en GitHub" de la pagina de Tecnologia.
+   *
+   * Apunta a `main` y no al repositorio a secas. Sin la rama, GitHub abre la que
+   * este por defecto, y quien pulsa un boton que dice "ver el codigo" desde una
+   * pagina sobre el hardware espera el firmware del robot, no el React de la web.
+   */
+  urlCodigo: "https://github.com/elporxdk/Proyects/tree/main",
+
   ramas: [
     "`main`: el robot. Firmware de Arduino (pruebas de motores, joystick, movimiento y visión), herramientas y notas del hardware.",
     "`web`: este sitio. React con TypeScript, desplegado en Cloudflare Workers.",

@@ -3,9 +3,6 @@ import { Link } from "react-router-dom";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkles, ChevronRight, Activity, Users, CheckCircle2, Menu, X, ArrowRight,} from "lucide-react";
-import elianPhoto from "../media/ElianTorres.jpg";
-import diegoPhoto from "../media/DiegoYanes.jpg";
-import carlosPhoto from "../media/CarlosVindel.png";
 // Medibot3D.glb va comprimido con Draco, asi que model-viewer necesita el
 // decodificador para abrirlo. La ruta NO se configura aqui: el constructor de
 // cada <model-viewer> la relee de `self.ModelViewerElement` y sobrescribe
@@ -90,27 +87,19 @@ const NAV_LINKS = [
   { label: "Contacto", href: "#contacto" },
 ];
 /**
- * Los nombres YA NO SE EDITAN AQUI: viven en `src/data/equipo.ts`, porque el
- * asistente del chat tambien los necesita y dos copias del mismo dato es como
- * nacio el error del ESP32 (una se corrige, la otra sigue diciendo lo viejo).
+ * Los nombres NO SE EDITAN AQUI: viven en `src/data/equipo.ts`, porque el asistente
+ * del chat tambien los necesita y dos copias del mismo dato es como nacio el error
+ * del ESP32 (una se corrige, la otra sigue diciendo lo viejo).
  *
- * Aqui solo queda lo que es exclusivo de esta pagina: que foto va con quien. Se
- * asocia por carne y no por posicion en la lista, para que reordenar el equipo en
- * `equipo.ts` no le cambie la cara a nadie.
- *
- * Quien no tenga foto sale con sus iniciales; es el comportamiento que ya habia.
+ * Ya no hay fotos ni carnes: se quitaron a peticion del equipo. Cada integrante sale
+ * con sus iniciales, que es lo que ya hacia quien no tenia foto.
  */
-const FOTOS: Record<string, string> = {
-  "20250166": elianPhoto,
-  "20250471": carlosPhoto,
-  "20250870": diegoPhoto,
+const iniciales = (nombre: string) => {
+  const partes = nombre.split(" ");
+  // Primer nombre y primer apellido, que en un nombre salvadoreño es la posicion 2
+  // (nombre, segundo nombre, apellido). Si no hay tantas partes, con la primera basta.
+  return (partes[0]?.[0] ?? "") + (partes[2]?.[0] ?? "");
 };
-
-const TEAM = CREADORES.map((c) => ({
-  name: c.nombre,
-  code: c.carne,
-  photo: FOTOS[c.carne],
-}));
 //Porcentaje mayor de contenido, si se quiere cambiar el contenido solo se reescribe acá siempre que este dentro de los ""
 const OBJETIVOS_ESPECIFICOS = [
   "Diseñar un sistema de control de temperatura de precisión con celda Peltier y sensores térmicos, para que los medicamentos termolábiles mantengan su cadena de frío durante el traslado interno.",
@@ -191,7 +180,7 @@ const FAQS = [
   },
   {
     q: "¿En qué etapa se encuentra el proyecto?",
-    a: "MEDIBOT es un prototipo académico desarrollado para la feria de innovación CREA-J 2026, actualmente en fase de construcción e integración de sus tres subsistemas antes de las pruebas finales en entorno hospitalario simulado.",
+    a: "MEDIBOT es un prototipo académico que participa en las ferias de innovación CREA-J 2026 y Eureka 2026, actualmente en fase de construcción e integración de sus tres subsistemas antes de las pruebas finales en entorno hospitalario simulado.",
   },
 ];
 
@@ -547,20 +536,13 @@ export default function MedicalLandingPage() {
 
             <div className="flex items-center gap-6 mt-10">
               <div className="flex -space-x-3">
-                {TEAM.map((member) => (
+                {CREADORES.map((nombre) => (
                   <div
-                    key={member.code}
-                    title={member.name}
-                    className="w-10 h-10 rounded-full border-2 border-white bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white text-xs font-bold overflow-hidden"
+                    key={nombre}
+                    title={nombre}
+                    className="w-10 h-10 rounded-full border-2 border-white bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white text-xs font-bold"
                   >
-                    {member.photo ? (
-                      <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <>
-                        {member.name.split(" ")[0][0]}
-                        {member.name.split(" ")[2]?.[0] ?? ""}
-                      </>
-                    )}
+                    {iniciales(nombre)}
                   </div>
                 ))}
               </div>
@@ -654,23 +636,15 @@ export default function MedicalLandingPage() {
 
           {/* Integrantes del equipo */}
           <div className="feature-card grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
-            {TEAM.map((member) => (
+            {CREADORES.map((nombre) => (
               <div
-                key={member.code}
+                key={nombre}
                 className="bg-surface rounded-2xl p-5 border border-ink/5 text-center hover:border-brand/30 hover:-translate-y-1 transition-all"
               >
-                <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white font-bold text-lg mb-3 overflow-hidden">
-                  {member.photo ? (
-                    <img src={member.photo} alt={member.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <>
-                      {member.name.split(" ")[0][0]}
-                      {member.name.split(" ")[2]?.[0] ?? ""}
-                    </>
-                  )}
+                <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white font-bold text-lg mb-3">
+                  {iniciales(nombre)}
                 </div>
-                <p className="font-semibold text-sm leading-tight">{member.name}</p>
-                <p className="text-xs text-ink/50 mt-1">Código {member.code}</p>
+                <p className="font-semibold text-sm leading-tight">{nombre}</p>
               </div>
             ))}
           </div>
