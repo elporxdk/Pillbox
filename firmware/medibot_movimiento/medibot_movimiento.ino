@@ -336,10 +336,36 @@ uint8_t movComandado = 0;   // 0 = MOVC_STOP. Lo aplica el loop.
 //  Si algun dia se recablea, solo hay que corregir estas seis lineas.
 // ═════════════════════════════════════════════════════════════
 
-//  Si al probar resulta que "girar izquierda" y "girar derecha" salen
-//  cambiados, pon esto en true y quedan intercambiados. Es lo unico que no se
-//  puede deducir de las pruebas hechas (se sabia que giraba, no hacia que lado).
-const bool INVERTIR_GIRO = false;
+// ── LAS DOS BANDERAS DE INVERSION (independientes a proposito) ───────────
+//  "Izquierda" NO llega a los motores por un solo camino: segun el gesto pasa
+//  por turnLeft() o por moveLeft(), que son movimientos fisicos distintos.
+//
+//     gesto                  codigo         funcion        bandera
+//     ---------------------  -------------  -------------  -----------------
+//     A sola / L1            MOVC_MOVEL     moveLeft()     INVERTIR_LATERAL
+//     W+A / PAD IZQ          MOVC_TURNL     turnLeft()     INVERTIR_GIRO
+//
+//  Por eso hacen falta DOS banderas y por eso, cuando el robot tiene la
+//  izquierda y la derecha cambiadas de verdad, hay que poner LAS DOS en true:
+//  con solo INVERTIR_LATERAL, la tecla A desplaza bien pero W+A sigue girando
+//  al lado contrario, o sea que la misma tecla se porta distinto segun si vas
+//  pisando W. Ese era el sintoma.
+//
+//  SIGUEN SIENDO INDEPENDIENTES, y conviene entender por que no se pueden
+//  fundir en una sola:
+//    - turnLeft/turnRight mandan el MISMO sentido a los cuatro motores, asi que
+//      el ORDEN de los argumentos de patron() les da igual: son inmunes al
+//      mapeo de motores (los DCMotor_N invertidos 4,3,2,1 mas arriba).
+//    - moveLeft/moveRight mandan sentidos distintos por lado, asi que SI
+//      dependen del mapeo: invertirlo ya intercambia una con otra.
+//  Son dos causas distintas. Cada funcion mira SOLO su bandera, de modo que
+//  cambiar una no toca el comportamiento de la otra. Si algun dia se recablea y
+//  solo uno de los dos vuelve a salir del reves, se corrige ese y nada mas.
+//  (Lo comprueba PruebasBanderasDeInversion en pruebas/test_protocolo_serial.py)
+
+//  YA PROBADO EN EL ROBOT MONTADO: el giro sobre el eje salia al reves ("giro
+//  izq." giraba a la derecha), asi que va en true.
+const bool INVERTIR_GIRO = true;
 
 // Manda un sentido a un motor.  -1 = atras, +1 = adelante, 0 = suelto.
 void ponerMotor(QGPMaker_DCMotor* m, int8_t sentido) {
@@ -368,22 +394,17 @@ void turnLeft()  { if (INVERTIR_GIRO) patron(-1,-1,-1,-1); else patron(+1,+1,+1,
 void turnRight() { if (INVERTIR_GIRO) patron(+1,+1,+1,+1); else patron(-1,-1,-1,-1); }
 
 // Desplazamiento lateral, sin cambiar de orientacion (necesita ruedas mecanum).
-//  OJO, ESTOS SI DEPENDEN DEL MAPEO DE MOTORES, al reves que los giros de
-//  arriba: aqui los cuatro argumentos NO valen lo mismo, asi que su orden
-//  importa. Invertir el mapeo (4,3,2,1) intercambia moveLeft con moveRight,
-//  porque patron(-1,-1,+1,+1) repartido al reves da exactamente
-//  patron(+1,+1,-1,-1). Es un efecto colateral de haber invertido los motores
-//  para arreglar el adelante/atras.
+//  ESTOS SI DEPENDEN DEL MAPEO DE MOTORES, al reves que los giros de arriba:
+//  aqui los cuatro argumentos NO valen lo mismo, asi que su orden importa.
+//  Invertir el mapeo (4,3,2,1) intercambia moveLeft con moveRight, porque
+//  patron(-1,-1,+1,+1) repartido al reves da exactamente patron(+1,+1,-1,-1).
+//  Ver la nota de las DOS BANDERAS junto a INVERTIR_GIRO.
 //
-//  Por eso hay una bandera propia y separada de INVERTIR_GIRO: son dos
-//  sintomas independientes con dos causas distintas, y mezclarlos en una sola
-//  bandera obligaria a elegir cual de los dos queda mal.
+//  YA PROBADO EN EL ROBOT MONTADO: salia al reves. En el mando, L1 desplazaba a
+//  la DERECHA y R1 a la IZQUIERDA; con las teclas, A a la derecha y D a la
+//  izquierda. Por eso va en true.
 //
-//  YA PROBADO EN EL ROBOT MONTADO: salian cambiados. En el mando, L1 movia a la
-//  DERECHA y R1 a la IZQUIERDA; con las teclas, A movia a la derecha y D a la
-//  izquierda. Por eso esto va en true.
-//
-//  Arregla los tres caminos de una vez, porque los tres acaban aqui:
+//  Cubre los tres caminos del desplazamiento, porque los tres acaban aqui:
 //    - mando PS2:  L1 -> MOVC_MOVEL,  R1 -> MOVC_MOVER
 //    - teclas:     GPIO,22 (A) -> MOVC_MOVEL,  GPIO,23 (D) -> MOVC_MOVER
 //    - texto:      MOVE,LEFT / MOVE,RIGHT

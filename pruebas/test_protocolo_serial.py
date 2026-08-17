@@ -170,6 +170,128 @@ class PruebasEncoders(unittest.TestCase):
 
 
 # =============================================================================
+class PruebasBanderasDeInversion(unittest.TestCase):
+    """Que INVERTIR_GIRO e INVERTIR_LATERAL sigan siendo INDEPENDIENTES.
+
+    "Izquierda" no llega a los motores por un solo camino: la tecla A sola (y
+    L1) desplaza de lado -> moveLeft(); pero W+A (y el PAD) giran sobre el eje
+    -> turnLeft(). Son dos movimientos fisicos distintos con dos causas
+    distintas, asi que hacen falta dos banderas:
+
+      - turnLeft/turnRight mandan el MISMO sentido a los cuatro motores, luego
+        el orden de los argumentos les da igual: inmunes al mapeo de motores.
+      - moveLeft/moveRight mandan sentidos distintos por lado: SI dependen del
+        mapeo, invertirlo ya las intercambia.
+
+    Es facil "simplificar" esto a una sola bandera y, al hacerlo, condenar a
+    que uno de los dos movimientos quede al reves para siempre. Estas pruebas
+    lo impiden sin necesidad de tener el robot delante."""
+
+    def setUp(self):
+        with open(RUTA_FIRMWARE, encoding="utf-8", errors="ignore") as f:
+            self.codigo = f.read()
+
+    def _cuerpo(self, funcion):
+        """La linea de definicion de una funcion de movimiento de una linea."""
+        m = re.search(r"^void\s+%s\s*\(\s*\)\s*\{(.*)\}\s*$" % funcion,
+                      self.codigo, re.M)
+        self.assertIsNotNone(m, f"No se encuentra la definicion de {funcion}()")
+        return m.group(1)
+
+    def _ramas(self, funcion, bandera):
+        """(rama_con_la_bandera_true, rama_con_la_bandera_false) de un
+        `if (BANDERA) patron(...); else patron(...);`, como listas de enteros."""
+        cuerpo = self._cuerpo(funcion)
+        m = re.search(r"if\s*\(\s*%s\s*\)\s*patron\(([^)]*)\)\s*;\s*"
+                      r"else\s*patron\(([^)]*)\)\s*;" % bandera, cuerpo)
+        self.assertIsNotNone(
+            m, f"{funcion}() ya no es un 'if ({bandera}) patron(..) else "
+               f"patron(..)'. Si se ha reescrito, revisa que siga siendo un "
+               f"intercambio real de izquierda/derecha.")
+        return ([int(x) for x in m.group(1).split(",")],
+                [int(x) for x in m.group(2).split(",")])
+
+    # ---- las dos banderas existen, una sola vez, y estan puestas ----
+    def test_las_dos_banderas_se_declaran_una_sola_vez(self):
+        for bandera in ("INVERTIR_GIRO", "INVERTIR_LATERAL"):
+            with self.subTest(bandera=bandera):
+                declaraciones = re.findall(
+                    r"^const\s+bool\s+%s\s*=" % bandera, self.codigo, re.M)
+                self.assertEqual(
+                    len(declaraciones), 1,
+                    f"{bandera} debe declararse exactamente una vez "
+                    f"(hay {len(declaraciones)}).")
+
+    def test_este_robot_tiene_las_dos_en_true(self):
+        """El robot montado tiene izquierda y derecha cambiadas de verdad, y eso
+        afecta a los DOS movimientos. Con solo una en true, la tecla A desplaza
+        bien pero W+A sigue girando al lado contrario."""
+        for bandera in ("INVERTIR_GIRO", "INVERTIR_LATERAL"):
+            with self.subTest(bandera=bandera):
+                m = re.search(r"const\s+bool\s+%s\s*=\s*(\w+)\s*;" % bandera,
+                              self.codigo)
+                self.assertEqual(
+                    m.group(1), "true",
+                    f"{bandera} deberia estar en true en este robot.")
+
+    # ---- INDEPENDENCIA: cada funcion mira SOLO su bandera ----
+    def test_el_giro_no_mira_la_bandera_del_lateral(self):
+        for funcion in ("turnLeft", "turnRight"):
+            with self.subTest(funcion=funcion):
+                self.assertNotIn(
+                    "INVERTIR_LATERAL", self._cuerpo(funcion),
+                    f"{funcion}() no debe depender de INVERTIR_LATERAL: el giro "
+                    "sobre el eje es inmune al mapeo de motores.")
+
+    def test_el_lateral_no_mira_la_bandera_del_giro(self):
+        for funcion in ("moveLeft", "moveRight"):
+            with self.subTest(funcion=funcion):
+                self.assertNotIn(
+                    "INVERTIR_GIRO", self._cuerpo(funcion),
+                    f"{funcion}() no debe depender de INVERTIR_GIRO: son dos "
+                    "sintomas con causas distintas.")
+
+    # ---- cada bandera es un INTERCAMBIO de verdad, no un apano ----
+    def test_invertir_giro_intercambia_izquierda_con_derecha(self):
+        """Lo que hace turnLeft con la bandera puesta tiene que ser
+        exactamente lo que hace turnRight sin ella, y al reves. Si no, la
+        bandera no invierte: inventa un tercer comportamiento."""
+        izq_si, izq_no = self._ramas("turnLeft", "INVERTIR_GIRO")
+        der_si, der_no = self._ramas("turnRight", "INVERTIR_GIRO")
+        self.assertEqual(izq_si, der_no, "turnLeft(true) != turnRight(false)")
+        self.assertEqual(izq_no, der_si, "turnLeft(false) != turnRight(true)")
+
+    def test_invertir_lateral_intercambia_izquierda_con_derecha(self):
+        izq_si, izq_no = self._ramas("moveLeft", "INVERTIR_LATERAL")
+        der_si, der_no = self._ramas("moveRight", "INVERTIR_LATERAL")
+        self.assertEqual(izq_si, der_no, "moveLeft(true) != moveRight(false)")
+        self.assertEqual(izq_no, der_si, "moveLeft(false) != moveRight(true)")
+
+    def test_el_lateral_empuja_los_dos_lados_en_sentidos_opuestos(self):
+        """Un desplazamiento lateral necesita un lado a cada sentido (ruedas
+        mecanum). Si los cuatro fueran iguales seria un giro, no un lateral."""
+        for funcion in ("moveLeft", "moveRight"):
+            for rama in self._ramas(funcion, "INVERTIR_LATERAL"):
+                with self.subTest(funcion=funcion, rama=rama):
+                    self.assertEqual(
+                        sorted(rama), [-1, -1, 1, 1],
+                        f"{funcion} deberia mandar dos motores a cada "
+                        "sentido; asi no desplaza de lado.")
+
+    def test_el_giro_manda_los_cuatro_motores_al_mismo_sentido(self):
+        """Es la razon POR LA QUE el giro es inmune al mapeo de motores: si los
+        cuatro argumentos valen lo mismo, su orden no importa. Si esto cambia,
+        la nota de las dos banderas deja de ser cierta."""
+        for funcion in ("turnLeft", "turnRight"):
+            for rama in self._ramas(funcion, "INVERTIR_GIRO"):
+                with self.subTest(funcion=funcion, rama=rama):
+                    self.assertEqual(
+                        len(set(rama)), 1,
+                        f"{funcion} ya no manda el mismo sentido a los cuatro "
+                        "motores: ahora SI depende del mapeo.")
+
+
+# =============================================================================
 class PruebasRuleta(unittest.TestCase):
     """La ruleta (28BYJ-48 + ULN2003) y su secuencia de bobinas.
 
