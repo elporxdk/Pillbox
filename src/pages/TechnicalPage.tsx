@@ -11,6 +11,7 @@ import {
   ArrowRight,
   Zap,
   Microchip,
+  Box,
   CircuitBoard,
   ChevronLeft,
   ChevronRight,
@@ -413,15 +414,29 @@ export default function TechnicalPage() {
                   {PLANO.numeroDibujo}, rev. {PLANO.revision} · {PLANO.dibujadoPor}
                 </p>
               </div>
-              <a
-                href={PLANO.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex shrink-0 items-center gap-2 rounded-xl border border-brand/30 px-5 py-2.5 text-sm font-semibold text-brand transition-colors hover:bg-brand/10"
-              >
-                <ExternalLink className="h-4 w-4" />
-                Ver el PDF
-              </a>
+              {/* Dos salidas, y el orden importa: el modelo 3D va primero porque es
+                  lo que de verdad responde "¿dónde está cada cosa?" -- se puede
+                  girar y mirar por dentro. El PDF son tres vistas fijas. */}
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                <a
+                  href={PLANO.urlOnshape}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-deep px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                >
+                  <Box className="h-4 w-4" />
+                  Ver el modelo 3D
+                </a>
+                <a
+                  href={PLANO.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 rounded-xl border border-brand/30 px-5 py-2.5 text-sm font-semibold text-brand transition-colors hover:bg-brand/10"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Ver el PDF
+                </a>
+              </div>
             </figcaption>
           </figure>
 

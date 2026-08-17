@@ -209,6 +209,32 @@ Tampoco da dimensiones: el plano está a escala pero sin cotas legibles, y medir
 sobre el dibujo es justo lo que prohíbe el «DO NOT SCALE DRAWING» de su propio
 cajetín.
 
+#### El modelo 3D en Onshape, y qué NO puede decir de la distribución
+
+`PLANO.urlOnshape` apunta al modelo original. Está en la página como botón **«Ver el
+modelo 3D»**, delante del PDF a propósito: es lo que de verdad responde «¿dónde va
+cada cosa?», porque ahí se gira y se mira por dentro. El PDF son tres vistas fijas.
+
+El asistente lo ofrece por su cuenta cuando la pregunta es de ubicación o de forma.
+
+De la distribución solo puede afirmar lo de `PLANO.distribucion`: torre de tres
+compartimentos sobre una base de tracción, la base con las cuatro mecanum, y el
+compartimento de medicamentos cerrado y con control térmico.
+
+**Tiene prohibido decir en qué compartimento va cada componente.** El plano no rotula
+las piezas y no hay documentación que lo diga, así que colocar la Peltier, la
+Raspberry Pi o la cámara en un nivel concreto sería inventarlo — y de lo más fácil de
+desmentir, porque quien pregunta suele tener el robot delante. En vez de eso explica
+qué hace la pieza y manda al modelo 3D.
+
+Si algún día se documenta la distribución real, se añade a `PLANO.distribucion` y esa
+prohibición se puede aflojar.
+
+> **Comprueba que el documento de Onshape esté publicado como público.** El enlace
+> está en una página pública; si el documento no lo es, quien lo abra sin cuenta se
+> encuentra una pantalla de inicio de sesión. Se ve rápido abriéndolo en una ventana
+> privada.
+
 #### El anteproyecto está desactualizado, y el asistente lo dice
 
 `public/AnteproyectoMEDIBOT.docx` menciona **ESP32 veinte veces** y un módulo de

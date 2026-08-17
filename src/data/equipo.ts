@@ -135,6 +135,35 @@ export const PLANO = {
 
   /** Peso del cajetin. Calculado por el CAD, NO medido. Ver el comentario de arriba. */
   pesoDelPlano: "23,5 kg",
+
+  /**
+   * El modelo 3D del que sale este plano, en Onshape.
+   *
+   * Es el original: ahi se puede girar, mirar por dentro y ver donde queda cada
+   * pieza, cosa que un PDF de tres vistas no permite.
+   *
+   * OJO AL COMPARTIRLO: si el documento de Onshape no esta publicado como publico,
+   * quien lo abra sin cuenta se encuentra una pantalla de inicio de sesion. El
+   * enlace esta en una pagina publica, asi que conviene comprobarlo desde una
+   * ventana privada.
+   */
+  urlOnshape:
+    "https://cad.onshape.com/documents/a055c2fb56b90767d74e29bb/w/1505b1b544e5bdf06a2a918b/e/99b752fdb4cd0f439d4635b6",
+
+  /**
+   * La distribucion fisica, solo hasta donde se ve en el plano.
+   *
+   * NO SE ASIGNAN COMPONENTES A NIVELES CONCRETOS. El plano no rotula las piezas, y
+   * decir "la Peltier va arriba" porque en el dibujo hay algo redondo en el
+   * compartimento superior seria exactamente el tipo de invencion que este proyecto
+   * lleva toda la sesion evitando. Para eso esta el enlace de Onshape, donde se ve
+   * de verdad.
+   */
+  distribucion: [
+    "El robot es una torre de tres compartimentos apilados sobre una base de tracción.",
+    "La base lleva las cuatro ruedas mecanum y va separada del cuerpo.",
+    "El compartimento de medicamentos va cerrado, y es el que tiene control térmico.",
+  ] as const,
 } as const;
 
 /**
