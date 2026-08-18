@@ -1,36 +1,17 @@
 /*
  * ============================================================
- *  MEDIBOT — Firmware unificado
- *  Movimiento (chasis + brazo) + Dispensador de pastillas
- * ============================================================
- *  Combina en un solo sketch:
- *
- *   1) "Movement v1 MEDIBOT"
- *        - Chasis con 4 motores DC y brazo con 4 servos,
- *          gestionados por el QGPMaker Motor Shield (I2C).
- *        - Control por mando PS2 (PS2X) y/o por Serial (COM)
- *          desde la Raspberry Pi (comandos MOVE/GPIO).
- *
- *   2) "Dispensador MEDIBOT" (deepseek_cpp)
- *        - Ruleta de 8 compartimientos con motor paso a paso
- *          28BYJ-48 + ULN2003.
- *        - Servo dispensador (libreria Servo estandar).
- *        - Ordenes de texto por Serial (9600 baud) y posicion
- *          guardada en EEPROM.
- *
- *  ------------------------------------------------------------
- *  MAPA DE PINES (Arduino Uno)
+ *  MEDIBOT — Firmware 
  *  ------------------------------------------------------------
  *    0,1        -> Serial (USB, comandos desde la Pi/PC)  ¡RESERVADOS!
  *                  (en el shield salen por el header WIFI/BT: NO son libres)
  *    2          -> Servo dispensador (libreria Servo)   [header Encoder3]
  *    3          -> libre (el resto del header Encoder3, sin usar)
- *                  ¡NO conectes el encoder de M3! Su header es D2/D3 y D2 es
- *                  la senal del servo: dos salidas sobre la misma linea.
- *    4,5        -> LIBRES (header Encoder4, sin usar: M4 era redundante)
+ *                  ¡NO encoder en M3! Su header es D2/D3 y D2 es
+ *                  la señal del servo: dos salidas sobre la misma linea.
+ *    4,5        -> LIBRES (header Encoder4)
  *    6,7        -> Encoder del motor M2  (lado B)        [header Encoder2]
  *    8,9        -> Encoder del motor M1  (lado A)        [header Encoder1]
- *    10,11,12,13-> Mando PS2 (attention/command/data/clock) - OPCIONAL
+ *    10,11,12,13-> Mando PS2 (attention/command/data/clock)
  *                  Son sus pines de siempre: NO se tocan.
  *    A0..A3     -> Motor paso a paso ULN2003 (ruleta)  <-- tu cableado
  *    A4,A5      -> I2C (SDA/SCL) del Motor Shield  -> motores DC y servos brazo
@@ -97,9 +78,7 @@
  *   L2 / R2 + PAD      giro amplio: empuja solo un lado del robot
  *   X                  vibracion del mando
  *
- *  El cableado real NO coincide con la logica ingenua: M1 y M3 giran al reves
- *  y los lados son M1/M3 contra M2/M4. Se corrige por software en las seis
- *  funciones de movimiento; no hay que tocar ningun cable. Si los giros
+ *  El cableado real NO coincide con la logica no hay que tocar ningun cable. Si los giros
  *  izquierda/derecha salen cambiados, pon INVERTIR_GIRO a true.
  *
  *  Respuestas del Arduino:
