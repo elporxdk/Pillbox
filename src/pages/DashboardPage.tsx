@@ -7,6 +7,8 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { IaasPortal } from "@/components/IaasPortal";
 import { PortalNoticias } from "@/components/comunidad/PortalNoticias";
 import { CambiarContrasena } from "@/components/CambiarContrasena";
+import { GestorFotosCreadores } from "@/components/GestorFotosCreadores";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 
 // Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales
@@ -29,6 +31,7 @@ export default function DashboardPage() {
           </Link>
 
           <div className="flex items-center gap-4">
+            <ThemeToggle />
             <button className="w-10 h-10 rounded-full bg-ink/5 flex items-center justify-center hover:bg-ink/10 transition-colors">
               <Bell className="w-5 h-5 text-ink" />
             </button>
@@ -116,6 +119,12 @@ export default function DashboardPage() {
             de verdad interesa a un lector tecnico vive en /tecnologia.
 
           Lo que queda vende el problema que el robot resuelve. */}
+
+      {/* Administracion. El componente decide si se pinta: si esta sesion no es de
+          administrador, no devuelve nada. Va antes del contenido general porque
+          quien administra viene a esto, no a leer las noticias. */}
+      <GestorFotosCreadores />
+
       <IaasPortal />
 
       {/* ================= NOTICIAS =================
