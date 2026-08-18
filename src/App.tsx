@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 import { AuthProvider } from "@/context/AuthContext";
 import { ChatBot } from "@/components/ChatBot";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import MedicalLandingPage from "@/pages/MedicalLandingPage";
 import AuthPage from "@/pages/AuthPage";
 import TechnicalPage from "@/pages/TechnicalPage";
@@ -38,6 +39,7 @@ function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
         <AsistenteSiEncaja />
+        <TemaFlotante />
       </BrowserRouter>
       <Toaster position="top-center" richColors />
     </AuthProvider>
@@ -66,6 +68,41 @@ function AsistenteSiEncaja() {
   const { pathname } = useLocation();
   if (!CON_ASISTENTE.includes(pathname)) return null;
   return <ChatBot />;
+}
+
+/**
+ * Rutas que YA llevan el interruptor de tema dentro de su propia barra.
+ *
+ * Aqui la lista va al reves que la del asistente, y por un motivo: lo que se quiere
+ * es que el interruptor este SIEMPRE. Si la lista fuera de "donde ponerlo", una
+ * pagina nueva nacería sin el; siendo de "donde ya lo hay", nace con el.
+ */
+const TEMA_EN_SU_BARRA = ["/", "/tecnologia", "/comunidad", "/dashboard"];
+
+/**
+ * El interruptor de tema en las paginas que no tienen barra donde ponerlo: /auth,
+ * /restablecer y la 404 son tarjetas centradas, sin cabecera.
+ *
+ * ARRIBA A LA DERECHA, Y NO A LA IZQUIERDA
+ * ----------------------------------------
+ * El primer intento lo puso a la izquierda y quedaba justo encima del enlace
+ * "Volver al inicio" que /auth y /restablecer llevan en esa esquina: el icono de la
+ * luna tapaba la flecha. La derecha esta libre en las tres rutas, y el globo del
+ * chat -- lo unico que ocupa ese lado -- no se pinta en ninguna de ellas, porque la
+ * lista de arriba es la misma que `CON_ASISTENTE`. Aun asi el chat vive ABAJO a la
+ * derecha, de modo que ni cambiando esa lista se toparian.
+ *
+ * Lleva fondo propio y no transparente porque flota sobre el contenido: sin el, en
+ * cuanto una pagina futura ponga texto o una imagen debajo, el boton se pierde.
+ */
+function TemaFlotante() {
+  const { pathname } = useLocation();
+  if (TEMA_EN_SU_BARRA.includes(pathname)) return null;
+  return (
+    <div className="fixed top-4 right-4 z-50">
+      <ThemeToggle className="bg-card/80 backdrop-blur-sm shadow-sm" />
+    </div>
+  );
 }
 
 export default App;

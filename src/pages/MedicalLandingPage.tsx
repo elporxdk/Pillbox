@@ -10,6 +10,8 @@ import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkl
 // de que se cree el primer elemento. Se configura en el <head> de index.html.
 import "@google/model-viewer";
 import { CREADORES } from "@/data/equipo";
+import { leerFotos, rutaDe, type FotoCreador } from "@/lib/fotosCreadores";
+import { iniciales } from "@/lib/nombres";
 import { useAuth } from "@/context/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
@@ -91,15 +93,10 @@ const NAV_LINKS = [
  * del chat tambien los necesita y dos copias del mismo dato es como nacio el error
  * del ESP32 (una se corrige, la otra sigue diciendo lo viejo).
  *
- * Ya no hay fotos ni carnes: se quitaron a peticion del equipo. Cada integrante sale
- * con sus iniciales, que es lo que ya hacia quien no tenia foto.
+ * Las fotos ya no estan en el repositorio: las pone el administrador desde el panel
+ * y viven en Supabase (`src/lib/fotosCreadores.ts`). Quien no tenga foto sale con
+ * sus iniciales, que es el estado por defecto.
  */
-const iniciales = (nombre: string) => {
-  const partes = nombre.split(" ");
-  // Primer nombre y primer apellido, que en un nombre salvadoreño es la posicion 2
-  // (nombre, segundo nombre, apellido). Si no hay tantas partes, con la primera basta.
-  return (partes[0]?.[0] ?? "") + (partes[2]?.[0] ?? "");
-};
 //Porcentaje mayor de contenido, si se quiere cambiar el contenido solo se reescribe acá siempre que este dentro de los ""
 const OBJETIVOS_ESPECIFICOS = [
   "Diseñar un sistema de control de temperatura de precisión con celda Peltier y sensores térmicos, para que los medicamentos termolábiles mantengan su cadena de frío durante el traslado interno.",
@@ -200,6 +197,30 @@ export default function MedicalLandingPage() {
 
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [showSplash, setShowSplash] = React.useState(true);
+
+  /**
+   * Fotos del equipo, puestas por el administrador desde el panel.
+   *
+   * Empieza vacio y se rellena cuando llega la respuesta: mientras tanto salen las
+   * iniciales, que es el estado por defecto y no un hueco. Asi la portada no espera
+   * a Supabase para pintarse, y si la peticion falla -- sin migracion, sin red --
+   * simplemente se queda en iniciales.
+   *
+   * `setFotos` se llama tras un `await`, no en el cuerpo del efecto, que es lo que
+   * prohibe el compilador de React.
+   */
+  const [fotos, setFotos] = React.useState<Map<string, FotoCreador>>(new Map());
+
+  useEffect(() => {
+    let cancelado = false;
+    void (async () => {
+      const actuales = await leerFotos();
+      if (!cancelado) setFotos(actuales);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
   const rootRef = useRef<HTMLDivElement>(null);
   const splashRef = useRef<HTMLDivElement>(null);
   const splashLogoRef = useRef<HTMLDivElement>(null);
@@ -536,15 +557,27 @@ export default function MedicalLandingPage() {
 
             <div className="flex items-center gap-6 mt-10">
               <div className="flex -space-x-3">
-                {CREADORES.map((nombre) => (
-                  <div
-                    key={nombre}
-                    title={nombre}
-                    className="w-10 h-10 rounded-full border-2 border-white bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white text-xs font-bold"
-                  >
-                    {iniciales(nombre)}
-                  </div>
-                ))}
+                {CREADORES.map((nombre) => {
+                  const foto = fotos.get(rutaDe(nombre));
+                  return (
+                    <div
+                      key={nombre}
+                      title={nombre}
+                      className="w-10 h-10 rounded-full border-2 border-white bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white text-xs font-bold overflow-hidden"
+                    >
+                      {foto ? (
+                        <img
+                          src={foto.url}
+                          alt={nombre}
+                          loading="lazy"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        iniciales(nombre)
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <div className="text-sm text-ink/70">
                 <span className="font-bold text-ink">4 estudiantes</span>{" "}
@@ -636,17 +669,29 @@ export default function MedicalLandingPage() {
 
           {/* Integrantes del equipo */}
           <div className="feature-card grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
-            {CREADORES.map((nombre) => (
-              <div
-                key={nombre}
-                className="bg-surface rounded-2xl p-5 border border-ink/5 text-center hover:border-brand/30 hover:-translate-y-1 transition-all"
-              >
-                <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white font-bold text-lg mb-3">
-                  {iniciales(nombre)}
+            {CREADORES.map((nombre) => {
+              const foto = fotos.get(rutaDe(nombre));
+              return (
+                <div
+                  key={nombre}
+                  className="bg-surface rounded-2xl p-5 border border-ink/5 text-center hover:border-brand/30 hover:-translate-y-1 transition-all"
+                >
+                  <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-br from-brand to-mint flex items-center justify-center text-white font-bold text-lg mb-3 overflow-hidden">
+                    {foto ? (
+                      <img
+                        src={foto.url}
+                        alt={`Foto de ${nombre}`}
+                        loading="lazy"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      iniciales(nombre)
+                    )}
+                  </div>
+                  <p className="font-semibold text-sm leading-tight">{nombre}</p>
                 </div>
-                <p className="font-semibold text-sm leading-tight">{nombre}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Objetivo general y específicos */}
