@@ -95,7 +95,15 @@
  *   PAD IZQ/DER        girar sobre su propio eje
  *   L1 / R1            desplazamiento lateral (sin cambiar de orientacion)
  *   L2 / R2 + PAD      giro amplio: empuja solo un lado del robot
- *   X                  vibracion del mando
+ *   TRIANGULO          subir la velocidad del chasis (de 5 en 5, tope 255)
+ *   X                  bajar la velocidad          (de 5 en 5, suelo 200)
+ *   CUADRADO           avanzar el pastillero UN compartimiento
+ *   CIRCULO            dispensar el compartimiento que este arriba
+ *   (la vibracion acusa que la accion se ejecuto; antes la disparaba la X)
+ *
+ *  Los cuatro botones actuan SOLO al pulsarlos, no mientras se mantienen: el
+ *  mando se lee cada 20 ms y si no, un boton apretado medio segundo serian 25
+ *  pulsaciones (la ruleta se pondria a dar vueltas sola).
  *
  *  El cableado real NO coincide con la logica ingenua: M1 y M3 giran al reves
  *  y los lados son M1/M3 contra M2/M4. Se corrige por software en las seis
@@ -503,6 +511,25 @@ void aplicarMov(uint8_t codigo) {
 
 void stopMoving() { aplicarMov(MOVC_STOP); }
 
+// Cambia la velocidad del chasis y la deja aplicada YA.
+//  EL DETALLE QUE ES FACIL OLVIDAR: aplicarMov() no habla con el shield si el
+//  codigo de movimiento no ha cambiado (ver la nota de arriba sobre no saturar
+//  el I2C). Sin forzar el reenvio, la velocidad nueva no llegaria a los motores
+//  hasta el siguiente cambio de direccion: el robot seguiria yendo a la de
+//  antes mientras no sueltes el mando, que parece que el ajuste "no hace nada".
+//
+//  Una sola implementacion para los dos sitios que cambian la velocidad: el
+//  comando VEL por serie y los botones del mando.
+void aplicarVelocidad(int nueva) {
+  velocidadActual = (uint8_t)constrain(nueva, VELOCIDAD_MIN, VELOCIDAD_MAX);
+  movAplicado = 255;                 // fuerza el reenvio al shield
+  aplicarMov(movComandado);
+  // Se responde SIEMPRE, tambien cuando el cambio viene del mando: asi el
+  // deslizador de la web se entera y no se queda mostrando un valor viejo.
+  Serial.print(F("OK,VEL,"));
+  Serial.println(velocidadActual);
+}
+
 // ═════════════════════════════════════════════════════════════
 //  DECISION DE MOVIMIENTO (compartida: COM virtual y RPi fisico)
 // ═════════════════════════════════════════════════════════════
@@ -561,6 +588,83 @@ bool handlePS2Movement() {
   }
 
   return false; // PS2X no presionó ningún botón de movimiento
+}
+
+// ═════════════════════════════════════════════════════════════
+//  CONTROL POR PS2X — BOTONES DE ACCION (velocidad y pastillero)
+// ═════════════════════════════════════════════════════════════
+//   TRIANGULO   sube la velocidad del chasis
+//   X           la baja
+//   CUADRADO    avanza el pastillero UN compartimiento
+//   CIRCULO     dispensa el compartimiento que este arriba
+//
+//  SE ACTUA SOLO EN EL FLANCO: en la lectura en la que el boton pasa de suelto
+//  a pulsado, no mientras se mantiene. Es imprescindible, no un adorno: el
+//  mando se lee cada 20 ms, asi que tener un boton medio segundo apretado son
+//  25 pulsaciones. En la velocidad se veria como un salto de golpe de 200 a
+//  255; en el pastillero seria mucho peor, porque encadenaria 25 giros y la
+//  ruleta se pondria a dar vueltas sola durante medio minuto.
+//
+//  El flanco se calcula a mano, con una variable por boton, en vez de usar
+//  ps2x.ButtonPressed(): asi no depende de que version de la libreria PS2X
+//  este instalada.
+const uint8_t PASO_VELOCIDAD = 5;      // 200..255 en 11 escalones
+
+bool antesTriangulo = false;
+bool antesEquis     = false;
+bool antesCuadrado  = false;
+bool antesCirculo   = false;
+
+// Cierto SOLO en la lectura en que el boton acaba de pulsarse.
+bool flancoPulsacion(bool pulsadoAhora, bool &pulsadoAntes) {
+  bool esNuevo = pulsadoAhora && !pulsadoAntes;
+  pulsadoAntes = pulsadoAhora;
+  return esNuevo;
+}
+
+//  irACompartimiento() y dispensar() se definen mas abajo. Se declaran aqui
+//  para poder llamarlas desde este manejador sin moverlo de sitio, igual que se
+//  hace con girarPasos(): no se confia en los prototipos que genera el IDE de
+//  Arduino, porque solo existen al preprocesar el .ino.
+void irACompartimiento(int destino);
+void dispensar(int n);
+
+// Devuelve true si se acciono algo (sirve para acusar recibo con la vibracion).
+bool handlePS2Botones() {
+  bool accionado = false;
+
+  // ---- Velocidad del chasis ----
+  //  El recorte al rango util (200..255) lo hace aplicarVelocidad(), asi que
+  //  pasarse por arriba o por abajo no rompe nada: se queda en el tope.
+  if (flancoPulsacion(ps2x.Button(PSB_TRIANGLE), antesTriangulo)) {
+    aplicarVelocidad(velocidadActual + PASO_VELOCIDAD);
+    accionado = true;
+  }
+  if (flancoPulsacion(ps2x.Button(PSB_CROSS), antesEquis)) {
+    aplicarVelocidad(velocidadActual - PASO_VELOCIDAD);
+    accionado = true;
+  }
+
+  // ---- Pastillero ----
+  //  Estas dos BLOQUEAN hasta terminar de girar. No dejan sordo al Arduino (por
+  //  dentro se sigue leyendo el serie, ver girarPasos), pero mientras tanto no
+  //  se atiende el mando. Van DESPUES de la velocidad para que, si se pulsan
+  //  dos cosas casi a la vez, el cambio de velocidad no se quede esperando a
+  //  que acabe la ruleta.
+  if (flancoPulsacion(ps2x.Button(PSB_SQUARE), antesCuadrado)) {
+    stopMoving();                    // seguridad: el chasis quieto al girar
+    //  Uno mas, hacia adelante y dando la vuelta al llegar al 8. Se usa
+    //  irACompartimiento() y no avanzarComps(1) porque ademas de girar
+    //  actualiza compActual, lo guarda en la EEPROM y responde POS,<n>.
+    irACompartimiento(compActual % N_COMPARTIMIENTOS + 1);
+    accionado = true;
+  }
+  if (flancoPulsacion(ps2x.Button(PSB_CIRCLE), antesCirculo)) {
+    dispensar(compActual);           // dispensar() ya para el chasis por dentro
+    accionado = true;
+  }
+
+  return accionado;
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -942,13 +1046,9 @@ void procesarComando(String linea) {
     if (arg.length() == 0 || v == 0) {
       Serial.print(F("ERR,")); Serial.println(linea);
     } else {
-      velocidadActual = (uint8_t)constrain(v, VELOCIDAD_MIN, VELOCIDAD_MAX);
-      // Forzar que el proximo aplicarMov REENVIE las ordenes al shield: si no,
-      // al no cambiar el codigo de movimiento se saltaria el I2C y la
-      // velocidad nueva no llegaria hasta el siguiente cambio de direccion.
-      movAplicado = 255;
-      aplicarMov(movComandado);
-      Serial.print(F("OK,VEL,")); Serial.println(velocidadActual);
+      // Misma funcion que usan los botones del mando: recorta al rango util,
+      // fuerza el reenvio al shield y responde OK,VEL.
+      aplicarVelocidad(v);
     }
 
   } else if (cmd == "TRUCO") {
@@ -1276,6 +1376,9 @@ const unsigned long PERIODO_PS2_MS = 20;
 
 unsigned long ultimaLecturaPS2 = 0;
 bool ps2xActivo = false;
+// Acuse por vibracion: lo enciende handlePS2Botones() cuando una accion se
+// ejecuta, y se sirve en la lectura siguiente (ver la nota en el loop).
+bool vibrarProximaLectura = false;
 
 void loop() {
   // ── Dispensador: comandos de la RPi/PC por Serial (no bloqueante) ──
@@ -1296,13 +1399,22 @@ void loop() {
       (millis() - ultimaLecturaPS2 >= PERIODO_PS2_MS)) {
     ultimaLecturaPS2 = millis();
 
-    // La vibracion del boton X se pide en la MISMA lectura, en vez de con
-    // tres llamadas y un delay(300) que congelaba el robot al pulsarlo.
-    bool vibrar = ps2x.Button(PSB_CROSS);
-    ps2x.read_gamepad(vibrar, vibrar ? 200 : 0);
+    // La vibracion se pide en la MISMA lectura del mando, en vez de con tres
+    // llamadas y un delay(300) que congelaba el robot al pulsarlo.
+    //  Antes la disparaba el boton X; ahora X baja la velocidad, asi que la
+    //  vibracion pasa a ser el ACUSE de que una accion (velocidad o
+    //  pastillero) se ha ejecutado. Es el unico aviso que se tiene sin mirar
+    //  la pantalla. Sale en la lectura siguiente, 20 ms despues: no se nota, y
+    //  evita tener que leer el mando dos veces por vuelta.
+    ps2x.read_gamepad(vibrarProximaLectura, vibrarProximaLectura ? 200 : 0);
+    vibrarProximaLectura = false;
 
     ps2xActivo = handlePS2Movement();
     handlePS2Servos();     // servos del brazo (solo con mando PS2)
+    // Botones de accion: velocidad (triangulo/X) y pastillero (cuadrado/circulo).
+    // Va el ultimo porque cuadrado y circulo mueven la ruleta y bloquean hasta
+    // terminar; asi el movimiento y los servos ya se han atendido en esta vuelta.
+    vibrarProximaLectura = handlePS2Botones();
   }
 
   // ── Sin mando (o mando inactivo): movimiento recibido por COM ──

@@ -360,6 +360,118 @@ class PruebasBanderasDeInversion(unittest.TestCase):
 
 
 # =============================================================================
+class PruebasBotonesDelMando(unittest.TestCase):
+    """Los cuatro botones de accion del mando PS2.
+
+        TRIANGULO  sube la velocidad      CUADRADO  avanza el pastillero 1
+        X          la baja                CIRCULO   dispensa
+
+    Lo que mas se vigila aqui es que actuen SOLO AL PULSAR. El mando se lee
+    cada 20 ms, asi que sin deteccion de flanco un boton apretado medio segundo
+    son 25 pulsaciones: la velocidad saltaria de golpe al tope y, mucho peor,
+    el pastillero encadenaria 25 giros y se pondria a dar vueltas solo. Es un
+    fallo que solo se ve con el robot delante y con pastillas dentro."""
+
+    #  boton -> (que debe llamar, variable de estado del flanco)
+    ACCIONES = {
+        "PSB_TRIANGLE": ("aplicarVelocidad", "+ PASO_VELOCIDAD"),
+        "PSB_CROSS":    ("aplicarVelocidad", "- PASO_VELOCIDAD"),
+        "PSB_SQUARE":   ("irACompartimiento", None),
+        "PSB_CIRCLE":   ("dispensar", None),
+    }
+
+    def setUp(self):
+        with open(RUTA_FIRMWARE, encoding="utf-8", errors="ignore") as f:
+            self.codigo = f.read()
+        m = re.search(r"^bool handlePS2Botones\(\)\s*\{(.*?)^\}",
+                      self.codigo, re.M | re.S)
+        self.assertIsNotNone(m, "No se encuentra handlePS2Botones()")
+        self.cuerpo = m.group(1)
+
+    def _bloque(self, boton):
+        """El cuerpo del if que atiende a ese boton."""
+        m = re.search(r"flancoPulsacion\(ps2x\.Button\(%s\)[^)]*\)\)\s*\{(.*?)\n  \}"
+                      % boton, self.cuerpo, re.S)
+        self.assertIsNotNone(
+            m, f"{boton} no se atiende con flancoPulsacion(...) en "
+               "handlePS2Botones()")
+        return m.group(1)
+
+    def test_cada_boton_hace_lo_suyo(self):
+        for boton, (llamada, detalle) in self.ACCIONES.items():
+            bloque = self._bloque(boton)
+            with self.subTest(boton=boton):
+                self.assertIn(llamada, bloque,
+                              f"{boton} deberia llamar a {llamada}()")
+                if detalle:
+                    self.assertIn(detalle, bloque,
+                                  f"{boton} deberia usar '{detalle}'")
+
+    def test_ningun_boton_actua_mientras_se_mantiene(self):
+        """TODO ps2x.Button() de este manejador pasa por flancoPulsacion().
+
+        Si alguien anade un boton leyendolo a pelo, se repetira 50 veces por
+        segundo. Con el pastillero eso significa la ruleta girando sola."""
+        lecturas = len(re.findall(r"ps2x\.Button\(", self.cuerpo))
+        con_flanco = len(re.findall(r"flancoPulsacion\(ps2x\.Button\(", self.cuerpo))
+        self.assertEqual(
+            lecturas, con_flanco,
+            f"{lecturas - con_flanco} boton(es) se leen sin deteccion de "
+            "flanco: se repetirian mientras se mantienen pulsados.")
+
+    def test_cada_boton_tiene_su_propia_variable_de_flanco(self):
+        """Con una variable compartida, pulsar uno anularia el flanco del otro."""
+        variables = re.findall(r"flancoPulsacion\(ps2x\.Button\(\w+\)\s*,\s*(\w+)\)",
+                               self.cuerpo)
+        self.assertEqual(len(variables), len(self.ACCIONES))
+        self.assertEqual(len(set(variables)), len(variables),
+                         f"Variables de flanco repetidas: {variables}")
+
+    def test_los_botones_de_accion_no_pisan_a_los_de_movimiento(self):
+        """Si un boton hiciera dos cosas, una de las dos se perderia."""
+        m = re.search(r"^bool handlePS2Movement\(\)\s*\{(.*?)^\}",
+                      self.codigo, re.M | re.S)
+        movimiento = set(re.findall(r"PSB_\w+", m.group(1)))
+        choques = movimiento & set(self.ACCIONES)
+        self.assertFalse(choques, f"Botones usados para dos cosas: {choques}")
+
+    def test_mover_el_pastillero_para_el_chasis_antes(self):
+        """La ruleta no debe girar con el robot en marcha: la pastilla tiene que
+        caer donde toca. dispensar() ya lo hace por dentro; el avance de un
+        compartimiento tiene que hacerlo aqui."""
+        self.assertIn("stopMoving()", self._bloque("PSB_SQUARE"),
+                      "El cuadrado deberia parar el chasis antes de girar")
+
+    def test_el_avance_del_pastillero_da_la_vuelta_en_el_ultimo(self):
+        """Del 8 tiene que pasar al 1, no salirse del rango 1..8."""
+        self.assertIn("compActual % N_COMPARTIMIENTOS + 1",
+                      self._bloque("PSB_SQUARE"),
+                      "El cuadrado deberia avanzar uno dando la vuelta")
+
+    def test_el_manejador_se_llama_desde_el_loop(self):
+        m = re.search(r"^void loop\(\)\s*\{(.*?)^\}", self.codigo, re.M | re.S)
+        self.assertIn("handlePS2Botones()", m.group(1),
+                      "handlePS2Botones() no se llama desde loop()")
+
+    def test_la_velocidad_se_cambia_en_un_solo_sitio(self):
+        """El comando VEL y los botones comparten aplicarVelocidad(), que es
+        quien recorta al rango y fuerza el reenvio al shield. Duplicar eso es
+        como se pierde el 'movAplicado = 255' y la velocidad deja de aplicarse
+        hasta el siguiente cambio de direccion."""
+        self.assertEqual(
+            len(re.findall(r"^void aplicarVelocidad\(", self.codigo, re.M)), 1)
+        self.assertIn("movAplicado = 255",
+                      re.search(r"^void aplicarVelocidad\(.*?\n\}",
+                                self.codigo, re.M | re.S).group(0),
+                      "aplicarVelocidad() debe forzar el reenvio al shield")
+        # El manejador de VEL no debe reimplementarlo por su cuenta.
+        vel = re.search(r'cmd == "VEL"\)\s*\{(.*?)\n  \} else if', self.codigo, re.S)
+        self.assertIsNotNone(vel, "No se encuentra el manejador del comando VEL")
+        self.assertIn("aplicarVelocidad", vel.group(1),
+                      "El comando VEL deberia usar aplicarVelocidad()")
+
+
+# =============================================================================
 class PruebasRuleta(unittest.TestCase):
     """La ruleta (28BYJ-48 + ULN2003) y su secuencia de bobinas.
 
