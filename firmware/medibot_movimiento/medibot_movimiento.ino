@@ -91,19 +91,26 @@
  *   PWM,<pin>,<d>  Servos de camara: pin 18=pan, 13=tilt; d = duty % (2.5..12.5)
  *
  *  ------------------- MANDO PS2 ------------------------------
- *   PAD ARRIBA/ABAJO   avanzar / retroceder
+ *   STICK IZQUIERDO    conducir: arriba/abajo avanza y retrocede, izq/der gira
+ *   PAD ARRIBA/ABAJO   avanzar / retroceder  (tiene preferencia sobre el stick)
  *   PAD IZQ/DER        girar sobre su propio eje
  *   L1 / R1            desplazamiento lateral (sin cambiar de orientacion)
  *   L2 / R2 + PAD      giro amplio: empuja solo un lado del robot
+ *   STICK DERECHO      brazo: munieca (Servo3/Servo4)
+ *   L2 + STICK DERECHO brazo: base    (Servo1/Servo2)
  *   TRIANGULO          subir la velocidad del chasis (de 5 en 5, tope 255)
  *   X                  bajar la velocidad          (de 5 en 5, suelo 200)
  *   CUADRADO           avanzar el pastillero UN compartimiento
  *   CIRCULO            dispensar el compartimiento que este arriba
- *   (la vibracion acusa que la accion se ejecuto; antes la disparaba la X)
  *
  *  Los cuatro botones actuan SOLO al pulsarlos, no mientras se mantienen: el
  *  mando se lee cada 20 ms y si no, un boton apretado medio segundo serian 25
  *  pulsaciones (la ruleta se pondria a dar vueltas sola).
+ *
+ *  Y una lectura del mando en la que salgan mas de cinco botones pulsados a la
+ *  vez se descarta entera: es la firma de una lectura corrupta, en la que la
+ *  libreria PS2X da TODOS los botones como pulsados. Era lo que hacia que
+ *  cualquier boton moviera el pastillero (ver lecturaDelMandoFiable).
  *
  *  El cableado real NO coincide con la logica ingenua: M1 y M3 giran al reves
  *  y los lados son M1/M3 contra M2/M4. Se corrige por software en las seis
@@ -560,10 +567,48 @@ void aplicarMovimiento(bool adelante, bool atras, bool izquierda, bool derecha) 
 // ═════════════════════════════════════════════════════════════
 // Retorna true si el PS2X tomó el control del movimiento
 //  MAPA DEL MANDO (ahora cada boton hace lo que dice su nombre):
+//     STICK IZQUIERDO      conducir: adelante/atras y girar sobre el eje
 //     PAD ARRIBA / ABAJO   avanzar / retroceder
 //     PAD IZQ / DER        girar sobre su propio eje
 //     L1 / R1              desplazamiento lateral (sin girar)
 //     L2 / R2 con el PAD   giro amplio: empuja solo un lado
+
+// ── Joystick izquierdo: conducir el chasis ───────────────────────────────
+//  Los sticks dan 0..255 con el centro en ~128, pero NUNCA descansan
+//  exactamente en 128: cada mando tiene su deriva y varia con la temperatura.
+//  Por eso hace falta una ZONA MUERTA generosa. Sin ella el robot se pondria a
+//  andar solo con el mando en reposo y, peor, el stick le pisaria el turno al
+//  PAD en todas las lecturas.
+const uint8_t STICK_CENTRO      = 128;
+const uint8_t STICK_ZONA_MUERTA = 45;
+
+//  Cuanto se ha empujado el stick respecto al centro, ya descontada la zona
+//  muerta. Devuelve 0 en reposo. Positivo = derecha (eje X) o ARRIBA (eje Y).
+int desvioStick(uint8_t valor, bool invertir) {
+  int d = (int)valor - (int)STICK_CENTRO;
+  if (d > -(int)STICK_ZONA_MUERTA && d < (int)STICK_ZONA_MUERTA) return 0;
+  return invertir ? -d : d;
+}
+
+//  Movimiento que pide el stick izquierdo, o MOVC_STOP si esta en reposo.
+uint8_t movimientoDelStickIzquierdo() {
+  //  En los sticks del PS2, 0 es ARRIBA: se invierte para que positivo sea
+  //  "hacia adelante" y el codigo se lea como lo que hace.
+  int adelante = desvioStick(ps2x.Analog(PSS_LY), true);
+  int lado     = desvioStick(ps2x.Analog(PSS_LX), false);
+
+  if (adelante == 0 && lado == 0) return MOVC_STOP;
+
+  //  Gana el eje mas empujado. Sin esto, una diagonal alternaria entre avanzar
+  //  y girar en lecturas consecutivas, que sobre el suelo se ve como bandazos.
+  if (abs(adelante) >= abs(lado)) {
+    return adelante > 0 ? MOVC_FWD : MOVC_BACK;
+  }
+  //  Horizontal = girar sobre el propio eje, igual que el PAD IZQ/DER. Para
+  //  desplazarse de lado sin cambiar de orientacion siguen estando L1/R1.
+  return lado > 0 ? MOVC_TURNR : MOVC_TURNL;
+}
+
 bool handlePS2Movement() {
   if (ps2x.Button(PSB_PAD_UP)) {
     if      (ps2x.Button(PSB_L2)) aplicarMov(MOVC_ARC_BF);
@@ -587,7 +632,16 @@ bool handlePS2Movement() {
     aplicarMov(MOVC_MOVER); return true;
   }
 
-  return false; // PS2X no presionó ningún botón de movimiento
+  //  Nadie toca el PAD: decide el stick izquierdo. El PAD tiene PREFERENCIA a
+  //  proposito, porque es digital y no tiene deriva: si se esta pulsando, es
+  //  seguro que el usuario lo quiere.
+  uint8_t delStick = movimientoDelStickIzquierdo();
+  if (delStick != MOVC_STOP) {
+    aplicarMov(delStick);
+    return true;
+  }
+
+  return false; // ni PAD ni stick: el mando no manda en esta vuelta
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -622,6 +676,38 @@ bool flancoPulsacion(bool pulsadoAhora, bool &pulsadoAntes) {
   return esNuevo;
 }
 
+// ── LECTURAS BASURA DEL MANDO ────────────────────────────────────────────
+//  ESTO ES LO QUE HACIA QUE "CUALQUIER BOTON MOVIERA EL PASTILLERO".
+//
+//  PS2X::Button() esta implementado como  (~buttons & mascara) , o sea sobre
+//  los bits INVERTIDOS: un 0 en 'buttons' significa pulsado. Cuando una lectura
+//  falla —cable flojo, masa mala, o el bajon de tension de arrancar los motores
+//  y el paso a paso— 'buttons' se queda en 0x0000, el complemento es 0xFFFF y
+//  ENTONCES TODOS LOS BOTONES SALEN PULSADOS A LA VEZ.
+//
+//  No era que el codigo confundiera un boton con otro: es que en esa lectura el
+//  cuadrado y el circulo TAMBIEN salian pulsados, asi que tocaras lo que
+//  tocaras, la ruleta se movia.
+//
+//  Se detecta por lo que es: con dos manos no se pulsan seis botones a la vez.
+//  Una lectura asi se TIRA ENTERA, sin tocar el estado de los flancos, para que
+//  no actue ni deje medio flanco preparado para la lectura siguiente.
+const uint8_t MAX_BOTONES_A_LA_VEZ = 5;
+
+bool lecturaDelMandoFiable() {
+  static const uint16_t TODOS[] = {
+    PSB_PAD_UP, PSB_PAD_DOWN, PSB_PAD_LEFT, PSB_PAD_RIGHT,
+    PSB_L1, PSB_R1, PSB_L2, PSB_R2,
+    PSB_TRIANGLE, PSB_CROSS, PSB_SQUARE, PSB_CIRCLE,
+    PSB_START, PSB_SELECT, PSB_L3, PSB_R3
+  };
+  uint8_t pulsados = 0;
+  for (uint8_t i = 0; i < 16; i++) {
+    if (ps2x.Button(TODOS[i])) pulsados++;
+  }
+  return pulsados <= MAX_BOTONES_A_LA_VEZ;
+}
+
 //  irACompartimiento() y dispensar() se definen mas abajo. Se declaran aqui
 //  para poder llamarlas desde este manejador sin moverlo de sitio, igual que se
 //  hace con girarPasos(): no se confia en los prototipos que genera el IDE de
@@ -629,82 +715,96 @@ bool flancoPulsacion(bool pulsadoAhora, bool &pulsadoAntes) {
 void irACompartimiento(int destino);
 void dispensar(int n);
 
-// Devuelve true si se acciono algo (sirve para acusar recibo con la vibracion).
-bool handlePS2Botones() {
-  bool accionado = false;
+//  SEGUNDA RED, solo para el pastillero: no se actua en el flanco, sino cuando
+//  el boton SIGUE pulsado en la lectura siguiente (20 ms despues). Un parpadeo
+//  de un solo ciclo —que es lo que deja una lectura con ruido que aun asi pasa
+//  el filtro de arriba— no llega a mover la ruleta.
+//  A la velocidad no se le pone: una pulsacion de mas solo cambia 5 unidades y
+//  se corrige pulsando el otro boton, asi que no compensa hacerla mas lenta.
+bool pendienteCuadrado = false;
+bool pendienteCirculo  = false;
+bool mandoInicializado = false;
+
+void handlePS2Botones() {
+  bool cuadradoAhora = ps2x.Button(PSB_SQUARE);
+  bool circuloAhora  = ps2x.Button(PSB_CIRCLE);
+
+  //  PRIMERA LECTURA BUENA: solo se apunta en que estado esta cada boton, sin
+  //  actuar. Si no, un boton que ya estuviera pulsado al encender —o la primera
+  //  lectura del mando, que es la menos fiable de todas— dispararia una accion
+  //  nada mas arrancar el robot.
+  if (!mandoInicializado) {
+    mandoInicializado = true;
+    antesTriangulo = ps2x.Button(PSB_TRIANGLE);
+    antesEquis     = ps2x.Button(PSB_CROSS);
+    antesCuadrado  = cuadradoAhora;
+    antesCirculo   = circuloAhora;
+    return;
+  }
 
   // ---- Velocidad del chasis ----
   //  El recorte al rango util (200..255) lo hace aplicarVelocidad(), asi que
   //  pasarse por arriba o por abajo no rompe nada: se queda en el tope.
   if (flancoPulsacion(ps2x.Button(PSB_TRIANGLE), antesTriangulo)) {
     aplicarVelocidad(velocidadActual + PASO_VELOCIDAD);
-    accionado = true;
   }
   if (flancoPulsacion(ps2x.Button(PSB_CROSS), antesEquis)) {
     aplicarVelocidad(velocidadActual - PASO_VELOCIDAD);
-    accionado = true;
   }
 
   // ---- Pastillero ----
+  //  Lo pendiente se mira ANTES de calcular el flanco nuevo: asi una pulsacion
+  //  recien detectada queda pendiente y se ejecuta en la lectura siguiente.
+  bool avanzarPastillero = pendienteCuadrado && cuadradoAhora;
+  bool dispensarAhora    = pendienteCirculo  && circuloAhora;
+  pendienteCuadrado = flancoPulsacion(cuadradoAhora, antesCuadrado);
+  pendienteCirculo  = flancoPulsacion(circuloAhora,  antesCirculo);
+
   //  Estas dos BLOQUEAN hasta terminar de girar. No dejan sordo al Arduino (por
   //  dentro se sigue leyendo el serie, ver girarPasos), pero mientras tanto no
   //  se atiende el mando. Van DESPUES de la velocidad para que, si se pulsan
   //  dos cosas casi a la vez, el cambio de velocidad no se quede esperando a
-  //  que acabe la ruleta.
-  if (flancoPulsacion(ps2x.Button(PSB_SQUARE), antesCuadrado)) {
+  //  que acabe la ruleta. Y son excluyentes entre si: nunca se giran dos veces
+  //  en la misma lectura.
+  if (avanzarPastillero) {
     stopMoving();                    // seguridad: el chasis quieto al girar
     //  Uno mas, hacia adelante y dando la vuelta al llegar al 8. Se usa
     //  irACompartimiento() y no avanzarComps(1) porque ademas de girar
     //  actualiza compActual, lo guarda en la EEPROM y responde POS,<n>.
     irACompartimiento(compActual % N_COMPARTIMIENTOS + 1);
-    accionado = true;
-  }
-  if (flancoPulsacion(ps2x.Button(PSB_CIRCLE), antesCirculo)) {
+  } else if (dispensarAhora) {
     dispensar(compActual);           // dispensar() ya para el chasis por dentro
-    accionado = true;
   }
-
-  return accionado;
 }
 
 // ═════════════════════════════════════════════════════════════
 //  CONTROL POR PS2X — SERVOS DEL BRAZO
 // ═════════════════════════════════════════════════════════════
+//  Mueve un servo UN grado hacia donde empuje el eje, respetando sus topes.
+//  Antes esto estaba escrito cuatro veces con los indices cambiados a mano, que
+//  es justo como se cuela un ARM_MIN[2] donde tocaba ARM_MAX[3].
+void moverServoConEje(QGPMaker_Servo *servo, uint8_t eje, uint8_t limites) {
+  int v = ps2x.Analog(eje);
+  if (v > 240) {
+    if (servo->readDegrees() > ARM_MIN[limites])
+      servo->writeServo(servo->readDegrees() - 1);
+  } else if (v < 10) {
+    if (servo->readDegrees() < ARM_MAX[limites])
+      servo->writeServo(servo->readDegrees() + 1);
+  }
+}
+
 void handlePS2Servos() {
-  // Stick izquierdo X → Servo1
-  if (ps2x.Analog(PSS_LX) > 240) {
-    if (Servo1->readDegrees() > ARM_MIN[0])
-      Servo1->writeServo(Servo1->readDegrees() - 1);
-  } else if (ps2x.Analog(PSS_LX) < 10) {
-    if (Servo1->readDegrees() < ARM_MAX[0])
-      Servo1->writeServo(Servo1->readDegrees() + 1);
-  }
-
-  // Stick izquierdo Y → Servo2
-  if (ps2x.Analog(PSS_LY) > 240) {
-    if (Servo2->readDegrees() > ARM_MIN[1])
-      Servo2->writeServo(Servo2->readDegrees() - 1);
-  } else if (ps2x.Analog(PSS_LY) < 10) {
-    if (Servo2->readDegrees() < ARM_MAX[1])
-      Servo2->writeServo(Servo2->readDegrees() + 1);
-  }
-
-  // Stick derecho Y → Servo3
-  if (ps2x.Analog(PSS_RY) > 240) {
-    if (Servo3->readDegrees() > ARM_MIN[2])
-      Servo3->writeServo(Servo3->readDegrees() - 1);
-  } else if (ps2x.Analog(PSS_RY) < 10) {
-    if (Servo3->readDegrees() < ARM_MAX[2])
-      Servo3->writeServo(Servo3->readDegrees() + 1);
-  }
-
-  // Stick derecho X → Servo4
-  if (ps2x.Analog(PSS_RX) > 240) {
-    if (Servo4->readDegrees() > ARM_MIN[3])
-      Servo4->writeServo(Servo4->readDegrees() - 1);
-  } else if (ps2x.Analog(PSS_RX) < 10) {
-    if (Servo4->readDegrees() < ARM_MAX[3])
-      Servo4->writeServo(Servo4->readDegrees() + 1);
+  //  EL STICK IZQUIERDO YA NO MUEVE EL BRAZO: ahora conduce el chasis. Los dos
+  //  servos que llevaba (Servo1 y Servo2, la base del brazo) pasan al stick
+  //  DERECHO manteniendo L2. No choca con los arcos, que son L2 + PAD: ahi se
+  //  lee el PAD y aqui el stick, asi que son gestos distintos.
+  if (ps2x.Button(PSB_L2)) {
+    moverServoConEje(Servo1, PSS_RX, 0);
+    moverServoConEje(Servo2, PSS_RY, 1);
+  } else {
+    moverServoConEje(Servo3, PSS_RY, 2);
+    moverServoConEje(Servo4, PSS_RX, 3);
   }
 }
 
@@ -1376,9 +1476,6 @@ const unsigned long PERIODO_PS2_MS = 20;
 
 unsigned long ultimaLecturaPS2 = 0;
 bool ps2xActivo = false;
-// Acuse por vibracion: lo enciende handlePS2Botones() cuando una accion se
-// ejecuta, y se sirve en la lectura siguiente (ver la nota en el loop).
-bool vibrarProximaLectura = false;
 
 void loop() {
   // ── Dispensador: comandos de la RPi/PC por Serial (no bloqueante) ──
@@ -1399,22 +1496,24 @@ void loop() {
       (millis() - ultimaLecturaPS2 >= PERIODO_PS2_MS)) {
     ultimaLecturaPS2 = millis();
 
-    // La vibracion se pide en la MISMA lectura del mando, en vez de con tres
-    // llamadas y un delay(300) que congelaba el robot al pulsarlo.
-    //  Antes la disparaba el boton X; ahora X baja la velocidad, asi que la
-    //  vibracion pasa a ser el ACUSE de que una accion (velocidad o
-    //  pastillero) se ha ejecutado. Es el unico aviso que se tiene sin mirar
-    //  la pantalla. Sale en la lectura siguiente, 20 ms despues: no se nota, y
-    //  evita tener que leer el mando dos veces por vuelta.
-    ps2x.read_gamepad(vibrarProximaLectura, vibrarProximaLectura ? 200 : 0);
-    vibrarProximaLectura = false;
+    //  SIN VIBRACION. La disparaba el boton X, que ahora baja la velocidad.
+    //  Y no se ha puesto en otro sitio a proposito: el motor del mando es un
+    //  pico de consumo, y un bajon de tension es justo lo que corrompe la
+    //  lectura del PS2 y hace que salgan todos los botones pulsados a la vez
+    //  (ver lecturaDelMandoFiable). No compensa por un acuse tactil.
+    ps2x.read_gamepad(false, 0);
 
-    ps2xActivo = handlePS2Movement();
-    handlePS2Servos();     // servos del brazo (solo con mando PS2)
-    // Botones de accion: velocidad (triangulo/X) y pastillero (cuadrado/circulo).
-    // Va el ultimo porque cuadrado y circulo mueven la ruleta y bloquean hasta
-    // terminar; asi el movimiento y los servos ya se han atendido en esta vuelta.
-    vibrarProximaLectura = handlePS2Botones();
+    //  Si la lectura vino corrupta, se TIRA ENTERA: ni se conduce, ni se mueve
+    //  el brazo, ni se miran los botones. Es preferible perder 20 ms de mando
+    //  a que el robot haga algo que nadie le ha pedido.
+    if (lecturaDelMandoFiable()) {
+      ps2xActivo = handlePS2Movement();
+      handlePS2Servos();   // servos del brazo (solo con mando PS2)
+      // Botones de accion: velocidad (triangulo/X) y pastillero (cuadrado/circulo).
+      // Va el ultimo porque cuadrado y circulo mueven la ruleta y bloquean hasta
+      // terminar; asi el movimiento y los servos ya se han atendido en esta vuelta.
+      handlePS2Botones();
+    }
   }
 
   // ── Sin mando (o mando inactivo): movimiento recibido por COM ──

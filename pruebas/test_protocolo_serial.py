@@ -361,111 +361,210 @@ class PruebasBanderasDeInversion(unittest.TestCase):
 
 # =============================================================================
 class PruebasBotonesDelMando(unittest.TestCase):
-    """Los cuatro botones de accion del mando PS2.
+    """Los cuatro botones de accion del mando PS2 y el stick izquierdo.
 
-        TRIANGULO  sube la velocidad      CUADRADO  avanza el pastillero 1
-        X          la baja                CIRCULO   dispensa
+        STICK IZQ  conducir el chasis     CUADRADO  avanza el pastillero 1
+        TRIANGULO  sube la velocidad      CIRCULO   dispensa
+        X          la baja
 
-    Lo que mas se vigila aqui es que actuen SOLO AL PULSAR. El mando se lee
-    cada 20 ms, asi que sin deteccion de flanco un boton apretado medio segundo
-    son 25 pulsaciones: la velocidad saltaria de golpe al tope y, mucho peor,
-    el pastillero encadenaria 25 giros y se pondria a dar vueltas solo. Es un
-    fallo que solo se ve con el robot delante y con pastillas dentro."""
+    Lo que mas se vigila aqui es que NADA salvo el cuadrado mueva el
+    pastillero, que es el fallo que se vio con el robot delante: cualquier
+    boton lo movia.
 
-    #  boton -> (que debe llamar, variable de estado del flanco)
+    La causa no era confundir botones. PS2X::Button() esta implementado como
+    (~buttons & mascara), o sea sobre los bits INVERTIDOS; cuando una lectura
+    falla, 'buttons' se queda a 0x0000, el complemento da 0xFFFF y TODOS los
+    botones salen pulsados a la vez, el cuadrado incluido. Por eso el arreglo
+    no es tocar el mapeo sino descartar la lectura entera."""
+
     ACCIONES = {
-        "PSB_TRIANGLE": ("aplicarVelocidad", "+ PASO_VELOCIDAD"),
-        "PSB_CROSS":    ("aplicarVelocidad", "- PASO_VELOCIDAD"),
-        "PSB_SQUARE":   ("irACompartimiento", None),
-        "PSB_CIRCLE":   ("dispensar", None),
+        "PSB_TRIANGLE": "aplicarVelocidad",
+        "PSB_CROSS":    "aplicarVelocidad",
+        "PSB_SQUARE":   "irACompartimiento",
+        "PSB_CIRCLE":   "dispensar",
     }
 
     def setUp(self):
         with open(RUTA_FIRMWARE, encoding="utf-8", errors="ignore") as f:
             self.codigo = f.read()
-        m = re.search(r"^bool handlePS2Botones\(\)\s*\{(.*?)^\}",
-                      self.codigo, re.M | re.S)
-        self.assertIsNotNone(m, "No se encuentra handlePS2Botones()")
-        self.cuerpo = m.group(1)
+        self.botones = self._funcion("void handlePS2Botones")
+        self.movimiento = self._funcion("bool handlePS2Movement")
+        self.loop = self._funcion("void loop")
 
-    def _bloque(self, boton):
-        """El cuerpo del if que atiende a ese boton."""
-        m = re.search(r"flancoPulsacion\(ps2x\.Button\(%s\)[^)]*\)\)\s*\{(.*?)\n  \}"
-                      % boton, self.cuerpo, re.S)
-        self.assertIsNotNone(
-            m, f"{boton} no se atiende con flancoPulsacion(...) en "
-               "handlePS2Botones()")
+    def _funcion(self, firma):
+        m = re.search(r"^%s\(\)\s*\{(.*?)^\}" % re.escape(firma),
+                      self.codigo, re.M | re.S)
+        self.assertIsNotNone(m, f"No se encuentra {firma}()")
         return m.group(1)
 
+    # ---- LO QUE ARREGLA EL FALLO: descartar la lectura corrupta ----
+    def test_existe_el_filtro_de_lecturas_corruptas(self):
+        """Nadie pulsa seis botones a la vez: eso es una lectura basura."""
+        m = re.search(r"^bool lecturaDelMandoFiable\(\)\s*\{(.*?)^\}",
+                      self.codigo, re.M | re.S)
+        self.assertIsNotNone(m, "Falta lecturaDelMandoFiable()")
+        self.assertIn("MAX_BOTONES_A_LA_VEZ", m.group(1))
+        tope = re.search(r"MAX_BOTONES_A_LA_VEZ\s*=\s*(\d+)", self.codigo)
+        self.assertIsNotNone(tope)
+        self.assertLessEqual(
+            int(tope.group(1)), 8,
+            "Con el tope tan alto, una lectura corrupta (16 botones) pasaria "
+            "el filtro y volveria a mover el pastillero sola.")
+
+    def test_el_filtro_protege_a_los_botones(self):
+        """El filtro tiene que envolver a handlePS2Botones() en el loop: si se
+        llama fuera del if, no sirve de nada."""
+        m = re.search(r"if\s*\(\s*lecturaDelMandoFiable\(\)\s*\)\s*\{(.*?)\n    \}",
+                      self.loop, re.S)
+        self.assertIsNotNone(
+            m, "handlePS2Botones() debe llamarse dentro de "
+               "if (lecturaDelMandoFiable()) { ... }")
+        self.assertIn("handlePS2Botones()", m.group(1))
+
+    def test_el_pastillero_pide_confirmacion(self):
+        """Segunda red: el boton tiene que seguir pulsado en la lectura de al
+        lado. Un parpadeo de un ciclo no llega a girar la ruleta."""
+        for pendiente, ahora in (("pendienteCuadrado", "cuadradoAhora"),
+                                 ("pendienteCirculo", "circuloAhora")):
+            with self.subTest(pendiente=pendiente):
+                self.assertRegex(
+                    self.botones, r"%s\s*&&\s*%s" % (pendiente, ahora),
+                    f"{pendiente} deberia exigir que el boton siga pulsado")
+
+    def test_la_primera_lectura_no_acciona_nada(self):
+        """Un boton ya pulsado al encender no debe disparar una accion."""
+        self.assertIn("mandoInicializado", self.botones)
+        m = re.search(r"if\s*\(!mandoInicializado\)\s*\{(.*?)\}", self.botones, re.S)
+        self.assertIsNotNone(m, "Falta la guarda de la primera lectura")
+        self.assertIn("return", m.group(1),
+                      "La primera lectura debe salir sin actuar")
+
+    # ---- mapeo y anti-repeticion ----
     def test_cada_boton_hace_lo_suyo(self):
-        for boton, (llamada, detalle) in self.ACCIONES.items():
-            bloque = self._bloque(boton)
+        for boton, llamada in self.ACCIONES.items():
             with self.subTest(boton=boton):
-                self.assertIn(llamada, bloque,
-                              f"{boton} deberia llamar a {llamada}()")
-                if detalle:
-                    self.assertIn(detalle, bloque,
-                                  f"{boton} deberia usar '{detalle}'")
+                self.assertIn(boton, self.botones,
+                              f"{boton} no se atiende en handlePS2Botones()")
+                self.assertIn(llamada, self.botones,
+                              f"Falta la llamada a {llamada}()")
 
-    def test_ningun_boton_actua_mientras_se_mantiene(self):
-        """TODO ps2x.Button() de este manejador pasa por flancoPulsacion().
+    def test_la_velocidad_sube_con_triangulo_y_baja_con_x(self):
+        """Se mira DENTRO del if de cada boton, no en todo el cuerpo: un
+        comentario que nombre aplicarVelocidad() no debe contar como llamada."""
+        for boton, signo, que in (("PSB_TRIANGLE", "+", "SUBIR"),
+                                  ("PSB_CROSS", "-", "BAJAR")):
+            m = re.search(
+                r"if \(flancoPulsacion\(ps2x\.Button\(%s\)[^{]*\{(.*?)\n  \}"
+                % boton, self.botones, re.S)
+            with self.subTest(boton=boton):
+                self.assertIsNotNone(m, f"No se encuentra el bloque de {boton}")
+                llamada = re.search(r"aplicarVelocidad\(([^)]+)\)", m.group(1))
+                self.assertIsNotNone(
+                    llamada, f"{boton} deberia llamar a aplicarVelocidad(...)")
+                self.assertIn(signo, llamada.group(1),
+                              f"{boton} deberia {que} la velocidad")
 
-        Si alguien anade un boton leyendolo a pelo, se repetira 50 veces por
-        segundo. Con el pastillero eso significa la ruleta girando sola."""
-        lecturas = len(re.findall(r"ps2x\.Button\(", self.cuerpo))
-        con_flanco = len(re.findall(r"flancoPulsacion\(ps2x\.Button\(", self.cuerpo))
-        self.assertEqual(
-            lecturas, con_flanco,
-            f"{lecturas - con_flanco} boton(es) se leen sin deteccion de "
-            "flanco: se repetirian mientras se mantienen pulsados.")
+    def test_los_cuatro_botones_usan_deteccion_de_flanco(self):
+        """Sin flanco, un boton mantenido son 50 pulsaciones por segundo."""
+        for variable in ("antesTriangulo", "antesEquis",
+                         "antesCuadrado", "antesCirculo"):
+            with self.subTest(variable=variable):
+                self.assertRegex(
+                    self.botones, r"flancoPulsacion\(.*?,\s*%s\)" % variable,
+                    f"{variable} deberia usarse con flancoPulsacion()")
 
     def test_cada_boton_tiene_su_propia_variable_de_flanco(self):
-        """Con una variable compartida, pulsar uno anularia el flanco del otro."""
-        variables = re.findall(r"flancoPulsacion\(ps2x\.Button\(\w+\)\s*,\s*(\w+)\)",
-                               self.cuerpo)
-        self.assertEqual(len(variables), len(self.ACCIONES))
-        self.assertEqual(len(set(variables)), len(variables),
+        variables = re.findall(r"flancoPulsacion\([^,]+,\s*(\w+)\)", self.botones)
+        self.assertEqual(len(variables), 4, f"Se esperaban 4 flancos: {variables}")
+        self.assertEqual(len(set(variables)), 4,
                          f"Variables de flanco repetidas: {variables}")
 
     def test_los_botones_de_accion_no_pisan_a_los_de_movimiento(self):
-        """Si un boton hiciera dos cosas, una de las dos se perderia."""
-        m = re.search(r"^bool handlePS2Movement\(\)\s*\{(.*?)^\}",
-                      self.codigo, re.M | re.S)
-        movimiento = set(re.findall(r"PSB_\w+", m.group(1)))
-        choques = movimiento & set(self.ACCIONES)
+        usados_al_conducir = set(re.findall(r"PSB_\w+", self.movimiento))
+        choques = usados_al_conducir & set(self.ACCIONES)
         self.assertFalse(choques, f"Botones usados para dos cosas: {choques}")
 
+    def test_solo_el_cuadrado_y_el_circulo_tocan_el_pastillero(self):
+        """La comprobacion directa de lo que se pidio: ningun otro boton puede
+        acabar llamando a la ruleta."""
+        for accion in ("irACompartimiento", "dispensar("):
+            bloque = re.search(r"if\s*\(avanzarPastillero\)(.*?)\n\}",
+                               self.botones + "\n}", re.S)
+            self.assertIsNotNone(bloque)
+            with self.subTest(accion=accion):
+                self.assertIn(accion, bloque.group(1),
+                              f"{accion} deberia estar solo en el bloque del "
+                              "pastillero")
+        # y ese bloque depende SOLO de las dos variables confirmadas
+        self.assertNotRegex(
+            self.botones, r"if\s*\(avanzarPastillero\s*\|\|",
+            "El avance del pastillero no debe depender de nada mas")
+
+    def test_avanzar_y_dispensar_son_excluyentes(self):
+        """Nunca dos giros de ruleta en la misma lectura."""
+        self.assertRegex(self.botones, r"\}\s*else if\s*\(dispensarAhora\)",
+                         "dispensar deberia ir en un 'else if'")
+
     def test_mover_el_pastillero_para_el_chasis_antes(self):
-        """La ruleta no debe girar con el robot en marcha: la pastilla tiene que
-        caer donde toca. dispensar() ya lo hace por dentro; el avance de un
-        compartimiento tiene que hacerlo aqui."""
-        self.assertIn("stopMoving()", self._bloque("PSB_SQUARE"),
+        m = re.search(r"if\s*\(avanzarPastillero\)\s*\{(.*?)\n  \}",
+                      self.botones, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn("stopMoving()", m.group(1),
                       "El cuadrado deberia parar el chasis antes de girar")
 
     def test_el_avance_del_pastillero_da_la_vuelta_en_el_ultimo(self):
-        """Del 8 tiene que pasar al 1, no salirse del rango 1..8."""
-        self.assertIn("compActual % N_COMPARTIMIENTOS + 1",
-                      self._bloque("PSB_SQUARE"),
-                      "El cuadrado deberia avanzar uno dando la vuelta")
+        self.assertIn("compActual % N_COMPARTIMIENTOS + 1", self.botones,
+                      "El cuadrado deberia avanzar uno dando la vuelta del 8 al 1")
 
-    def test_el_manejador_se_llama_desde_el_loop(self):
-        m = re.search(r"^void loop\(\)\s*\{(.*?)^\}", self.codigo, re.M | re.S)
-        self.assertIn("handlePS2Botones()", m.group(1),
-                      "handlePS2Botones() no se llama desde loop()")
+    # ---- la vibracion se quita a proposito ----
+    def test_no_se_pide_vibracion(self):
+        """El motor del mando es un pico de consumo, y un bajon de tension es
+        justo lo que corrompe la lectura del PS2. No compensa."""
+        m = re.search(r"ps2x\.read_gamepad\(([^)]*)\)", self.loop)
+        self.assertIsNotNone(m, "No se encuentra la lectura del mando")
+        self.assertRegex(m.group(1).replace(" ", ""), r"^false,0$",
+                         "read_gamepad deberia pedirse SIN vibracion")
 
+    # ---- stick izquierdo ----
+    def test_el_stick_izquierdo_conduce(self):
+        self.assertIn("movimientoDelStickIzquierdo()", self.movimiento,
+                      "handlePS2Movement() deberia consultar el stick")
+        stick = self._funcion("uint8_t movimientoDelStickIzquierdo")
+        self.assertIn("PSS_LY", stick)
+        self.assertIn("PSS_LX", stick)
+
+    def test_el_stick_tiene_zona_muerta(self):
+        """Sin zona muerta el robot se mueve solo: el stick nunca descansa
+        exactamente en el centro."""
+        m = re.search(r"STICK_ZONA_MUERTA\s*=\s*(\d+)", self.codigo)
+        self.assertIsNotNone(m, "Falta STICK_ZONA_MUERTA")
+        self.assertGreaterEqual(int(m.group(1)), 20,
+                                "Zona muerta demasiado pequena: el mando deriva")
+
+    def test_el_pad_manda_sobre_el_stick(self):
+        """El PAD es digital y no deriva: si se esta pulsando, gana."""
+        pos_pad = self.movimiento.find("PSB_PAD_UP")
+        pos_stick = self.movimiento.find("movimientoDelStickIzquierdo")
+        self.assertNotEqual(pos_pad, -1)
+        self.assertNotEqual(pos_stick, -1)
+        self.assertLess(pos_pad, pos_stick,
+                        "El stick deberia mirarse DESPUES del PAD")
+
+    def test_el_stick_en_reposo_no_manda(self):
+        stick = self._funcion("uint8_t movimientoDelStickIzquierdo")
+        self.assertRegex(stick, r"==\s*0\s*&&.*?==\s*0\s*\)\s*return MOVC_STOP",
+                         "En reposo el stick debe devolver MOVC_STOP")
+
+    # ---- velocidad en un solo sitio ----
     def test_la_velocidad_se_cambia_en_un_solo_sitio(self):
-        """El comando VEL y los botones comparten aplicarVelocidad(), que es
-        quien recorta al rango y fuerza el reenvio al shield. Duplicar eso es
-        como se pierde el 'movAplicado = 255' y la velocidad deja de aplicarse
-        hasta el siguiente cambio de direccion."""
         self.assertEqual(
             len(re.findall(r"^void aplicarVelocidad\(", self.codigo, re.M)), 1)
-        self.assertIn("movAplicado = 255",
-                      re.search(r"^void aplicarVelocidad\(.*?\n\}",
-                                self.codigo, re.M | re.S).group(0),
+        cuerpo = re.search(r"^void aplicarVelocidad\(.*?\n\}",
+                           self.codigo, re.M | re.S).group(0)
+        self.assertIn("movAplicado = 255", cuerpo,
                       "aplicarVelocidad() debe forzar el reenvio al shield")
-        # El manejador de VEL no debe reimplementarlo por su cuenta.
-        vel = re.search(r'cmd == "VEL"\)\s*\{(.*?)\n  \} else if', self.codigo, re.S)
+        vel = re.search(r'cmd == "VEL"\)\s*\{(.*?)\n  \} else if',
+                        self.codigo, re.S)
         self.assertIsNotNone(vel, "No se encuentra el manejador del comando VEL")
         self.assertIn("aplicarVelocidad", vel.group(1),
                       "El comando VEL deberia usar aplicarVelocidad()")
