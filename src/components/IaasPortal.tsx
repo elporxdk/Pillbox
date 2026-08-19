@@ -73,9 +73,9 @@ export function IaasPortal() {
           Cómo se transmiten
         </h3>
         <p className="mb-4 text-sm text-ink/50">
-          Las marcadas son las dos vías sobre las que MEDIBOT actúa. Las otras se
-          listan porque, sin ellas, parecería que un robot de transporte resuelve
-          el problema entero — y no lo hace.
+          Las marcadas son las dos vías sobre las que MEDIBOT actúa. Las demás se
+          listan porque, sin ellas, parecería que un robot de transporte resuelve el
+          problema entero. No lo resuelve.
         </p>
         <div className="mb-10 space-y-3">
           {VIAS_TRANSMISION.map((v) => (

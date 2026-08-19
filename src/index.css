@@ -117,29 +117,12 @@ body {
  *  caraataca directamente a la fluidez del visor.
  * ================================================================== */
 
-/* Manchas de color del fondo: derivan muy despacio, para que el fondo
- * respire sin que el movimiento llame la atencion. 18-26 s por ciclo. */
-@keyframes deriva-aurora {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  33% {
-    transform: translate3d(3%, -4%, 0) scale(1.08);
-  }
-  66% {
-    transform: translate3d(-3%, 3%, 0) scale(0.95);
-  }
-}
+/* Aqui vivia `deriva-aurora`, la animacion de las manchas de color desenfocadas
+ * que habia detras del titular y de "Quienes somos". Se quitaron del diseno por ser
+ * la firma de fondo mas repetida de las plantillas, y el CSS se va con ellas: una
+ * animacion sin nadie que la use es peso muerto que el siguiente lee y no entiende.
+ */
 
-.aurora {
-  animation: deriva-aurora 22s ease-in-out infinite;
-  will-change: transform;
-}
-.aurora-lenta {
-  animation: deriva-aurora 30s ease-in-out infinite reverse;
-  will-change: transform;
-}
 
 /* Trazo del pulso: dibuja la linea de izquierda a derecha y vuelve a
  * empezar. `stroke-dashoffset` no dispara layout, solo repintado del path. */
@@ -220,8 +203,8 @@ body {
  *  compositor: no cuesta un fotograma de trabajo en el hilo principal aunque
  *  este girando en todas partes.
  *
- *  Lo de que no se REINICIE al navegar se resuelve en `MedibotLogo.tsx` con un
- *  `animation-delay` negativo; aqui solo vive el movimiento.
+ *  Lo de que no se REINICIE al navegar se resuelve en `MedibotLogo.tsx`, anclando
+ *  cada instancia al origen del reloj del documento; aqui solo vive el movimiento.
  * ================================================================== */
 @keyframes girar-ruleta {
   to {
@@ -244,8 +227,6 @@ body {
  *  acordandose de cada una. El contenido no depende de ninguna.
  * ================================================================== */
 @media (prefers-reduced-motion: reduce) {
-  .aurora,
-  .aurora-lenta,
   .trazo-pulso,
   .latido,
   .marcador-termico,
