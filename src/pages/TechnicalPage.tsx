@@ -73,7 +73,6 @@ const SOFTWARE_STATS = [
 
 export default function TechnicalPage() {
   const pageRef = useRef<HTMLDivElement>(null);
-  const wheelRef = useRef<SVGGElement>(null);
   const [currentHardwareIndex, setCurrentHardwareIndex] = useState(0);
   const { hash } = useLocation();
 
@@ -98,14 +97,6 @@ export default function TechnicalPage() {
 
   useEffect(() => {
     const ctx = gsap.context(() => {
-      // Wheel rotation animation
-      gsap.to(wheelRef.current, {
-        rotation: 360,
-        duration: 20,
-        repeat: -1,
-        ease: "none",
-      });
-
       // Hero fade-up
       gsap.from(".hero-content > *", {
         y: 30,

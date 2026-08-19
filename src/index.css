@@ -207,6 +207,36 @@ body {
 }
 
 /* ==================================================================
+ *  La ruleta de la marca
+ *
+ *  Gira siempre y en todas las paginas. Antes lo hacia GSAP dentro de cada
+ *  pagina, y eso traia tres problemas: en /tecnologia el `ref` nunca llego a
+ *  engancharse al SVG, asi que la animacion se aplicaba a `null` y la rueda
+ *  estaba quieta; en /comunidad, /auth y el panel no habia animacion ninguna; y
+ *  donde si la habia, cambiar de pagina desmonta el componente y la rotacion
+ *  volvia a empezar desde cero.
+ *
+ *  Aqui es CSS, no JavaScript, porque el navegador puede llevarla en el hilo del
+ *  compositor: no cuesta un fotograma de trabajo en el hilo principal aunque
+ *  este girando en todas partes.
+ *
+ *  Lo de que no se REINICIE al navegar se resuelve en `MedibotLogo.tsx` con un
+ *  `animation-delay` negativo; aqui solo vive el movimiento.
+ * ================================================================== */
+@keyframes girar-ruleta {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ruleta-marca {
+  animation: girar-ruleta 14s linear infinite;
+  transform-origin: 50% 50%;
+  /* La rotacion se queda en la GPU en lugar de repintar el SVG cada fotograma. */
+  will-change: transform;
+}
+
+/* ==================================================================
  *  `prefers-reduced-motion`
  *
  *  Quien pide menos movimiento no quiere "menos": quiere que se pare. Se
@@ -219,7 +249,8 @@ body {
   .trazo-pulso,
   .latido,
   .marcador-termico,
-  .barrido {
+  .barrido,
+  .ruleta-marca {
     animation: none !important;
   }
   .trazo-pulso {

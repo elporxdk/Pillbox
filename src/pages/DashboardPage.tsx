@@ -2,16 +2,13 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { LogOut, Settings, FileText, Bell, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { MedibotLogo } from "@/components/MedibotLogo";
+import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { IaasPortal } from "@/components/IaasPortal";
 import { PortalNoticias } from "@/components/comunidad/PortalNoticias";
 import { CambiarContrasena } from "@/components/CambiarContrasena";
 import { GestorFotosCreadores } from "@/components/GestorFotosCreadores";
 import { ThemeToggle } from "@/components/ThemeToggle";
-
-
-// Logo MEDIBOT: un anillo (rueda) dividido en 8 sectores iguales
 
 export default function DashboardPage() {
   //Corroboración de sesión de usuario mediante el hook useAuth, que proporciona información sobre el usuario autenticado y funciones para cerrar sesión
@@ -68,38 +65,12 @@ export default function DashboardPage() {
                 Panel de control de MEDIBOT. Monitorea y gestiona el sistema de transporte hospitalario.
               </p>
             </div>
+            {/* Era una TERCERA copia a mano de la geometria del logotipo: 40 lineas
+                calculando los mismos ocho sectores que ya calcula `MedibotMark`, y con
+                la separacion puesta a 6 grados en vez de 8, asi que ni siquiera dibujaba
+                la misma marca. Ahora es el componente, y gira como el resto. */}
             <div className="hidden lg:block">
-              <svg viewBox="0 0 100 100" className="w-32 h-32" xmlns="http://www.w3.org/2000/svg">
-                <g style={{ transformOrigin: "50% 50%" }}>
-                  {Array.from({ length: 8 }).map((_, i) => {
-                    const SEGMENTS = 8;
-                    const GAP_DEG = 6;
-                    const CX = 50;
-                    const CY = 50;
-                    const OUTER_R = 46;
-                    const INNER_R = 20;
-
-                    const toRad = (deg: number) => ((deg - 90) * Math.PI) / 180;
-                    const point = (r: number, deg: number) => [
-                      CX + r * Math.cos(toRad(deg)),
-                      CY + r * Math.sin(toRad(deg)),
-                    ];
-
-                    const sweep = 360 / SEGMENTS;
-                    const start = i * sweep + GAP_DEG / 2;
-                    const end = (i + 1) * sweep - GAP_DEG / 2;
-
-                    const [x1, y1] = point(OUTER_R, start);
-                    const [x2, y2] = point(OUTER_R, end);
-                    const [x3, y3] = point(INNER_R, end);
-                    const [x4, y4] = point(INNER_R, start);
-
-                    const d = `M ${x1} ${y1} A ${OUTER_R} ${OUTER_R} 0 0 1 ${x2} ${y2} L ${x3} ${y3} A ${INNER_R} ${INNER_R} 0 0 0 ${x4} ${y4} Z`;
-
-                    return <path key={i} d={d} fill="var(--c-brandsoft)" />;
-                  })}
-                </g>
-              </svg>
+              <MedibotMark className="w-32 h-32" />
             </div>
           </div>
         </div>

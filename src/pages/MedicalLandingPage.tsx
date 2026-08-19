@@ -259,15 +259,11 @@ export default function MedicalLandingPage() {
         { opacity: 1, duration: 0.5, ease: "power1.out" }
       );
 
-      // Giro lento y continuo, con ease lineal para que no acelere ni frene:
-      // la rueda gira sola, sin sacudidas, mientras dura el splash.
-      gsap.to(".splash-wheel", {
-        rotate: 360,
-        duration: 9,
-        repeat: -1,
-        ease: "none",
-        transformOrigin: "50% 50%",
-      });
+      // La rueda del splash NO se anima aqui. Giraba con GSAP a 9 s mientras la del
+      // resto del sitio va a 14 s por CSS, asi que el logotipo cambiaba de ritmo al
+      // desaparecer el splash. Peor: GSAP escribe `transform` en linea, que gana a la
+      // regla CSS, y eso dejaba a esta rueda fuera de `prefers-reduced-motion` -- seguia
+      // girando para quien habia pedido que no. Ahora hay un solo sistema de rotacion.
 
       // Salida: solo se desvanece el overlay. El logo ya no escala.
       gsap.to(splashRef.current, {
@@ -299,14 +295,9 @@ export default function MedicalLandingPage() {
         ease: "power3.out",
       });
 
-      // Logo del navbar: giro lento e infinito, sutil, como sello de marca viva
-      gsap.to(".navbar-wheel", {
-        rotate: 360,
-        duration: 14,
-        repeat: -1,
-        ease: "none",
-        transformOrigin: "50% 50%",
-      });
+      // La ruleta del logotipo ya NO se anima aqui. Estaba atada a esta pagina, asi
+      // que al navegar se reiniciaba y en el resto del sitio no giraba. Ahora es una
+      // animacion CSS con fase global; ver `MedibotLogo.tsx`.
 
       // Floating pulse decoration
       gsap.to(".floating-icon", {
@@ -395,7 +386,7 @@ export default function MedicalLandingPage() {
           className="fixed inset-0 z-[100] bg-surface flex flex-col items-center justify-center gap-6"
         >
           <div ref={splashLogoRef}>
-            <MedibotMark className="w-40 h-40" wheelClassName="splash-wheel" />
+            <MedibotMark className="w-40 h-40" />
           </div>
           <div className="text-4xl sm:text-5xl font-extrabold tracking-tight">
             <span className="text-brandsoft">MEDI</span>
@@ -409,7 +400,7 @@ export default function MedicalLandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-10 h-20 flex items-center justify-between">
           <a href="#inicio" className="group">
             <div className="group-hover:scale-105 transition-transform">
-              <MedibotLogo markClassName="w-10 h-10" wordmarkClassName="text-xl" markWheelClassName="navbar-wheel" />
+              <MedibotLogo markClassName="w-10 h-10" wordmarkClassName="text-xl" />
             </div>
           </a>
 
