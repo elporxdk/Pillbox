@@ -2,28 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import {
-  Cpu,
-  Code2,
-  FileText,
-  Download,
-  ExternalLink,
-  ArrowRight,
-  Zap,
-  Microchip,
-  Box,
-  CircuitBoard,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
-import hardware1 from "../media/hardware1.png";
-import hardware2 from "../media/hardware2.png";
-import hardware3 from "../media/hardware3.png";
-import planoMedibot from "../media/plano-medibot.webp";
-import { PLANO, REPOSITORIO } from "@/data/equipo";
+import { ArrowRight, Menu, X } from "lucide-react";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MedibotLogo } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
+import { BloqueTecnologia } from "@/components/tecnologia/BloqueTecnologia";
+import { anchoDelBloque } from "@/components/tecnologia/anchos";
+import { BLOQUES_DE_RESERVA } from "@/lib/tecnologiaReserva";
+import { SECCIONES, leerBloques, porSeccion, type Bloque } from "@/lib/tecnologia";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -33,153 +20,109 @@ const NAV_LINKS = [
   { label: "Beneficios", href: "/#beneficios" },
   { label: "Cómo funciona", href: "/#como-funciona" },
   { label: "Tecnología", href: "/tecnologia" },
-  // La seccion de Documentacion (plano y anteproyecto) esta al final de esta
-  // pagina y no tenia ningun enlace: la unica forma de llegar era bajar hasta
-  // abajo. Se añadio al descubrir que ni sabiendo que el plano estaba ahi se
-  // encontraba. Es un ancla dentro de esta misma pagina; el desplazamiento lo
-  // hace el `useEffect` de mas abajo, porque react-router no lo hace solo.
   { label: "Documentación", href: "/tecnologia#documentacion" },
   { label: "Comunidad", href: "/comunidad" },
   { label: "Contacto", href: "/#contacto" },
 ];
 
-const HARDWARE_ITEMS = [
-  {
-    title: "Chasis Omnidireccional",
-    description: "Sistema de tracción con motores DC y controladores de potencia para desplazamiento fluido en espacios reducidos.",
-    image: hardware1,
-    icon: CircuitBoard,
-  },
-  {
-    title: "Control Térmico Peltier",
-    description: "Celda Peltier con sensores térmicos de precisión para mantener la cadena de frío de medicamentos termolábiles.",
-    image: hardware2,
-    icon: Microchip,
-  },
-  {
-    title: "Módulo Controlador de PWM",
-    description: "Placa de potencia con dos MOSFET IRF540N que reciben la señal PWM del controlador y regulan el ventilador y la celda Peltier del compartimento térmico.",
-    image: hardware3,
-    icon: Cpu,
-  },
-];
-
-const SOFTWARE_STATS = [
-  { label: "C++ / Arduino", percentage: 35, color: "from-brand to-deep" },
-  { label: "Python", percentage: 25, color: "from-mint to-brand" },
-  { label: "React / TypeScript", percentage: 30, color: "from-brandsoft to-mint" },
-  { label: "HTML / CSS", percentage: 10, color: "from-deep to-brandsoft" },
-];
+/** Fondo alterno, para que las secciones se distingan sin líneas ni adornos. */
+const FONDO_DE_SECCION: Record<string, string> = {
+  hardware: "bg-card",
+  software: "",
+  documentacion: "bg-card",
+};
 
 export default function TechnicalPage() {
   const pageRef = useRef<HTMLDivElement>(null);
-  const wheelRef = useRef<SVGGElement>(null);
-  const [currentHardwareIndex, setCurrentHardwareIndex] = useState(0);
+  const [menuAbierto, setMenuAbierto] = useState(false);
   const { hash } = useLocation();
+
+  /**
+   * El contenido de la sección.
+   *
+   * `null` significa "todavía no se sabe" o "no se pudo leer", y en los dos casos se
+   * pinta el contenido de reserva del código. Ese es el motivo de que `leerBloques()`
+   * distinga `null` de una lista vacía: una lista vacía es una decisión del
+   * administrador, y entonces la sección se queda vacía de verdad.
+   */
+  const [bloques, setBloques] = useState<Bloque[] | null>(null);
+
+  useEffect(() => {
+    let cancelado = false;
+    void (async () => {
+      const lista = await leerBloques();
+      if (!cancelado) setBloques(lista);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
 
   /**
    * Desplaza hasta el ancla de la URL (#documentacion).
    *
    * Hace falta porque react-router NO desplaza al cambiar solo el hash: cambia la
-   * URL y deja la pagina donde estaba. Sin esto, el enlace de "Documentación"
-   * parece no hacer nada, que es peor que no tenerlo.
+   * URL y deja la página donde estaba. Sin esto, el enlace de Documentación parece
+   * no hacer nada, que es peor que no tenerlo.
    *
-   * Solo toca el DOM, no llama a setState. El desfase por la barra fija lo resuelve
-   * `scroll-mt-*` en la seccion, no un calculo aqui.
+   * Depende también de `bloques`: al llegar el contenido la página cambia de alto, y
+   * si solo se desplazara al montar, el ancla quedaría en el sitio equivocado.
    */
   useEffect(() => {
     if (!hash) return;
-    // Se espera un fotograma: al montar, la seccion todavia no esta en el DOM.
     const id = requestAnimationFrame(() => {
       document.querySelector(hash)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     return () => cancelAnimationFrame(id);
-  }, [hash]);
+  }, [hash, bloques]);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
-      // Wheel rotation animation
-      gsap.to(wheelRef.current, {
-        rotation: 360,
-        duration: 20,
-        repeat: -1,
-        ease: "none",
-      });
-
-      // Hero fade-up
       gsap.from(".hero-content > *", {
-        y: 30,
+        y: 24,
         opacity: 0,
-        duration: 0.8,
-        stagger: 0.15,
+        duration: 0.7,
+        stagger: 0.12,
         ease: "power3.out",
       });
 
-      // Section titles fade-up
-      gsap.utils.toArray<HTMLElement>(".section-title").forEach((el) => {
+      /**
+       * Se anima la SECCION entera, no cada bloque.
+       *
+       * Antes entraba cada tarjeta por su cuenta, y eso tiene dos problemas. Uno de
+       * gusto: doce elementos apareciendo de uno en uno es el tic de plantilla que
+       * se queria quitar. Y otro de robustez: `gsap.from` pone el elemento a opacidad
+       * cero y lo devuelve al pulsar el disparador, asi que cualquier cosa que impida
+       * que el disparador salte deja el contenido invisible para siempre.
+       *
+       * Con una animacion por seccion hay tres disparadores en vez de doce, y
+       * `start: "top 95%"` los hace saltar en cuanto asoma el borde superior.
+       */
+      gsap.utils.toArray<HTMLElement>(".seccion-animada").forEach((el) => {
         gsap.from(el, {
-          y: 24,
+          y: 20,
           opacity: 0,
-          duration: 0.8,
+          duration: 0.6,
           ease: "power3.out",
-          scrollTrigger: {
-            trigger: el,
-            start: "top 85%",
-          },
+          scrollTrigger: { trigger: el, start: "top 95%", once: true },
         });
       });
 
-      // Hardware cards stagger
-      gsap.from(".hardware-card", {
-        y: 40,
-        opacity: 0,
-        duration: 0.8,
-        stagger: 0.2,
-        ease: "power3.out",
-        scrollTrigger: {
-          trigger: ".hardware-grid",
-          start: "top 80%",
-        },
-      });
-
-      // Software stats animation
-      gsap.utils.toArray<HTMLElement>(".stat-bar").forEach((el) => {
-        const width = el.dataset.width;
-        gsap.fromTo(
-          el,
-          { width: 0 },
-          {
-            width: width,
-            duration: 1.2,
-            ease: "power3.out",
-            scrollTrigger: {
-              trigger: el,
-              start: "top 85%",
-            },
-          }
-        );
-      });
-
-      // Documentation cards stagger
-      gsap.from(".doc-card", {
-        y: 30,
-        opacity: 0,
-        duration: 0.8,
-        stagger: 0.15,
-        ease: "power3.out",
-        scrollTrigger: {
-          trigger: ".doc-grid",
-          start: "top 80%",
-        },
-      });
+      // Las imagenes cambian el alto de la pagina al cargar, y ScrollTrigger midio
+      // antes. Sin esto, los disparadores de mas abajo quedan calculados sobre una
+      // pagina que ya no existe.
+      ScrollTrigger.refresh();
     }, pageRef);
 
     return () => ctx.revert();
-  }, []);
+    // Se rehace cuando entra el contenido: los bloques que animar no existen hasta
+    // entonces.
+  }, [bloques]);
+
+  const agrupados = porSeccion(bloques ?? BLOQUES_DE_RESERVA);
 
   return (
     <div ref={pageRef} className="min-h-screen bg-surface">
-      {/* ================= NAVBAR ================= */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-md border-b border-ink/5">
         <div className="max-w-7xl mx-auto px-6 lg:px-10">
           <div className="flex items-center justify-between h-16">
@@ -187,7 +130,7 @@ export default function TechnicalPage() {
               <MedibotLogo markClassName="w-8 h-8" wordmarkClassName="text-lg" />
             </Link>
 
-            <div className="hidden md:flex items-center gap-8">
+            <div className="hidden xl:flex items-center gap-8">
               {NAV_LINKS.map((link) => (
                 <Link
                   key={link.href}
@@ -203,269 +146,99 @@ export default function TechnicalPage() {
               <ThemeToggle />
               <Link
                 to="/auth"
-                className="hidden md:flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-brand to-deep text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+                className="hidden xl:flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-brand to-deep text-white text-sm font-semibold hover:opacity-90 transition-opacity"
               >
                 Acceder
                 <ArrowRight className="w-4 h-4" />
               </Link>
+              {/* La barra tenía los enlaces en `hidden md:flex` y ningún menú para
+                  pantallas menores: en un móvil no había forma de llegar a
+                  Documentación ni a Comunidad desde aquí. */}
+              <button
+                type="button"
+                onClick={() => setMenuAbierto((v) => !v)}
+                aria-label={menuAbierto ? "Cerrar menú" : "Abrir menú"}
+                aria-expanded={menuAbierto}
+                className="xl:hidden w-10 h-10 flex items-center justify-center rounded-full hover:bg-ink/5"
+              >
+                {menuAbierto ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              </button>
             </div>
           </div>
         </div>
+
+        {menuAbierto && (
+          <div className="xl:hidden bg-card border-t border-ink/5 px-6 py-4 flex flex-col gap-4">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                to={link.href}
+                onClick={() => setMenuAbierto(false)}
+                className="text-sm font-medium text-ink/70"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <Link
+              to="/auth"
+              onClick={() => setMenuAbierto(false)}
+              className="text-sm font-semibold text-brand"
+            >
+              Acceder
+            </Link>
+          </div>
+        )}
       </nav>
 
-      {/* ================= HERO ================= */}
-      <section className="pt-32 pb-20 lg:pt-40 lg:pb-28 px-6 lg:px-10">
+      <section className="pt-32 pb-16 lg:pt-40 lg:pb-24 px-6 lg:px-10">
         <div className="max-w-7xl mx-auto">
-          <div className="hero-content text-center max-w-4xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brandsoft/10 border border-brandsoft/30 text-ink text-sm font-semibold mb-6">
-              <Zap className="w-4 h-4 text-brand" />
-              Tecnología detrás de MEDIBOT
-            </div>
-            <h1 className="text-4xl lg:text-6xl font-extrabold mb-6 text-ink leading-tight">
-              Innovación en{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand to-mint">
-                Hardware y Software
-              </span>
+          <div className="hero-content max-w-3xl">
+            <span className="mb-4 inline-block text-sm font-semibold uppercase tracking-wide text-brand">
+              Tecnología
+            </span>
+            <h1 className="text-4xl lg:text-5xl font-extrabold mb-6 text-ink leading-tight">
+              Cómo está hecho MEDIBOT
             </h1>
-            <p className="text-lg text-ink/70 leading-relaxed mb-8">
-              Explora los componentes técnicos que hacen posible MEDIBOT: desde el
-              sistema de tracción omnidireccional hasta el código que controla cada
-              movimiento.
+            <p className="text-lg text-ink/70 leading-relaxed">
+              El hardware que lo mueve, el software que lo controla y la documentación
+              del proyecto. Lo que se describe aquí es lo que hay montado en el
+              prototipo.
             </p>
           </div>
         </div>
       </section>
 
-      {/* ================= HARDWARE ================= */}
-      <section id="hardware" className="px-6 lg:px-10 py-24 lg:py-32 bg-card">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
-              Hardware
-            </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
-              Componentes Físicos
-            </h2>
-            <p className="text-ink/60 text-lg">
-              Los elementos mecánicos y electrónicos que dan vida a MEDIBOT.
-            </p>
-          </div>
+      {SECCIONES.map((seccion) => {
+        const deLaSeccion = agrupados.get(seccion) ?? [];
+        if (deLaSeccion.length === 0) return null;
 
-          <div className="relative max-w-4xl mx-auto">
-            <button
-              onClick={() => setCurrentHardwareIndex((prev) => (prev === 0 ? HARDWARE_ITEMS.length - 1 : prev - 1))}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 z-20 w-12 h-12 rounded-full bg-card border border-ink/10 shadow-lg flex items-center justify-center hover:bg-brand hover:text-white hover:border-brand transition-all"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-
-            <div className="hardware-carousel overflow-hidden">
-              <div
-                className="flex transition-transform duration-500 ease-out"
-                style={{ transform: `translateX(-${currentHardwareIndex * 100}%)` }}
-              >
-                {HARDWARE_ITEMS.map((item, index) => (
-                  <div key={index} className="w-full flex-shrink-0 px-4">
-                    <div className="bg-card rounded-3xl border border-ink/10 shadow-lg overflow-hidden">
-                      <div className="aspect-video bg-surface p-8 flex items-center justify-center">
-                        <img
-                          src={item.image}
-                          alt={item.title}
-                          className="max-w-full max-h-full object-contain"
-                        />
-                      </div>
-                      <div className="p-6">
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center">
-                            <item.icon className="w-5 h-5 text-brand" />
-                          </div>
-                          <h3 className="font-bold text-ink">{item.title}</h3>
-                        </div>
-                        <p className="text-sm text-ink/60 leading-relaxed">
-                          {item.description}
-                        </p>
-                      </div>
-                    </div>
+        return (
+          <section
+            key={seccion}
+            id={seccion}
+            /* `scroll-mt-24`: la barra es fija, y sin este margen el título de la
+               sección queda debajo de ella al llegar desde un enlace. */
+            className={`scroll-mt-24 px-6 lg:px-10 py-20 lg:py-28 ${FONDO_DE_SECCION[seccion] ?? ""}`}
+          >
+            <div className="seccion-animada max-w-7xl mx-auto">
+              {/* Rejilla de doce columnas: cada tipo de bloque decide cuánto ocupa,
+                  y así una sección puede mezclar tarjetas en fila con una tabla a
+                  todo lo ancho sin maquetas separadas. */}
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                {deLaSeccion.map((bloque) => (
+                  <div
+                    key={bloque.id}
+                    className={anchoDelBloque(bloque.tipo)}
+                  >
+                    <BloqueTecnologia bloque={bloque} />
                   </div>
                 ))}
               </div>
             </div>
+          </section>
+        );
+      })}
 
-            <button
-              onClick={() => setCurrentHardwareIndex((prev) => (prev === HARDWARE_ITEMS.length - 1 ? 0 : prev + 1))}
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 z-20 w-12 h-12 rounded-full bg-card border border-ink/10 shadow-lg flex items-center justify-center hover:bg-brand hover:text-white hover:border-brand transition-all"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
-
-            <div className="flex justify-center gap-2 mt-6">
-              {HARDWARE_ITEMS.map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrentHardwareIndex(index)}
-                  className={`w-2 h-2 rounded-full transition-all ${
-                    index === currentHardwareIndex ? "bg-brand w-6" : "bg-ink/20"
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ================= SOFTWARE ================= */}
-      <section id="software" className="px-6 lg:px-10 py-24 lg:py-32">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
-              Software
-            </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
-              Código Fuente
-            </h2>
-            <p className="text-ink/60 text-lg">
-              Distribución del código que controla MEDIBOT.
-            </p>
-          </div>
-
-          <div className="max-w-3xl mx-auto">
-            <div className="bg-card rounded-3xl p-8 border border-ink/10 shadow-lg">
-              {SOFTWARE_STATS.map((stat, index) => (
-                <div key={index} className="mb-6 last:mb-0">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-ink">{stat.label}</span>
-                    <span className="text-sm font-bold text-brand">{stat.percentage}%</span>
-                  </div>
-                  <div className="h-3 bg-surface rounded-full overflow-hidden">
-                    <div
-                      className={`stat-bar h-full bg-gradient-to-r ${stat.color} rounded-full`}
-                      data-width={`${stat.percentage}%`}
-                    />
-                  </div>
-                </div>
-              ))}
-
-              <div className="mt-8 pt-6 border-t border-ink/10">
-                <a
-                  href={REPOSITORIO.urlCodigo}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-3 w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-brand to-deep text-white font-semibold hover:opacity-90 transition-opacity"
-                >
-                  <Code2 className="w-5 h-5" />
-                  Ver en GitHub
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ================= DOCUMENTATION ================= */}
-      {/* `scroll-mt-16`: la barra de navegacion es fija y mide 4rem, asi que sin
-          este margen el titulo de la seccion queda debajo de ella al llegar por el
-          ancla. */}
-      <section id="documentacion" className="scroll-mt-16 px-6 lg:px-10 py-24 lg:py-32 bg-card">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-2xl mx-auto mb-16 section-title">
-            <span className="inline-block text-sm font-semibold text-brand mb-3 tracking-wide uppercase">
-              Documentación
-            </span>
-            <h2 className="text-3xl lg:text-4xl font-extrabold mb-4 text-ink">
-              Recursos y Guías
-            </h2>
-            <p className="text-ink/60 text-lg">
-              Accede a la documentación completa del proyecto.
-            </p>
-          </div>
-
-          {/* Plano tecnico.
-              Va ANTES del anteproyecto porque es lo unico de esta seccion que se
-              puede mirar sin descargar nada, y un plano se entiende viendolo.
-
-              La imagen es un WebP del PDF (2112 px de ancho) y el enlace lleva al
-              PDF vectorial: quien quiera leer el cajetin lo amplia sin que se
-              pixele. El fondo va blanco fijo y no con un token de tema, porque el
-              plano es linea negra sobre blanco -- en modo oscuro, sobre `bg-card`,
-              se veria negro sobre azul oscuro. */}
-          <figure className="mb-8 overflow-hidden rounded-3xl border border-ink/10 bg-card">
-            <a
-              href={PLANO.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block bg-white p-4 transition-opacity hover:opacity-90"
-              title="Abrir el plano en PDF, a tamaño completo"
-            >
-              <img
-                src={planoMedibot}
-                alt={`${PLANO.titulo}: vista isométrica y dos vistas ortográficas del robot, con el cajetín de datos`}
-                width={2112}
-                height={1632}
-                loading="lazy"
-                className="h-auto w-full"
-              />
-            </a>
-            <figcaption className="flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-ink">{PLANO.titulo}</h3>
-                <p className="mt-1 text-sm text-ink/60">
-                  Escala {PLANO.escala} · proyección de {PLANO.proyeccion} · dibujo n.º{" "}
-                  {PLANO.numeroDibujo}, rev. {PLANO.revision} · {PLANO.dibujadoPor}
-                </p>
-              </div>
-              {/* Dos salidas, y el orden importa: el modelo 3D va primero porque es
-                  lo que de verdad responde "¿dónde está cada cosa?" -- se puede
-                  girar y mirar por dentro. El PDF son tres vistas fijas. */}
-              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-                <a
-                  href={PLANO.urlOnshape}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-deep px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                >
-                  <Box className="h-4 w-4" />
-                  Ver el modelo 3D
-                </a>
-                <a
-                  href={PLANO.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 rounded-xl border border-brand/30 px-5 py-2.5 text-sm font-semibold text-brand transition-colors hover:bg-brand/10"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Ver el PDF
-                </a>
-              </div>
-            </figcaption>
-          </figure>
-
-          {/* Anteproyecto Featured Section */}
-          <div className="bg-gradient-to-r from-brand/10 to-mint/10 rounded-3xl p-8 border border-brand/20">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand to-deep flex items-center justify-center">
-                  <FileText className="w-8 h-8 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-ink mb-1">Anteproyecto MEDIBOT</h3>
-                  <p className="text-sm text-ink/60">Documento completo con análisis y planificación del proyecto.</p>
-                </div>
-              </div>
-              <a
-                href="/AnteproyectoMEDIBOT.docx"
-                download
-                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-brand to-deep text-white font-semibold hover:opacity-90 transition-opacity whitespace-nowrap"
-              >
-                <Download className="w-5 h-5" />
-                Descargar documento
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ================= FOOTER ================= */}
       <SiteFooter />
     </div>
   );

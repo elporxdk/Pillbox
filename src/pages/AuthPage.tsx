@@ -237,7 +237,7 @@ function RegisterForm({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
       <div className="mb-6 text-center">
         <h3 className="text-xl font-bold text-ink">Crea tu cuenta</h3>
         <p className="text-sm text-ink/60">
-          Únete a Medibot.
+          Para entrar al panel, la documentación y el foro.
         </p>
       </div>
 

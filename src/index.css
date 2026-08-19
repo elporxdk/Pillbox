@@ -117,29 +117,12 @@ body {
  *  caraataca directamente a la fluidez del visor.
  * ================================================================== */
 
-/* Manchas de color del fondo: derivan muy despacio, para que el fondo
- * respire sin que el movimiento llame la atencion. 18-26 s por ciclo. */
-@keyframes deriva-aurora {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  33% {
-    transform: translate3d(3%, -4%, 0) scale(1.08);
-  }
-  66% {
-    transform: translate3d(-3%, 3%, 0) scale(0.95);
-  }
-}
+/* Aqui vivia `deriva-aurora`, la animacion de las manchas de color desenfocadas
+ * que habia detras del titular y de "Quienes somos". Se quitaron del diseno por ser
+ * la firma de fondo mas repetida de las plantillas, y el CSS se va con ellas: una
+ * animacion sin nadie que la use es peso muerto que el siguiente lee y no entiende.
+ */
 
-.aurora {
-  animation: deriva-aurora 22s ease-in-out infinite;
-  will-change: transform;
-}
-.aurora-lenta {
-  animation: deriva-aurora 30s ease-in-out infinite reverse;
-  will-change: transform;
-}
 
 /* Trazo del pulso: dibuja la linea de izquierda a derecha y vuelve a
  * empezar. `stroke-dashoffset` no dispara layout, solo repintado del path. */
@@ -207,6 +190,36 @@ body {
 }
 
 /* ==================================================================
+ *  La ruleta de la marca
+ *
+ *  Gira siempre y en todas las paginas. Antes lo hacia GSAP dentro de cada
+ *  pagina, y eso traia tres problemas: en /tecnologia el `ref` nunca llego a
+ *  engancharse al SVG, asi que la animacion se aplicaba a `null` y la rueda
+ *  estaba quieta; en /comunidad, /auth y el panel no habia animacion ninguna; y
+ *  donde si la habia, cambiar de pagina desmonta el componente y la rotacion
+ *  volvia a empezar desde cero.
+ *
+ *  Aqui es CSS, no JavaScript, porque el navegador puede llevarla en el hilo del
+ *  compositor: no cuesta un fotograma de trabajo en el hilo principal aunque
+ *  este girando en todas partes.
+ *
+ *  Lo de que no se REINICIE al navegar se resuelve en `MedibotLogo.tsx`, anclando
+ *  cada instancia al origen del reloj del documento; aqui solo vive el movimiento.
+ * ================================================================== */
+@keyframes girar-ruleta {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ruleta-marca {
+  animation: girar-ruleta 14s linear infinite;
+  transform-origin: 50% 50%;
+  /* La rotacion se queda en la GPU en lugar de repintar el SVG cada fotograma. */
+  will-change: transform;
+}
+
+/* ==================================================================
  *  `prefers-reduced-motion`
  *
  *  Quien pide menos movimiento no quiere "menos": quiere que se pare. Se
@@ -214,12 +227,11 @@ body {
  *  acordandose de cada una. El contenido no depende de ninguna.
  * ================================================================== */
 @media (prefers-reduced-motion: reduce) {
-  .aurora,
-  .aurora-lenta,
   .trazo-pulso,
   .latido,
   .marcador-termico,
-  .barrido {
+  .barrido,
+  .ruleta-marca {
     animation: none !important;
   }
   .trazo-pulso {

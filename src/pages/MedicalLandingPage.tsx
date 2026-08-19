@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, Sparkles, ChevronRight, Activity, Users, CheckCircle2, Menu, X, ArrowRight,} from "lucide-react";
+import { Stethoscope, HeartPulse, ShieldCheck, Clock, MessageCircle, Bot, ChevronRight, Activity, Users, CheckCircle2, Menu, X, ArrowRight } from "lucide-react";
 // Medibot3D.glb va comprimido con Draco, asi que model-viewer necesita el
 // decodificador para abrirlo. La ruta NO se configura aqui: el constructor de
 // cada <model-viewer> la relee de `self.ModelViewerElement` y sobrescribe
@@ -18,6 +18,7 @@ import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ScrollProgress } from "@/components/ScrollProgress";
 import { PrototypeGallery } from "@/components/PrototypeGallery";
+import { VideoPrototipo } from "@/components/VideoPrototipo";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
 // no lo conoce hasta que se declara. React 19 dejo de exponer un namespace JSX
@@ -185,7 +186,7 @@ export default function MedicalLandingPage() {
   /**
    * La sesion se guarda en localStorage (`persistSession` en el cliente de
    * Supabase), asi que sobrevive a recargar y a cerrar la pestana. Lo que faltaba
-   * era que la portada lo reflejase: ensenaba "Iniciar sesion" y "Comenzar gratis"
+   * era que la portada lo reflejase: ensenaba "Iniciar sesion" y "Crear cuenta"
    * a quien ya habia entrado, y eso se lee como haber perdido la sesion.
    *
    * `loading` importa: durante el primer instante la sesion aun se esta leyendo,
@@ -259,15 +260,11 @@ export default function MedicalLandingPage() {
         { opacity: 1, duration: 0.5, ease: "power1.out" }
       );
 
-      // Giro lento y continuo, con ease lineal para que no acelere ni frene:
-      // la rueda gira sola, sin sacudidas, mientras dura el splash.
-      gsap.to(".splash-wheel", {
-        rotate: 360,
-        duration: 9,
-        repeat: -1,
-        ease: "none",
-        transformOrigin: "50% 50%",
-      });
+      // La rueda del splash NO se anima aqui. Giraba con GSAP a 9 s mientras la del
+      // resto del sitio va a 14 s por CSS, asi que el logotipo cambiaba de ritmo al
+      // desaparecer el splash. Peor: GSAP escribe `transform` en linea, que gana a la
+      // regla CSS, y eso dejaba a esta rueda fuera de `prefers-reduced-motion` -- seguia
+      // girando para quien habia pedido que no. Ahora hay un solo sistema de rotacion.
 
       // Salida: solo se desvanece el overlay. El logo ya no escala.
       gsap.to(splashRef.current, {
@@ -299,24 +296,15 @@ export default function MedicalLandingPage() {
         ease: "power3.out",
       });
 
-      // Logo del navbar: giro lento e infinito, sutil, como sello de marca viva
-      gsap.to(".navbar-wheel", {
-        rotate: 360,
-        duration: 14,
-        repeat: -1,
-        ease: "none",
-        transformOrigin: "50% 50%",
-      });
+      // La ruleta del logotipo ya NO se anima aqui. Estaba atada a esta pagina, asi
+      // que al navegar se reiniciaba y en el resto del sitio no giraba. Ahora es una
+      // animacion CSS con fase global; ver `MedibotLogo.tsx`.
 
-      // Floating pulse decoration
-      gsap.to(".floating-icon", {
-        y: -14,
-        duration: 2.2,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-        stagger: 0.3,
-      });
+      // Aqui habia un `gsap.to(".floating-icon", ...)` moviendo iconos arriba y
+      // abajo en bucle. Ningun elemento llevaba ya esa clase, asi que la animacion
+      // se aplicaba a una lista vacia: codigo muerto con aspecto de estar haciendo
+      // algo.
+
 
       // Feature cards on scroll
       gsap.utils.toArray<HTMLElement>(".feature-card").forEach((card, i) => {
@@ -347,7 +335,7 @@ export default function MedicalLandingPage() {
         });
       });
 
-      // Botón "Descubre la solución": pulso de anillo + glow respirando
+      // Boton principal de la seccion: pulso de anillo
       gsap.to(".solucion-pulse", {
         scale: 1.12,
         opacity: 0,
@@ -395,7 +383,7 @@ export default function MedicalLandingPage() {
           className="fixed inset-0 z-[100] bg-surface flex flex-col items-center justify-center gap-6"
         >
           <div ref={splashLogoRef}>
-            <MedibotMark className="w-40 h-40" wheelClassName="splash-wheel" />
+            <MedibotMark className="w-40 h-40" />
           </div>
           <div className="text-4xl sm:text-5xl font-extrabold tracking-tight">
             <span className="text-brandsoft">MEDI</span>
@@ -409,7 +397,7 @@ export default function MedicalLandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-10 h-20 flex items-center justify-between">
           <a href="#inicio" className="group">
             <div className="group-hover:scale-105 transition-transform">
-              <MedibotLogo markClassName="w-10 h-10" wordmarkClassName="text-xl" markWheelClassName="navbar-wheel" />
+              <MedibotLogo markClassName="w-10 h-10" wordmarkClassName="text-xl" />
             </div>
           </a>
 
@@ -443,7 +431,7 @@ export default function MedicalLandingPage() {
           <div className="hidden xl:flex items-center gap-2 whitespace-nowrap">
             <ThemeToggle />
             {/* Con sesion abierta sobra el par "Iniciar sesion" + "Comenzar
-                gratis": queda un solo boton que lleva al panel. */}
+                cuenta": queda un solo boton que lleva al panel. */}
             {!autenticado && (
               <Link
                 to="/auth"
@@ -456,7 +444,7 @@ export default function MedicalLandingPage() {
               to={autenticado ? "/dashboard" : "/auth"}
               className="text-sm font-semibold px-5 py-2.5 rounded-full bg-gradient-to-r from-brand to-deep text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all flex items-center gap-2"
             >
-              {autenticado ? "Ir al panel" : "Comenzar gratis"}
+              {autenticado ? "Ir al panel" : "Crear cuenta"}
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
@@ -501,7 +489,7 @@ export default function MedicalLandingPage() {
               onClick={() => setMenuOpen(false)}
               className="mt-2 text-sm font-semibold px-5 py-3 rounded-full bg-gradient-to-r from-brand to-deep text-white text-center"
             >
-              {autenticado ? "Ir al panel" : "Comenzar gratis"}
+              {autenticado ? "Ir al panel" : "Crear cuenta"}
             </Link>
           </div>
         )}
@@ -512,19 +500,19 @@ export default function MedicalLandingPage() {
         id="inicio"
         className="relative pt-40 pb-24 lg:pt-48 lg:pb-32 px-6 lg:px-10 overflow-hidden"
       >
-        {/* Background decoration */}
-        <div className="absolute inset-0 -z-10">
-          <div className="aurora absolute top-10 right-0 w-[500px] h-[500px] bg-brand/15 rounded-full blur-3xl" />
-          <div className="aurora-lenta absolute bottom-0 left-0 w-[400px] h-[400px] bg-mint/15 rounded-full blur-3xl" />
-        </div>
+        {/* Aqui habia dos manchas de color desenfocadas de 500 y 400 px, a la
+            deriva. Son el adorno de fondo mas repetido en las plantillas de los
+            ultimos anos y no aportaban nada al contenido: fuera. */}
 
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
           <div>
             <h1 className="hero-title text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.1] tracking-tight mb-6">
+              {/* El texto iba con un degradado de tres colores recortado sobre las
+                  letras. Ademas de ser una firma de plantilla, en modo oscuro perdia
+                  contraste y con el tipo en negrita se leia peor. Ahora la segunda
+                  linea se destaca con el color de marca, sin trucos. */}
               Transporte hospitalario
-              <span className="block bg-gradient-to-r from-brand via-deep to-mint bg-clip-text text-transparent">
-                seguro y teleoperado
-              </span>
+              <span className="block text-brand">seguro y teleoperado</span>
             </h1>
 
             <p className="hero-desc text-lg text-ink/70 max-w-xl mb-10 leading-relaxed">
@@ -589,17 +577,15 @@ export default function MedicalLandingPage() {
           {/* Hero visual: modelo 3D MEDIBOT */}
           <div className="hero-visual relative">
             <div className="relative bg-card rounded-3xl shadow-2xl shadow-shade/10 p-6 border border-ink/5">
-              <div className="flex items-center gap-3 pb-4 border-b border-ink/5">
-                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand to-deep flex items-center justify-center">
-                  <Bot className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-sm">Modelo 3D MEDIBOT</p>
-                  <p className="text-xs text-mint flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-mint inline-block animate-pulse" />
-                    Vista interactiva
-                  </p>
-                </div>
+              {/* Iba con un icono de robot en una caja con degradado y, debajo, un
+                  punto verde latiendo junto a "Vista interactiva", como si hubiera algo
+                  conectado en directo. No hay nada conectado: es un modelo estatico.
+                  Un punto que late significa "en vivo" y aqui era decoracion. */}
+              <div className="pb-4 border-b border-ink/5">
+                <p className="font-semibold text-sm text-ink">Modelo 3D del robot</p>
+                <p className="text-xs text-ink/50">
+                  Arrastra para girarlo. Usa la rueda del ratón para acercar.
+                </p>
               </div>
 
               <div className="py-5">
@@ -626,14 +612,10 @@ export default function MedicalLandingPage() {
                 ></model-viewer>
               </div>
 
-              <div className="flex items-center gap-2 pt-3 border-t border-ink/5">
-                <div className="flex-1 bg-surface rounded-full px-4 py-2.5 text-sm text-ink/40">
-                  Arrastra para rotar • Usa scroll para zoom
-                </div>
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand to-deep flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-white" />
-                </div>
-              </div>
+              {/* Aqui estaba el icono de chispas (Sparkles) en un circulo con
+                  degradado, que es el simbolo mas asociado a lo generado
+                  automaticamente que existe. Y la instruccion de uso, que estaba
+                  repetida: ahora vive una sola vez, arriba, junto al titulo. */}
             </div>
           </div>
         </div>
@@ -641,10 +623,10 @@ export default function MedicalLandingPage() {
 
       <PrototypeGallery />
 
+      <VideoPrototipo />
+
       {/* ================= QUIÉNES SOMOS ================= */}
-      <section id="nosotros" className="relative px-6 lg:px-10 py-24 lg:py-32 bg-card overflow-hidden">
-        <div className="aurora-lenta absolute -top-24 -left-24 w-80 h-80 bg-brandsoft/10 rounded-full blur-3xl" />
-        <div className="aurora absolute -bottom-24 -right-24 w-80 h-80 bg-mint/10 rounded-full blur-3xl" />
+      <section id="nosotros" className="relative px-6 lg:px-10 py-24 lg:py-32 bg-card">
 
         <div className="max-w-5xl mx-auto relative">
           <div className="text-center max-w-3xl mx-auto mb-14 section-title">
@@ -763,7 +745,7 @@ export default function MedicalLandingPage() {
               <span className="absolute inset-0 bg-gradient-to-r from-brand via-deep to-mint bg-[length:200%_100%] animate-[gradientMove_3s_ease_infinite]" />
               <span className="absolute inset-0 rounded-full ring-2 ring-brandsoft/50 solucion-pulse" />
               <span className="relative z-10 flex items-center gap-2">
-                Descubre la solución MEDIBOT
+                Ver cómo funciona MEDIBOT
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1.5 transition-transform" />
               </span>
             </Link>
@@ -790,9 +772,9 @@ export default function MedicalLandingPage() {
               Lo que resuelve en cada traslado
             </h2>
             <p className="text-ink/60 text-lg">
-              Tres subsistemas —tracción, control térmico y supervisión— que
-              trabajan juntos para que el medicamento llegue en condiciones y
-              sin que nadie lo acompañe por el pasillo.
+              Tres subsistemas trabajan juntos para que el medicamento llegue en
+              condiciones y sin que nadie lo acompañe por el pasillo: la tracción,
+              el control térmico y la supervisión a distancia.
             </p>
           </div>
 
@@ -878,26 +860,35 @@ export default function MedicalLandingPage() {
         </div>
       </section>
 
-      {/* ================= CTA ================= */}
-      <section className="px-6 lg:px-10 py-24">
-        <div className="max-w-4xl mx-auto relative rounded-[2.5rem] overflow-hidden bg-gradient-to-br from-deep via-shade to-brand px-10 py-20 text-center">
-          <div className="absolute top-0 right-0 w-72 h-72 bg-mint/20 rounded-full blur-3xl" />
-          <div className="relative z-10 flex flex-col items-center justify-center">
-            <Users className="w-10 h-10 text-white/80 mx-auto mb-6" />
-            <h2 className="text-3xl lg:text-4xl font-extrabold text-white mb-4 text-center">
-              Empieza a cuidar tu salud hoy mismo
-            </h2>
-            <p className="text-white/80 max-w-2xl mx-auto mb-8 text-center text-lg leading-relaxed">
-              Únete a miles de personas que ya confían en Medibot para tomar mejores decisiones sobre su bienestar.
-            </p>
-            <Link
-              to="/auth"
-              className="px-8 py-4 rounded-full bg-card text-ink font-bold shadow-2xl hover:-translate-y-0.5 transition-transform inline-flex items-center gap-2"
-            >
-              Crear cuenta gratis
-              <ArrowRight className="w-5 h-5" />
-            </Link>
-          </div>
+      {/* ================= CIERRE =================
+          Lo que habia aqui era, palabra por palabra: "Empieza a cuidar tu salud hoy
+          mismo" y "Unete a miles de personas que ya confian en Medibot para tomar
+          mejores decisiones sobre su bienestar".
+
+          Tres cosas mal a la vez. No hay miles de personas: es un proyecto escolar
+          con un panel de acceso. MEDIBOT no es una aplicacion de bienestar personal,
+          es un robot de transporte hospitalario, asi que el texto describia otro
+          producto. Y era el reclamo generico de cualquier plantilla, que es
+          justamente lo que se queria quitar del sitio.
+
+          Lo de ahora dice lo que hay y para que sirve la cuenta. */}
+      <section id="cuenta" className="px-6 lg:px-10 py-24">
+        <div className="max-w-4xl mx-auto rounded-3xl bg-gradient-to-br from-deep to-shade px-8 py-16 lg:px-14">
+          <h2 className="text-3xl lg:text-4xl font-extrabold text-white mb-4">
+            Entra al panel del proyecto
+          </h2>
+          <p className="text-white/70 max-w-2xl mb-8 text-lg leading-relaxed">
+            La cuenta da acceso al panel de control, a la documentación técnica y al
+            foro de prevención de infecciones. Es gratuita y la usamos para seguir el
+            desarrollo del prototipo.
+          </p>
+          <Link
+            to="/auth"
+            className="inline-flex items-center gap-2 rounded-full bg-card px-7 py-4 font-semibold text-ink transition-transform hover:-translate-y-0.5"
+          >
+            Crear una cuenta
+            <ArrowRight className="w-5 h-5" />
+          </Link>
         </div>
       </section>
 
