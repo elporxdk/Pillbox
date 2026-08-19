@@ -300,3 +300,17 @@ begin
     raise notice '(la sentencia esta en la cabecera de este fichero).';
   end if;
 end $$;
+
+
+-- ---------------------------------------------------------------------------
+--  PARTE 6. AVISAR A LA API DE QUE HAY FUNCION NUEVA
+-- ---------------------------------------------------------------------------
+--  El panel pregunta si eres administrador llamando a `es_admin()` a traves de
+--  PostgREST, la API REST que hay delante de la base. PostgREST no mira el esquema
+--  en cada peticion: se lo aprende y lo guarda en memoria, asi que una funcion
+--  recien creada no existe para el hasta que recarga.
+--
+--  Sin este aviso puede pasar que la migracion termine bien y el panel siga sin
+--  aparecer, porque la llamada a `es_admin()` falla. Si nadie escucha en el canal,
+--  `notify` no hace nada: no es un error.
+notify pgrst, 'reload schema';

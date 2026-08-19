@@ -119,8 +119,25 @@ function traducir(mensaje: string): string {
   if (m.includes("bloques_tecnologia_datos")) {
     return "El contenido del bloque no tiene una forma válida o es demasiado largo.";
   }
-  if (m.includes("does not exist") || m.includes("relation")) {
-    return "Falta ejecutar la migración 0004_tecnologia.sql en Supabase.";
+  // "schema cache" es como lo dice PostgREST, la API que hay delante de la base:
+  // `Could not find the table 'public.bloques_tecnologia' in the schema cache`.
+  // El traductor solo buscaba "does not exist", que es como lo diria Postgres a
+  // secas, y por eso este error llegaba al panel en ingles y sin decir que hacer.
+  //
+  // Significa una de dos: la migracion no se ha ejecutado, o se ejecuto y PostgREST
+  // todavia tiene en memoria el esquema de antes. El mensaje cubre las dos, porque
+  // desde el navegador no hay forma de distinguirlas.
+  if (
+    m.includes("schema cache") ||
+    m.includes("could not find the table") ||
+    m.includes("does not exist") ||
+    m.includes("relation")
+  ) {
+    return (
+      "La sección todavía no existe en la base de datos. Ejecuta " +
+      "supabase/migraciones/0004_tecnologia.sql en el editor SQL de Supabase. " +
+      "Si ya la ejecutaste, lanza ahí mismo: notify pgrst, 'reload schema';"
+    );
   }
   return mensaje;
 }

@@ -365,3 +365,23 @@ begin
     raise notice 'Listo. La seccion de Tecnologia ya se edita desde el panel.';
   end if;
 end $$;
+
+
+-- ---------------------------------------------------------------------------
+--  PARTE 7. AVISAR A LA API DE QUE HAY TABLA NUEVA
+-- ---------------------------------------------------------------------------
+--  PostgREST -- la API REST que usa el cliente de Supabase desde el navegador --
+--  no mira el esquema en cada peticion: se lo aprende al arrancar y lo guarda en
+--  memoria. Una tabla recien creada no existe para el hasta que recarga.
+--
+--  Sin esto, la migracion termina bien, la tabla esta, y aun asi el panel responde
+--  "Could not find the table 'public.bloques_tecnologia' in the schema cache". Es
+--  de los errores que peor se diagnostican, porque todo parece correcto: la tabla
+--  se ve desde el editor SQL y desde la API no.
+--
+--  Supabase suele recargar solo, con un disparador de eventos sobre las sentencias
+--  DDL, pero no en todos los proyectos y no siempre al momento. Este aviso cuesta
+--  nada y quita la espera.
+--
+--  Si nadie escucha en ese canal, `notify` no hace nada: no es un error.
+notify pgrst, 'reload schema';
