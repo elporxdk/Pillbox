@@ -18,6 +18,7 @@ import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ScrollProgress } from "@/components/ScrollProgress";
 import { PrototypeGallery } from "@/components/PrototypeGallery";
+import { VideoPrototipo } from "@/components/VideoPrototipo";
 
 // `@google/model-viewer` registra <model-viewer> como custom element, pero tsc
 // no lo conoce hasta que se declara. React 19 dejo de exponer un namespace JSX
@@ -631,6 +632,8 @@ export default function MedicalLandingPage() {
       </section>
 
       <PrototypeGallery />
+
+      <VideoPrototipo />
 
       {/* ================= QUIÉNES SOMOS ================= */}
       <section id="nosotros" className="relative px-6 lg:px-10 py-24 lg:py-32 bg-card overflow-hidden">
