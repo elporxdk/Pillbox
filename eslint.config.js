@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `.wrangler` guarda el bundle que genera `wrangler dev` cada vez que arranca.
+  // Son ficheros de maquina, uno por sesion, y cada uno metia un error propio en el
+  // informe: llegaron a ser nueve de trece, tapando los que si eran del proyecto.
+  globalIgnores(['dist', '.wrangler']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

@@ -8,6 +8,7 @@ import { IaasPortal } from "@/components/IaasPortal";
 import { PortalNoticias } from "@/components/comunidad/PortalNoticias";
 import { CambiarContrasena } from "@/components/CambiarContrasena";
 import { GestorFotosCreadores } from "@/components/GestorFotosCreadores";
+import { GestorTecnologia } from "@/components/GestorTecnologia";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function DashboardPage() {
@@ -95,6 +96,8 @@ export default function DashboardPage() {
           administrador, no devuelve nada. Va antes del contenido general porque
           quien administra viene a esto, no a leer las noticias. */}
       <GestorFotosCreadores />
+
+      <GestorTecnologia />
 
       <IaasPortal />
 
