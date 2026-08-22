@@ -22,6 +22,7 @@ const NAV_LINKS = [
   { label: "Tecnología", href: "/tecnologia" },
   { label: "Documentación", href: "/tecnologia#documentacion" },
   { label: "Comunidad", href: "/comunidad" },
+  { label: "Debate", href: "/debate" },
   { label: "Contacto", href: "/#contacto" },
 ];
 
@@ -130,7 +131,17 @@ export default function TechnicalPage() {
               <MedibotLogo markClassName="w-8 h-8" wordmarkClassName="text-lg" />
             </Link>
 
-            <div className="hidden xl:flex items-center gap-8">
+            {/* `min-[1400px]` y no `xl` (1280 px), y `gap-4` en vez de `gap-8`.
+                Medido con esta lista de enlaces, mas el logotipo, el interruptor de
+                tema y el boton de Acceder: la fila necesita 1293 px y a 1280 px de
+                ventana solo hay 1190 dentro del contenedor, asi que con `xl` los
+                enlaces se encogian y "Contacto" acababa debajo del interruptor.
+                A 1400 px hay 1310, que ya entran. Y el contenedor no crece mas alla
+                de 1350 px (`max-w-7xl` menos el padding), de modo que con `gap-8` la
+                barra NO cabria a ningun ancho: al anadir un enlace mas hay que bajar
+                el hueco otra vez, o quitar uno.
+                Por debajo de 1400 px se usa el menu desplegable, que ya existia. */}
+            <div className="hidden min-[1400px]:flex items-center gap-4 whitespace-nowrap">
               {NAV_LINKS.map((link) => (
                 <Link
                   key={link.href}
@@ -146,7 +157,7 @@ export default function TechnicalPage() {
               <ThemeToggle />
               <Link
                 to="/auth"
-                className="hidden xl:flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-brand to-deep text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+                className="hidden min-[1400px]:flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-brand to-deep text-white text-sm font-semibold hover:opacity-90 transition-opacity"
               >
                 Acceder
                 <ArrowRight className="w-4 h-4" />
@@ -159,7 +170,7 @@ export default function TechnicalPage() {
                 onClick={() => setMenuAbierto((v) => !v)}
                 aria-label={menuAbierto ? "Cerrar menú" : "Abrir menú"}
                 aria-expanded={menuAbierto}
-                className="xl:hidden w-10 h-10 flex items-center justify-center rounded-full hover:bg-ink/5"
+                className="min-[1400px]:hidden w-10 h-10 flex items-center justify-center rounded-full hover:bg-ink/5"
               >
                 {menuAbierto ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
@@ -168,7 +179,7 @@ export default function TechnicalPage() {
         </div>
 
         {menuAbierto && (
-          <div className="xl:hidden bg-card border-t border-ink/5 px-6 py-4 flex flex-col gap-4">
+          <div className="min-[1400px]:hidden bg-card border-t border-ink/5 px-6 py-4 flex flex-col gap-4">
             {NAV_LINKS.map((link) => (
               <Link
                 key={link.href}

@@ -52,6 +52,7 @@ const ENLACES_NAV = [
   { label: "Cómo funciona", href: "/#como-funciona" },
   { label: "Tecnología", href: "/tecnologia" },
   { label: "Comunidad", href: "/comunidad" },
+  { label: "Debate", href: "/debate" },
 ];
 
 /** Una columna de enlaces. Evita repetir el mismo <ul> tres veces. */

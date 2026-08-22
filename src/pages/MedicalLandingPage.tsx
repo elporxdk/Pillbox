@@ -87,6 +87,7 @@ const NAV_LINKS = [
   { label: "Cómo funciona", href: "#como-funciona" },
   { label: "Tecnología", href: "/tecnologia" },
   { label: "Comunidad", href: "/comunidad" },
+  { label: "Debate", href: "/debate" },
   { label: "Contacto", href: "#contacto" },
 ];
 /**

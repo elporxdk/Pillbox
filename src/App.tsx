@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -13,6 +14,29 @@ import DashboardPage from "@/pages/DashboardPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
+/**
+ * /debate se carga aparte, y es la unica ruta del sitio que lo hace.
+ *
+ * POR QUE ESTA
+ * ------------
+ * Lleva el informe del debate entero escrito en el codigo (`src/data/debate.ts`,
+ * unos 170 kB de texto). Medido: importandola como las demas, el bundle pasa de
+ * 1,83 MB a 2,02 MB -- de 534 kB a 596 kB comprimido. Son 62 kB que se descargarian
+ * al abrir la portada, la de Tecnologia o el foro para leer un documento que ahi no
+ * se abre.
+ *
+ * Con `lazy`, ese trozo se pide cuando alguien entra en /debate y no antes. El resto
+ * del sitio vuelve a pesar lo que pesaba.
+ *
+ * POR QUE NO SE HACE CON TODAS
+ * ----------------------------
+ * Porque en las demas no compensa. Partir una ruta cambia una descarga por dos
+ * -- primero el bundle, luego el trozo -- y eso se nota como una espera al navegar.
+ * Aqui sale a cuenta porque el trozo es grande Y la ruta es de visita ocasional; en
+ * la portada seria el peor de los dos mundos.
+ */
+const DebatePage = lazy(() => import("@/pages/DebatePage"));
+
 function App() {
   return (
     <AuthProvider>
@@ -24,6 +48,20 @@ function App() {
           {/* Publica a proposito: leer el foro es abierto. Lo que hace falta
               verificar para escribir lo imponen las politicas RLS, no la ruta. */}
           <Route path="/comunidad" element={<ComunidadPage />} />
+          {/* Publica y sin cuenta: el informe del debate se lee entero sin entrar,
+              y escribir un aporte tampoco la pide. Lo que se puede hacer sin sesion
+              lo decide el RLS de `0005_debate.sql`, no esta linea. */}
+          <Route
+            path="/debate"
+            element={
+              /* `Suspense` es obligatorio con `lazy`: sin el, React lanza mientras
+                 el trozo viaja. El respaldo repite el fondo y la altura de la pagina
+                 para que no haya un salto blanco al llegar el contenido. */
+              <Suspense fallback={<CargandoRuta />}>
+                <DebatePage />
+              </Suspense>
+            }
+          />
           {/* Publica: quien llega del correo de restablecimiento no ha iniciado
               sesion en el sentido habitual. Lo que la protege es el token del
               enlace, sin el cual el cambio falla. */}
@@ -77,7 +115,7 @@ function AsistenteSiEncaja() {
  * es que el interruptor este SIEMPRE. Si la lista fuera de "donde ponerlo", una
  * pagina nueva nacería sin el; siendo de "donde ya lo hay", nace con el.
  */
-const TEMA_EN_SU_BARRA = ["/", "/tecnologia", "/comunidad", "/dashboard"];
+const TEMA_EN_SU_BARRA = ["/", "/tecnologia", "/comunidad", "/debate", "/dashboard"];
 
 /**
  * El interruptor de tema en las paginas que no tienen barra donde ponerlo: /auth,
@@ -101,6 +139,28 @@ function TemaFlotante() {
   return (
     <div className="fixed top-4 right-4 z-50">
       <ThemeToggle className="bg-card/80 backdrop-blur-sm shadow-sm" />
+    </div>
+  );
+}
+
+/**
+ * Lo que se ve mientras viaja el trozo de una ruta cargada aparte.
+ *
+ * Sin texto a proposito. En una red normal esto dura decimas de segundo, y un
+ * "Cargando..." que parpadea y desaparece se lee como un fallo. `role="status"` con
+ * el texto solo para lectores de pantalla dice lo que pasa a quien no ve el giro.
+ */
+function CargandoRuta() {
+  return (
+    <div
+      role="status"
+      className="flex min-h-screen items-center justify-center bg-surface"
+    >
+      <span className="sr-only">Cargando la página…</span>
+      <span
+        aria-hidden="true"
+        className="h-8 w-8 animate-spin rounded-full border-2 border-ink/15 border-t-brand"
+      />
     </div>
   );
 }
