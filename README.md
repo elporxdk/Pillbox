@@ -1,6 +1,6 @@
 # Chatbot de WhatsApp (local)
 
-Bot que conecta tu numero de WhatsApp y responde automaticamente a quien te
+Bot que conecta numero de WhatsApp y responde automaticamente a quien te
 escriba, en el personaje de Medibot (el robot del proyecto): habla en primera
 persona, con humor, pero con los datos reales del proyecto para no inventar
 nada. Usa Claude para generar las respuestas. Corre solo en tu computadora:
@@ -17,9 +17,6 @@ Usa `whatsapp-web.js` (la misma libreria que `verificar.js` en la rama
 
 ## Instalacion en un comando (Raspberry Pi / Linux)
 
-Pega esto en la terminal. Descarga el codigo, instala Chromium y las
-dependencias, y te pide la clave de la API:
-
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/elporxdk/Proyects/whatsapp-bot-standalone/setup.sh)"
 ```
@@ -30,9 +27,6 @@ Al terminar te dice la ruta donde quedo instalado (por defecto
 ```bash
 cd ~/medibot-bot && npm start
 ```
-
-Sale un codigo QR: escanealo desde tu telefono en **WhatsApp > Ajustes >
-Dispositivos vinculados > Vincular un dispositivo**. Ya esta funcionando.
 
 El script se puede volver a correr las veces que haga falta — no borra tu
 `.env` ni la sesion de WhatsApp ya vinculada, asi que tambien sirve para
