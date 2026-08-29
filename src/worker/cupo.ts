@@ -29,13 +29,52 @@
  * no se puede volver a la original, y sirve para una sola cosa.
  */
 
-const NOMBRE_COOKIE = "medibot_chat";
 const VENTANA_SEGUNDOS = 24 * 60 * 60;
 
 /** Mensajes antes de exigir sesion. */
 export const LIMITE_ANONIMO = 5;
 /** Con sesion. No es una puerta, es un tope contra el abuso. */
 export const LIMITE_CON_SESION = 40;
+
+/**
+ * Un contador independiente: su cookie y su limite.
+ *
+ * POR QUE DOS CONTADORES Y NO UNO
+ * -------------------------------
+ * Empezo habiendo solo el del chat. Al llegar el analisis de documentos hacia falta
+ * un limite propio -- una imagen cuesta del orden de un mensaje largo, y ademas es
+ * lo unico del sitio donde se sube un fichero -- y compartir contador significaria
+ * que subir tres documentos deja al visitante sin chat, o al reves. Son dos cosas
+ * distintas y se cuentan por separado.
+ *
+ * Cada uno tiene SU cookie. La clave de firma, en cambio, es la misma para los dos:
+ * derivarla por contador no protegeria de nada -- el visitante no puede falsificar
+ * ninguna de las dos -- y en cambio invalidaria las cookies de chat ya emitidas el
+ * dia que se despliegue esto, reiniciando el contador de todo el mundo.
+ */
+export type Cupo = {
+  /** Nombre de la cookie. Uno por contador, o se pisarian. */
+  cookie: string;
+  limite: number;
+};
+
+/** El del asistente. El limite depende de si hay sesion; ver `LIMITE_ANONIMO`. */
+export const cupoDelChat = (conSesion: boolean): Cupo => ({
+  cookie: "medibot_chat",
+  limite: conSesion ? LIMITE_CON_SESION : LIMITE_ANONIMO,
+});
+
+/**
+ * El del analisis de documentos.
+ *
+ * No hay variante anonima porque el endpoint exige sesion antes de llegar al cupo:
+ * subir un documento medico sin cuenta no esta permitido, asi que no hay ningun
+ * limite anonimo que definir.
+ */
+export const cupoDeDocumentos = (limite: number): Cupo => ({
+  cookie: "medibot_documentos",
+  limite,
+});
 
 type Contador = { n: number; e: number };
 
@@ -118,7 +157,7 @@ async function firmar(cuerpo: string, clave: CryptoKey): Promise<string> {
  * el chat a alguien porque su cookie se corrompio seria peor que regalarle cinco
  * mensajes.
  */
-async function leerContador(req: Request, secreto: string): Promise<Contador> {
+async function leerContador(req: Request, secreto: string, nombre: string): Promise<Contador> {
   const nuevo = (): Contador => ({ n: 0, e: Math.floor(Date.now() / 1000) + VENTANA_SEGUNDOS });
 
   const cabecera = req.headers.get("Cookie");
@@ -127,8 +166,8 @@ async function leerContador(req: Request, secreto: string): Promise<Contador> {
   const cruda = cabecera
     .split(";")
     .map((p) => p.trim())
-    .find((p) => p.startsWith(`${NOMBRE_COOKIE}=`))
-    ?.slice(NOMBRE_COOKIE.length + 1);
+    .find((p) => p.startsWith(`${nombre}=`))
+    ?.slice(nombre.length + 1);
   if (!cruda) return nuevo();
 
   const [cuerpo, firma] = cruda.split(".");
@@ -163,14 +202,14 @@ async function leerContador(req: Request, secreto: string): Promise<Contador> {
   }
 }
 
-async function serializar(contador: Contador, secreto: string): Promise<string> {
+async function serializar(contador: Contador, secreto: string, nombre: string): Promise<string> {
   const cuerpo = aBase64Url(codificador.encode(JSON.stringify(contador)));
   const firma = await firmar(cuerpo, await claveDeFirma(secreto));
   const maxAge = Math.max(0, contador.e - Math.floor(Date.now() / 1000));
 
   // `HttpOnly` porque el navegador la manda sola y el JS del sitio no la necesita.
   // `SameSite=Lax` basta: la peticion es del mismo origen.
-  return `${NOMBRE_COOKIE}=${cuerpo}.${firma}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
+  return `${nombre}=${cuerpo}.${firma}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
 }
 
 /**
@@ -179,20 +218,16 @@ async function serializar(contador: Contador, secreto: string): Promise<string> 
  * Se llama ANTES de hablar con el modelo. Si no queda cupo no se gasta la
  * llamada, que es justo el punto.
  */
-export async function consumir(
-  req: Request,
-  secreto: string,
-  conSesion: boolean
-): Promise<EstadoCupo> {
-  const limite = conSesion ? LIMITE_CON_SESION : LIMITE_ANONIMO;
-  const contador = await leerContador(req, secreto);
+export async function consumir(req: Request, secreto: string, cupo: Cupo): Promise<EstadoCupo> {
+  const { cookie: nombre, limite } = cupo;
+  const contador = await leerContador(req, secreto, nombre);
 
   if (contador.n >= limite) {
     return {
       usados: contador.n,
       limite,
       puede: false,
-      cookie: await serializar(contador, secreto),
+      cookie: await serializar(contador, secreto, nombre),
     };
   }
 
@@ -201,6 +236,6 @@ export async function consumir(
     usados: siguiente.n,
     limite,
     puede: true,
-    cookie: await serializar(siguiente, secreto),
+    cookie: await serializar(siguiente, secreto, nombre),
   };
 }

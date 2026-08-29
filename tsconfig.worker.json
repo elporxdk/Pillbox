@@ -22,6 +22,15 @@
   },
   /* `src/lib` entra fichero a fichero y no entero: casi todo lo de ahi es codigo de
      navegador (Supabase, tokens de Tailwind) que no compila sin `lib: DOM`. Estos
-     dos son los unicos neutrales, y el Worker los necesita. */
-  "include": ["src/worker", "src/data", "src/lib/fechas.ts", "src/lib/chat.ts"]
+     tres son los unicos neutrales, y el Worker los necesita.
+
+     `analisisMedico.ts` es el contrato de /api/documento; su pareja de navegador,
+     `documentosMedicos.ts`, NO entra aqui y no debe: usa canvas y Supabase. */
+  "include": [
+    "src/worker",
+    "src/data",
+    "src/lib/fechas.ts",
+    "src/lib/chat.ts",
+    "src/lib/analisisMedico.ts"
+  ]
 }

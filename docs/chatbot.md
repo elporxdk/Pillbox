@@ -369,6 +369,12 @@ tarjeta**, y este es un proyecto de instituto. El modelo se cambia editando
 `MODELO_IA` en `wrangler.jsonc`; no hay ningún nombre de modelo escrito dentro del
 código.
 
+Esa costura ya tiene un segundo usuario: `/api/documento`, el análisis de documentos
+médicos, entra por la misma firma `Proveedor` y usa el mismo `gemini.ts`, la misma
+clave y el mismo modelo. Lo único que le hizo falta a este fichero fue saber mandar
+una imagen (`inlineData`) y pedir la salida con una forma concreta
+(`responseSchema`). Ver `docs/documentos-medicos.md`.
+
 ### Cambiar de modelo, y por qué es seguro hacerlo
 
 Hay dos variables, no una:
@@ -448,6 +454,10 @@ Consecuencias prácticas:
   (`on delete cascade`).
 - La capa gratuita **no está disponible en la UE, el Reino Unido ni Suiza**. Para el
   público del sitio no es un problema.
+- El aviso de «no escribas datos médicos» sigue valiendo **para el chat**. La sección
+  `/documentos` sí acepta documentos médicos, y por eso está montada de otra manera:
+  exige sesión, no guarda nada sin que se lo pidan y su almacén es privado. Lo suyo
+  está en `docs/documentos-medicos.md`.
 
 Los límites exactos de la capa gratuita (peticiones por minuto y por día) cambian con
 el tiempo; los publica Google en la documentación de *rate limits* de la API. Si se
@@ -544,8 +554,8 @@ sube al iniciar sesión—, y por eso se registra explícitamente.
 | --- | --- |
 | `src/worker/index.ts` | El endpoint: valida, aplica el cupo, traduce errores |
 | `src/worker/anclaje.ts` | El prompt, construido desde `src/data/` |
-| `src/worker/gemini.ts` | Lo único que sabe hablar con un modelo |
-| `src/worker/cupo.ts` | La cookie firmada del cupo |
+| `src/worker/gemini.ts` | Lo único que sabe hablar con un modelo (lo comparte con `/api/documento`) |
+| `src/worker/cupo.ts` | La cookie firmada del cupo. Un contador por cookie: uno para el chat, otro para los documentos |
 | `src/worker/sesion.ts` | Comprueba la sesión contra Supabase |
 | `src/worker/tipos.ts` | La costura del proveedor |
 | `src/lib/chat.ts` | El contrato de `/api/chat`, compartido con el navegador |

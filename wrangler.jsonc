@@ -49,6 +49,9 @@
     // Worker, y eso incluye rutas que antes llegaban solas por no existir como
     // fichero. Con solo ["/"], un POST a /api/chat lo contestaba el servidor de
     // assets con un 405 y el chat quedaba muerto. Se comprobo.
+    //
+    // El comodin ya cubre los dos endpoints que hay -- /api/chat y /api/documento --
+    // y cubrira los que vengan: anadir uno nuevo no pide tocar esta linea.
     "run_worker_first": ["/", "/api/*"]
   },
 

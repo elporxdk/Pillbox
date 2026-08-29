@@ -6,8 +6,10 @@ import {
   type RespuestaChat,
   type Turno,
 } from "../lib/chat";
+import { RUTA_DOCUMENTO } from "../lib/analisisMedico";
 import { PROMPT_SISTEMA } from "./anclaje";
-import { LIMITE_ANONIMO, consumir } from "./cupo";
+import { LIMITE_ANONIMO, consumir, cupoDelChat } from "./cupo";
+import { documento } from "./documento";
 import { gemini } from "./gemini";
 import { tieneSesion } from "./sesion";
 import { ErrorProveedor, type Env } from "./tipos";
@@ -109,12 +111,26 @@ export default {
     const aHttps = redirigirAHttps(req);
     if (aHttps) return aHttps;
 
-    if (new URL(req.url).pathname === RUTA_CHAT) {
+    const ruta = new URL(req.url).pathname;
+
+    if (ruta === RUTA_CHAT) {
       try {
         return await chat(req, env);
       } catch (error) {
         console.error("chat:", error);
         return json(500, { error: "El asistente no está disponible ahora mismo." });
+      }
+    }
+
+    // Mismo trato que el chat, y por el mismo motivo: el `try` esta aqui, delante de
+    // TODO lo que puede lanzar, para que un fallo del analisis no se lleve por
+    // delante el camino de los assets que hay debajo.
+    if (ruta === RUTA_DOCUMENTO) {
+      try {
+        return await documento(req, env);
+      } catch (error) {
+        console.error("documento:", error);
+        return json(500, { error: "El análisis de documentos no está disponible ahora mismo." });
       }
     }
     const respuesta = await env.ASSETS.fetch(req);
@@ -166,7 +182,7 @@ async function chat(req: Request, env: Env): Promise<Response> {
 
   // La sesion se comprueba antes del cupo, porque decide cual es el limite.
   const conSesion = await tieneSesion(req, env);
-  const cupo = await consumir(req, env.CLAVE_IA, conSesion);
+  const cupo = await consumir(req, env.CLAVE_IA, cupoDelChat(conSesion));
 
   if (!cupo.puede) {
     // 402 y no 401: no es que falte autenticacion para acceder al recurso, es que

@@ -10,6 +10,7 @@ import TechnicalPage from "@/pages/TechnicalPage";
 import ComunidadPage from "@/pages/ComunidadPage";
 import RestablecerPage from "@/pages/RestablecerPage";
 import DashboardPage from "@/pages/DashboardPage";
+import DocumentosPage from "@/pages/DocumentosPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
@@ -36,6 +37,18 @@ function App() {
               </ProtectedRoute>
             }
           />
+          {/* Protegida, y aqui no es solo comodidad: son documentos medicos de una
+              persona concreta. El endpoint tambien exige sesion por su cuenta
+              (401), y lo que impide leer los de otro son las politicas RLS. Esta
+              ruta solo evita enseñar una pantalla que iba a fallar. */}
+          <Route
+            path="/documentos"
+            element={
+              <ProtectedRoute>
+                <DocumentosPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
         <AsistenteSiEncaja />
@@ -55,7 +68,7 @@ function App() {
  * mitad de una tarea concreta y un chat encima del formulario es ruido, y la 404,
  * donde no hay nada de que hablar.
  */
-const CON_ASISTENTE = ["/", "/tecnologia", "/comunidad", "/dashboard"];
+const CON_ASISTENTE = ["/", "/tecnologia", "/comunidad", "/dashboard", "/documentos"];
 
 /**
  * Monta el asistente una sola vez, aqui, en lugar de repetirlo en cada pagina.
@@ -77,7 +90,7 @@ function AsistenteSiEncaja() {
  * es que el interruptor este SIEMPRE. Si la lista fuera de "donde ponerlo", una
  * pagina nueva nacería sin el; siendo de "donde ya lo hay", nace con el.
  */
-const TEMA_EN_SU_BARRA = ["/", "/tecnologia", "/comunidad", "/dashboard"];
+const TEMA_EN_SU_BARRA = ["/", "/tecnologia", "/comunidad", "/dashboard", "/documentos"];
 
 /**
  * El interruptor de tema en las paginas que no tienen barra donde ponerlo: /auth,

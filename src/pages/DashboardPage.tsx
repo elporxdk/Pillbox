@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { LogOut, Settings, FileText, Bell, Users } from "lucide-react";
+import { LogOut, Settings, FileText, Bell, Users, ScanLine } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { MedibotLogo, MedibotMark } from "@/components/MedibotLogo";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -117,9 +117,28 @@ export default function DashboardPage() {
           <h2 className="text-2xl font-bold text-ink mb-8">Explora</h2>
           {/* "Monitoreo en vivo" y "Configuracion" eran <div> con `cursor-pointer`
               que no llevaban a ninguna parte: parecian pulsables y no hacian nada.
-              Cuando esas pantallas existan, vuelven. Los dos que hay si llevan a
+              Cuando esas pantallas existan, vuelven. Los tres que hay si llevan a
               algo. */}
           <div className="grid md:grid-cols-2 gap-6">
+            {/* Primero el que solo existe con sesion. Quien esta en el panel ya
+                entro, y esta es la unica de las tres que no puede usar desde fuera:
+                ponerla detras de las otras dos seria esconderla justo a quien puede
+                aprovecharla. */}
+            <Link
+              to="/documentos"
+              className="grupo-tarjeta relative overflow-hidden bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group md:col-span-2"
+            >
+              <span className="barrido pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-brand/10 to-transparent" />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand/10 to-mint/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <ScanLine className="w-6 h-6 text-brand" />
+              </div>
+              <h3 className="font-bold text-ink mb-2">MEDIBOT Médico</h3>
+              <p className="text-sm text-ink/60">
+                Sube una receta, un examen o un resultado de laboratorio y el asistente
+                te explica lo que dice. Se guarda en tu cuenta para consultarlo después.
+              </p>
+            </Link>
+
             <Link
               to="/tecnologia"
               className="grupo-tarjeta relative overflow-hidden bg-card rounded-2xl p-6 border border-ink/5 shadow-sm hover:shadow-md hover:border-brand/30 transition-all group"

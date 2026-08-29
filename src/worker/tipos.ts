@@ -39,10 +39,58 @@ export type Env = {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 };
 
+/**
+ * Un esquema de salida, en la forma que entienden por igual Google, OpenAI y
+ * Anthropic: un subconjunto de JSON Schema con los tipos en mayusculas.
+ *
+ * Se declara aqui, a mano, en vez de importar el tipo `Schema` del SDK de Google.
+ * Ese import ataria `tipos.ts` -- que es justo la costura que permite cambiar de
+ * proveedor tocando un fichero -- al paquete de UN proveedor. Los nombres de estos
+ * campos no son de Google: son de OpenAPI.
+ */
+export type EsquemaJson = {
+  type: "OBJECT" | "ARRAY" | "STRING" | "NUMBER" | "INTEGER" | "BOOLEAN";
+  description?: string;
+  /** Valores admitidos, para un `type: "STRING"`. */
+  enum?: string[];
+  properties?: Record<string, EsquemaJson>;
+  /** Sin esto, el modelo omite campos y quien lo pinta tiene que comprobarlos todos. */
+  required?: string[];
+  items?: EsquemaJson;
+  /** Orden en que el modelo rellena los campos. Ver el comentario de `ESQUEMA`. */
+  propertyOrdering?: string[];
+};
+
+/** Una imagen que acompaña al ultimo turno del usuario. */
+export type ImagenAdjunta = {
+  /** Tipo MIME real, ya validado por quien la recibe. */
+  mime: string;
+  /**
+   * Los bytes, sin codificar.
+   *
+   * Se pasa asi y no en base64 a proposito: la codificacion es un detalle del
+   * protocolo de cada proveedor (Google la quiere en base64 dentro del JSON; otro
+   * podria querer un `multipart`), y ese detalle pertenece al adaptador. Ademas
+   * base64 infla un 33 %, y guardar la version inflada mientras se prepara la
+   * peticion es memoria de la instancia gastada para nada.
+   */
+  bytes: Uint8Array;
+};
+
 export type Peticion = {
   sistema: string;
   turnos: Turno[];
   maxTokensSalida: number;
+  /** Va con el ultimo turno del usuario, que es el unico al que puede referirse. */
+  imagen?: ImagenAdjunta;
+  /**
+   * Si viene, el modelo devuelve JSON con esta forma en vez de texto libre.
+   *
+   * `Respuesta.texto` sigue siendo una cadena: aqui no se parsea nada. Quien pide
+   * el esquema sabe que tipo espera y es quien tiene que validarlo -- el adaptador
+   * no puede, no conoce la forma.
+   */
+  esquema?: EsquemaJson;
 };
 
 export type Respuesta = {

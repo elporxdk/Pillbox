@@ -1,5 +1,5 @@
 import { ApiError, GoogleGenAI } from "@google/genai/web";
-import { ErrorProveedor, type Env, type Proveedor } from "./tipos";
+import { ErrorProveedor, type Env, type ImagenAdjunta, type Proveedor } from "./tipos";
 
 /**
  * Adaptador de Google Gemini.
@@ -25,10 +25,50 @@ import { ErrorProveedor, type Env, type Proveedor } from "./tipos";
  *     como primer mensaje de la conversacion.
  *   - El rol del asistente se llama `model`, no `assistant`.
  *   - El texto sale de `response.text`, que puede venir vacio.
+ *   - Una imagen es una `part` mas del turno, con los bytes en base64 dentro del
+ *     propio JSON (`inlineData`). Ver `parteDeImagen`.
+ *   - Para que devuelva JSON hacen falta DOS campos, no uno: `responseMimeType` y
+ *     `responseSchema`. Con solo el esquema, contesta en prosa igualmente.
  */
 
 /** Gemini llama `model` a lo que el resto del mundo llama `assistant`. */
 const ROL_GEMINI = { usuario: "user", bot: "model" } as const;
+
+/**
+ * Convierte los bytes de una imagen en la `part` que espera la API.
+ *
+ * POR QUE `inlineData` Y NO LA FILES API
+ * --------------------------------------
+ * Google ofrece dos formas de mandar una imagen: dentro de la peticion
+ * (`inlineData`) o subiendola antes a su almacen y citandola por URI (Files API).
+ * Aqui se usa la primera, y no por comodidad:
+ *
+ *   - La Files API son DOS viajes de red antes de tener respuesta, y ademas deja el
+ *     fichero guardado 48 h en un servidor de Google. Para un documento medico que
+ *     se analiza una vez, eso es latencia de mas y una copia de mas.
+ *   - `inlineData` esta pensado justo para este caso: una imagen, una peticion, por
+ *     debajo de 20 MB (aqui el tope es 4 MB, y el navegador la deja en ~300 kB).
+ *
+ * LO DEL BASE64
+ * -------------
+ * El +33 % que infla base64 es inevitable: el cuerpo de la peticion es JSON, y en
+ * JSON no caben bytes crudos. Lo que si se evita es inflarlo ANTES de tiempo -- por
+ * eso `ImagenAdjunta` viaja como `Uint8Array` por todo el Worker y solo se convierte
+ * aqui, en la linea justo anterior al envio.
+ *
+ * `String.fromCharCode` va por trozos y no de una vez con el array entero: pasarle
+ * cientos de miles de argumentos a la vez desborda la pila del motor
+ * (`RangeError: too many function arguments`), y ese fallo no aparece con las
+ * imagenes pequeñas de una prueba -- aparece con la primera foto de verdad.
+ */
+function parteDeImagen(imagen: ImagenAdjunta) {
+  const TROZO = 0x8000;
+  let binario = "";
+  for (let i = 0; i < imagen.bytes.length; i += TROZO) {
+    binario += String.fromCharCode(...imagen.bytes.subarray(i, i + TROZO));
+  }
+  return { inlineData: { mimeType: imagen.mime, data: btoa(binario) } };
+}
 
 /**
  * Pide una respuesta a un modelo concreto.
@@ -47,9 +87,18 @@ async function pedir(modelo: string, peticion: Parameters<Proveedor>[0], env: En
   try {
     respuesta = await ai.models.generateContent({
       model: modelo,
-      contents: peticion.turnos.map((t) => ({
+      // La imagen va SOLO en el ultimo turno, que es el unico que puede hablar de
+      // ella. Repetirla en cada turno del historial multiplicaria por ahi el coste
+      // de entrada sin añadir nada.
+      contents: peticion.turnos.map((t, i) => ({
         role: ROL_GEMINI[t.rol],
-        parts: [{ text: t.texto }],
+        parts:
+          peticion.imagen && i === peticion.turnos.length - 1
+            ? // El texto DESPUES de la imagen: Google recomienda ese orden cuando la
+              // instruccion se refiere a lo que hay en ella, y en las pruebas con
+              // documentos la diferencia se nota en si respeta o no el formato.
+              [parteDeImagen(peticion.imagen), { text: t.texto }]
+            : [{ text: t.texto }],
       })),
       config: {
         systemInstruction: peticion.sistema,
@@ -57,6 +106,9 @@ async function pedir(modelo: string, peticion: Parameters<Proveedor>[0], env: En
         // Sin `thinkingConfig`: los tokens de razonamiento se cobran como salida y
         // consumen el cupo por minuto de la capa gratuita. Para preguntas sobre
         // datos que ya estan enteros en el prompt, no compensa.
+        ...(peticion.esquema
+          ? { responseMimeType: "application/json", responseSchema: peticion.esquema }
+          : {}),
       },
     });
   } catch (error) {
