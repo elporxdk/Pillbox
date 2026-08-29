@@ -28,7 +28,28 @@ export default function DashboardPage() {
             <MedibotLogo markClassName="w-9 h-9" wordmarkClassName="text-lg" />
           </Link>
 
-          <div className="flex items-center gap-4">
+          {/* `gap-2` en movil y `gap-4` desde `sm`. Con MEDIBOT Medico aqui son cinco
+              controles, y con la separacion de escritorio no caben en 360 px. El hueco
+              sale de esa separacion y de esconder el rotulo de "Cerrar sesion"; la
+              campana se queda como estaba, que no es mia. */}
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* MEDIBOT Medico, arriba y no solo en "Explora".
+                Estuvo unicamente en la rejilla del final, y ahi queda DEBAJO del
+                portal de noticias entero: para verlo hay que bajar toda la pagina,
+                asi que en la practica no existia. Es ademas lo unico del panel que
+                solo se puede usar con sesion, o sea justo lo que viene a hacer quien
+                esta aqui.
+
+                El texto se esconde por debajo de `sm` y queda el icono: con la
+                palabra siempre visible, la barra se rompia en el movil. */}
+            <Link
+              to="/documentos"
+              title="MEDIBOT Médico: analizar un documento"
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-gradient-to-r from-brand to-deep text-white transition-opacity hover:opacity-90 text-sm font-medium"
+            >
+              <ScanLine className="w-4 h-4" />
+              <span className="hidden sm:inline">MEDIBOT Médico</span>
+            </Link>
             <ThemeToggle />
             <button className="w-10 h-10 rounded-full bg-ink/5 flex items-center justify-center hover:bg-ink/10 transition-colors">
               <Bell className="w-5 h-5 text-ink" />
@@ -43,10 +64,12 @@ export default function DashboardPage() {
             </button>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 rounded-full bg-ink/5 hover:bg-ink/10 transition-colors text-sm font-medium text-ink"
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-ink/5 hover:bg-ink/10 transition-colors text-sm font-medium text-ink"
             >
               <LogOut className="w-4 h-4" />
-              Cerrar sesión
+              <span className="hidden sm:inline">Cerrar sesión</span>
             </button>
           </div>
         </div>
