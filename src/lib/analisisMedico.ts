@@ -151,22 +151,24 @@ export const CAMPO_IMAGEN = "imagen";
 export const CAMPO_NOTA = "nota";
 
 /**
- * Tope de la imagen que acepta el Worker.
+ * Tope del fichero que acepta el Worker.
  *
- * 4 MB y no mas: el navegador ya la reduce antes de enviarla (ver
- * `prepararImagen`), asi que lo normal son 200-500 kB. Este numero solo existe para
- * el caso en que alguien llame al endpoint a mano, y ahi lo que importa es que un
- * fichero enorme no llegue a convertirse a base64 dentro del Worker, que es donde
- * se comeria la memoria de la instancia.
+ * 8 MB. Para una imagen sobra -- el navegador la reduce antes de enviarla (ver
+ * `prepararArchivo`) y lo normal son 200-500 kB -- pero un PDF no se puede reducir
+ * en el navegador, y tres paginas escaneadas a 300 ppp rondan los 5 MB.
+ *
+ * Este numero existe sobre todo para quien llame al endpoint a mano: lo que hay que
+ * evitar es que un fichero enorme llegue a convertirse a base64 dentro del Worker,
+ * que es donde se comeria la memoria de la instancia.
  */
-export const MAX_BYTES_IMAGEN = 4 * 1024 * 1024;
+export const MAX_BYTES_ARCHIVO = 8 * 1024 * 1024;
 
 /**
- * Formatos que acepta el modelo.
+ * Formatos de imagen que acepta el modelo.
  *
- * Es la lista de Gemini, no una eleccion nuestra: mandar un TIFF o un PDF por aqui
- * da un 400 del proveedor con un mensaje que no dice nada. Mejor rechazarlo antes,
- * con un texto que se entienda.
+ * Es la lista de Gemini, no una eleccion nuestra: mandar un TIFF por aqui da un 400
+ * del proveedor con un mensaje que no dice nada. Mejor rechazarlo antes, con un
+ * texto que se entienda.
  *
  * HEIC/HEIF entran porque es lo que sale de un iPhone por defecto, y este sitio se
  * usa sobre todo desde el movil.
@@ -179,8 +181,127 @@ export const TIPOS_IMAGEN = [
   "image/heif",
 ] as const;
 
-/** Para el `accept` del `<input type="file">` y para el mensaje de error. */
-export const ACCEPT_IMAGEN = TIPOS_IMAGEN.join(",");
+/**
+ * El PDF, que va por un camino distinto en casi todo.
+ *
+ * Gemini lo entiende de forma nativa: no hay que rasterizarlo aqui ni sacarle el
+ * texto. Es ademas el MEJOR caso de los dos, y conviene saber por que: un PDF de
+ * verdad (el que da el portal del laboratorio, no una foto metida en un PDF) lleva
+ * el texto dentro, asi que el modelo lo LEE en lugar de reconocerlo de una imagen.
+ * Ahi no hay un "0,8" que se pueda confundir con un "0,3".
+ *
+ * Lo que no se puede es reducirlo en el navegador como se hace con una foto, y por
+ * eso tiene su propio tope de paginas: cada pagina cuesta como una imagen.
+ */
+export const TIPO_PDF = "application/pdf";
+
+export const TIPOS_ACEPTADOS = [...TIPOS_IMAGEN, TIPO_PDF] as const;
+
+/**
+ * Para el `accept` del `<input type="file">`.
+ *
+ * Lleva ademas la extension `.pdf`, y no sobra: en Android hay gestores de ficheros
+ * que no anuncian el tipo MIME de lo que ofrecen, y con solo `application/pdf` el
+ * PDF sale en gris y no se puede elegir. Se comprobo.
+ */
+export const ACCEPT_ARCHIVO = `${TIPOS_ACEPTADOS.join(",")},.pdf`;
+
+/**
+ * Paginas de PDF que se analizan como mucho.
+ *
+ * Gemini cobra cada pagina de un PDF como una imagen (~258 tokens), asi que esto es
+ * un limite de coste, no de capacidad. Ocho paginas son ~2.100 tokens: lo mismo que
+ * una foto reducida, y mas de lo que ocupa cualquier receta, analitica o informe de
+ * consulta. Un expediente de cuarenta paginas no es lo que esta funcion resuelve.
+ */
+export const MAX_PAGINAS_PDF = 8;
+
+/**
+ * Cuantas paginas tiene un PDF, o `null` si no se puede saber.
+ *
+ * ES UN CONTADOR APROXIMADO, Y ESTA BIEN QUE LO SEA
+ * ------------------------------------------------
+ * Contar paginas de verdad exige entender la estructura del fichero, y desde PDF 1.5
+ * el catalogo puede vivir COMPRIMIDO dentro de un flujo de objetos. Descomprimirlo
+ * seria meter un descompresor entero en el Worker para un guardia de coste.
+ *
+ * Asi que se busca lo que casi siempre esta a la vista, y cuando no se encuentra
+ * nada se devuelve `null` -- que quien llama trata como "adelante": el tope de bytes
+ * sigue puesto y el limite por minuto de Google es la ultima red. Falla hacia el
+ * lado generoso a proposito: rechazar un PDF bueno porque no supimos contarlo seria
+ * peor que analizar de mas uno raro.
+ *
+ * Se usa en los dos lados. En el navegador, para avisar antes de subir 6 MB y para
+ * escribir "3 paginas" en la ficha; en el Worker, que es donde de verdad decide.
+ */
+export function contarPaginasPdf(bytes: Uint8Array): number | null {
+  const texto = aLatin1(bytes);
+
+  // 1. El nodo raiz del arbol de paginas lleva el total en `/Count`. Se busca ahi y
+  //    no un `/Count` cualquiera porque `/Count` tambien aparece en el indice de
+  //    marcadores (`/Type /Outlines`), donde su valor no tiene nada que ver con las
+  //    paginas y suele ser MAYOR: un PDF de 2 paginas con 97 marcadores se contaria
+  //    como 97. Es un caso real y esta en las pruebas.
+  //
+  //    Por eso `/Count` se busca DENTRO DEL MISMO OBJETO, entre su `obj` y su
+  //    `endobj`, y no en una ventana de tantos caracteres: una ventana se cuela en
+  //    el objeto de al lado, que es justo como se colaba el indice de marcadores.
+  //    Dentro del objeto si vale cualquier orden, porque las claves de un
+  //    diccionario no lo tienen: `/Count` puede ir delante o detras de `/Type`.
+  let mayor = 0;
+  const arbol = /\/Type\s*\/Pages\b/g;
+  let encaje: RegExpExecArray | null;
+  while ((encaje = arbol.exec(texto)) !== null) {
+    const cuenta = /\/Count\s+(\d+)/.exec(objetoQueRodea(texto, encaje.index));
+    if (cuenta) mayor = Math.max(mayor, Number(cuenta[1]));
+  }
+  if (mayor > 0) return mayor;
+
+  // 2. Sin arbol a la vista, se cuentan los objetos de pagina uno a uno. El
+  //    `[^s]` del final distingue `/Type /Page` de `/Type /Pages`, que es el nodo
+  //    contenedor y no una pagina.
+  const sueltas = texto.match(/\/Type\s*\/Page[^s]/g);
+  if (sueltas && sueltas.length > 0) return sueltas.length;
+
+  return null;
+}
+
+/**
+ * El objeto indirecto que contiene la posicion dada: de su `obj` a su `endobj`.
+ *
+ * `lastIndexOf("obj", pos)` cae en el `obj` de la cabecera del propio objeto
+ * (`12 0 obj`), que esta mas cerca que el `endobj` del anterior. Si el fichero no
+ * usa esas marcas -- pasa con los objetos comprimidos de PDF 1.5 -- se devuelve un
+ * trozo acotado, que es peor pero nunca peligroso: como mucho no se encuentra el
+ * `/Count` y se pasa al recuento uno a uno.
+ */
+function objetoQueRodea(texto: string, pos: number): string {
+  const TOPE = 4000; // ningun diccionario de paginas legitimo es mas largo
+  const abre = texto.lastIndexOf("obj", pos);
+  const cierra = texto.indexOf("endobj", pos);
+  const desde = abre >= 0 ? Math.max(abre, pos - TOPE) : Math.max(0, pos - TOPE);
+  const hasta = cierra >= 0 ? Math.min(cierra, pos + TOPE) : Math.min(texto.length, pos + TOPE);
+  return texto.slice(desde, hasta);
+}
+
+/**
+ * Los bytes como texto, uno a uno.
+ *
+ * No es UTF-8 ni pretende serlo: un PDF es binario y lo unico que se busca dentro
+ * son marcas ASCII (`/Type`, `/Count`). Decodificarlo como UTF-8 destrozaria esas
+ * marcas en cuanto un byte suelto no formara una secuencia valida.
+ *
+ * Va por trozos porque `String.fromCharCode(...)` con cientos de miles de argumentos
+ * desborda la pila del motor, y con un PDF de 8 MB serian millones.
+ */
+function aLatin1(bytes: Uint8Array): string {
+  const TROZO = 0x8000;
+  let texto = "";
+  for (let i = 0; i < bytes.length; i += TROZO) {
+    texto += String.fromCharCode(...bytes.subarray(i, i + TROZO));
+  }
+  return texto;
+}
 
 /** Nota opcional del visitante ("¿qué significa el valor de la tercera fila?"). */
 export const MAX_CARACTERES_NOTA = 300;

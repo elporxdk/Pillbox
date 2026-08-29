@@ -3,9 +3,12 @@ import {
   CAMPO_IMAGEN,
   CAMPO_NOTA,
   LADO_MAXIMO_IMAGEN,
-  MAX_BYTES_IMAGEN,
+  MAX_BYTES_ARCHIVO,
+  MAX_PAGINAS_PDF,
   RUTA_DOCUMENTO,
-  TIPOS_IMAGEN,
+  TIPOS_ACEPTADOS,
+  TIPO_PDF,
+  contarPaginasPdf,
   esAnalisis,
   type Analisis,
   type Categoria,
@@ -52,12 +55,15 @@ export type DocumentoGuardado = {
    * Clave del fichero dentro del almacén, o `null` si se guardó solo el análisis.
    *
    * No es una URL: el almacén es privado y sus URLs caducan. Se pide una firmada en
-   * el momento de mirarla, con `urlDeImagen`.
+   * el momento de abrirlo, con `urlDelArchivo`.
+   *
+   * Puede ser una imagen o un PDF; la extensión de la clave lo dice, y por eso la
+   * columna se llama `ruta_archivo` y no `ruta_imagen` como en la primera versión.
    */
-  rutaImagen: string | null;
+  rutaArchivo: string | null;
 };
 
-const COLUMNAS = "id, creado_en, categoria, titulo, analisis, ruta_imagen";
+const COLUMNAS = "id, creado_en, categoria, titulo, analisis, ruta_archivo";
 
 /** Fila tal y como la devuelve PostgREST. */
 type Fila = {
@@ -66,7 +72,7 @@ type Fila = {
   categoria: string;
   titulo: string;
   analisis: unknown;
-  ruta_imagen: string | null;
+  ruta_archivo: string | null;
 };
 
 /**
@@ -86,7 +92,7 @@ function aDocumento(f: Fila): DocumentoGuardado | null {
     categoria: f.analisis.categoria,
     titulo: f.titulo || f.analisis.titulo,
     analisis: f.analisis,
-    rutaImagen: f.ruta_imagen,
+    rutaArchivo: f.ruta_archivo,
   };
 }
 
@@ -94,20 +100,30 @@ function aDocumento(f: Fila): DocumentoGuardado | null {
 //  PREPARAR LA IMAGEN
 // ---------------------------------------------------------------------------
 
-/** Lo que se manda al Worker: los bytes ya reducidos y su tipo. */
-export type ImagenLista = {
+/** Lo que se manda al Worker: los bytes ya listos y con qué se está tratando. */
+export type ArchivoListo = {
   blob: Blob;
-  /** `URL.createObjectURL` para la vista previa. Quien la reciba tiene que revocarla. */
-  vistaPrevia: string;
-  /** Bytes originales, antes de reducir. Solo para enseñar cuánto se ahorró. */
-  bytesOriginales: number;
+  /**
+   * `URL.createObjectURL`. Quien la reciba tiene que revocarla.
+   *
+   * Para una imagen es la vista previa que se pinta; para un PDF es el enlace con el
+   * que se abre en una pestaña, porque un PDF no se pinta en un `<img>`.
+   */
+  url: string;
+  esPdf: boolean;
+  /** Nombre del fichero elegido, para la ficha. */
+  nombre: string;
+  /** Bytes finales, los que se envían. */
+  bytes: number;
+  /** Páginas, solo con PDF y solo si se pudieron contar. */
+  paginas: number | null;
 };
 
 /**
- * Reduce la imagen antes de que salga del navegador.
+ * Deja el archivo listo para enviar: la imagen reducida, el PDF tal cual.
  *
- * ESTA FUNCIÓN ES EL AHORRO
- * -------------------------
+ * LA REDUCCIÓN DE LA IMAGEN ES EL AHORRO
+ * --------------------------------------
  * Una foto de teléfono son 3-8 MB y 4.000 px de lado. Gemini la trocea en cuadros de
  * 768 px y cobra ~258 tokens por cuadro: sin reducir son ~6.200 tokens de entrada
  * por documento. A 1.600 px de lado largo son ~1.550. Es el mismo documento, se lee
@@ -115,6 +131,16 @@ export type ImagenLista = {
  *
  * Y no es solo el modelo: son también los megabytes que el visitante sube desde una
  * conexión móvil antes de ver nada en pantalla.
+ *
+ * EL PDF NO SE TOCA, Y ES LO CORRECTO
+ * -----------------------------------
+ * No se puede reducir sin rasterizarlo, y rasterizarlo sería el peor negocio posible:
+ * un PDF de verdad —el que da el portal del laboratorio— lleva el texto DENTRO, y el
+ * modelo lo lee en lugar de reconocerlo de una imagen. Convertirlo a foto tiraría esa
+ * ventaja para ahorrar unos kilobytes.
+ *
+ * Lo que sí se hace es contar las páginas: son lo que cuesta, y avisar aquí es mejor
+ * que subir 6 MB para que el Worker lo rechace.
  *
  * A DIFERENCIA DE LA FOTO DE UN CREADOR, AQUÍ NO SE RECORTA
  * --------------------------------------------------------
@@ -126,15 +152,43 @@ export type ImagenLista = {
  * -------------------
  * Si la conversión no ahorra bytes —una foto ya pequeña y bien comprimida—, se manda
  * el original. Reencodificar por costumbre solo añade una pérdida de calidad más, y
- * en un documento la calidad es la diferencia entre leer un "0,8" y un "0,3".
+ * en un documento la calidad es la diferencia entre leer un «0,8» y un «0,3».
  *
  * Si el navegador no sabe decodificar el formato (HEIC fuera de Safari es el caso
  * real), tampoco falla: manda el original y que lo resuelva el modelo, que sí lo
  * acepta.
  */
-export async function prepararImagen(archivo: File): Promise<ImagenLista | { error: string }> {
-  if (!(TIPOS_IMAGEN as readonly string[]).includes(archivo.type.toLowerCase())) {
-    return { error: "Ese archivo no es una imagen que se pueda analizar. Usa JPG, PNG o WebP." };
+export async function prepararArchivo(archivo: File): Promise<ArchivoListo | { error: string }> {
+  const tipo = archivo.type.toLowerCase();
+  if (!(TIPOS_ACEPTADOS as readonly string[]).includes(tipo)) {
+    return { error: "Ese archivo no se puede analizar. Usa una foto (JPG, PNG o WebP) o un PDF." };
+  }
+
+  const comun = { esPdf: tipo === TIPO_PDF, nombre: archivo.name };
+
+  if (tipo === TIPO_PDF) {
+    if (archivo.size > MAX_BYTES_ARCHIVO) {
+      return { error: "Ese PDF pesa más de 8 MB. Sube solo las páginas que te interesan." };
+    }
+    // `null` = no se pudo contar; se deja pasar. Ver `contarPaginasPdf`.
+    const paginas = contarPaginasPdf(new Uint8Array(await archivo.arrayBuffer()));
+    if (paginas !== null && paginas > MAX_PAGINAS_PDF) {
+      return {
+        error:
+          `Ese PDF tiene ${paginas} páginas y se analizan ${MAX_PAGINAS_PDF} como máximo. ` +
+          "Sube solo las que te interesan.",
+      };
+    }
+    if (paginas === 0) {
+      return { error: "Ese PDF no tiene páginas legibles. Puede que esté dañado." };
+    }
+    return {
+      ...comun,
+      blob: archivo,
+      url: URL.createObjectURL(archivo),
+      bytes: archivo.size,
+      paginas,
+    };
   }
 
   const original = archivo.size;
@@ -143,7 +197,7 @@ export async function prepararImagen(archivo: File): Promise<ImagenLista | { err
   // El original solo vale si cabe en el tope del Worker. Si no cabe y además no se
   // pudo reducir, no hay nada que hacer y conviene decirlo aquí y no tras la subida.
   const blob = reducida && reducida.size < original ? reducida : archivo;
-  if (blob.size > MAX_BYTES_IMAGEN) {
+  if (blob.size > MAX_BYTES_ARCHIVO) {
     return {
       error:
         "La imagen pesa demasiado y no se pudo reducir en este navegador. " +
@@ -151,7 +205,7 @@ export async function prepararImagen(archivo: File): Promise<ImagenLista | { err
     };
   }
 
-  return { blob, vistaPrevia: URL.createObjectURL(blob), bytesOriginales: original };
+  return { ...comun, blob, url: URL.createObjectURL(blob), bytes: blob.size, paginas: null };
 }
 
 async function reducir(archivo: File): Promise<Blob> {
@@ -211,14 +265,14 @@ export type ResultadoAnalisis =
  * verifica contra Supabase, y sin sesión válida responde 401.
  */
 export async function analizarDocumento(
-  imagen: Blob,
+  archivo: Blob,
   nota: string,
   token: string
 ): Promise<ResultadoAnalisis> {
   const formulario = new FormData();
   // El nombre del fichero no lo usa nadie, pero `FormData` necesita uno para
   // mandarlo como fichero y no como campo de texto.
-  formulario.append(CAMPO_IMAGEN, imagen, "documento");
+  formulario.append(CAMPO_IMAGEN, archivo, "documento");
   if (nota.trim()) formulario.append(CAMPO_NOTA, nota.trim());
 
   try {
@@ -295,19 +349,24 @@ export async function analizarDocumento(
 export async function guardarDocumento(
   usuarioId: string,
   analisis: Analisis,
-  imagen: Blob | null
+  archivo: Blob | null
 ): Promise<{ documento: DocumentoGuardado } | { error: string }> {
   let ruta: string | null = null;
 
-  if (imagen) {
+  if (archivo) {
+    const tipo = archivo.type || "image/webp";
+    // La extensión sale del tipo real y no se escribe a mano: guardar un PDF con
+    // nombre `.webp` haría que el navegador se negara a abrirlo al recuperarlo, y el
+    // fallo aparecería semanas después, al consultar un documento viejo.
+    const extension = tipo === TIPO_PDF ? "pdf" : (tipo.split("/")[1] ?? "webp");
     // La carpeta es el id del usuario, y no es cosmético: es lo que comprueban las
     // políticas del almacén (`(storage.foldername(name))[1] = auth.uid()::text`).
     // Cambiar este formato sin cambiar la migración deja a todo el mundo sin poder
     // subir nada.
-    const nombre = `${usuarioId}/${crypto.randomUUID()}.webp`;
+    const nombre = `${usuarioId}/${crypto.randomUUID()}.${extension}`;
     const { error } = await supabase.storage
       .from(ALMACEN)
-      .upload(nombre, imagen, { contentType: imagen.type || "image/webp" });
+      .upload(nombre, archivo, { contentType: tipo });
     if (error) return { error: traducir(error.message) };
     ruta = nombre;
   }
@@ -319,7 +378,7 @@ export async function guardarDocumento(
       categoria: analisis.categoria,
       titulo: analisis.titulo,
       analisis,
-      ruta_imagen: ruta,
+      ruta_archivo: ruta,
     })
     .select(COLUMNAS)
     .single();
@@ -367,7 +426,7 @@ export async function leerDocumentos(usuarioId: string): Promise<DocumentoGuarda
 }
 
 /**
- * URL temporal para ver la imagen de un documento.
+ * URL temporal para abrir el archivo original de un documento.
  *
  * El almacén es PRIVADO: no hay URL pública que valga, hay que pedir una firmada, y
  * caduca. Es la diferencia de fondo con `creadores` y `tecnologia`, donde la imagen
@@ -376,7 +435,7 @@ export async function leerDocumentos(usuarioId: string): Promise<DocumentoGuarda
  * Una hora de validez: suficiente para mirar el documento sin que el enlace ande
  * suelto por el historial del navegador para siempre.
  */
-export async function urlDeImagen(ruta: string): Promise<string | null> {
+export async function urlDelArchivo(ruta: string): Promise<string | null> {
   try {
     const { data, error } = await supabase.storage.from(ALMACEN).createSignedUrl(ruta, 3600);
     if (error || !data) return null;
@@ -398,7 +457,7 @@ export async function borrarDocumento(doc: DocumentoGuardado): Promise<string | 
   const { error } = await supabase.from(TABLA).delete().eq("id", doc.id);
   if (error) return traducir(error.message);
 
-  if (doc.rutaImagen) await supabase.storage.from(ALMACEN).remove([doc.rutaImagen]);
+  if (doc.rutaArchivo) await supabase.storage.from(ALMACEN).remove([doc.rutaArchivo]);
   return null;
 }
 
@@ -417,6 +476,12 @@ function traducir(mensaje: string): string {
   if (m.includes("row-level security") || m.includes("unauthorized") || m.includes("403")) {
     return "No tienes permiso para guardar aquí. Comprueba que tu sesión sigue abierta.";
   }
+  if (m.includes("mime") || m.includes("invalid_mime_type")) {
+    return (
+      "El almacén todavía no admite PDF. Ejecuta " +
+      "supabase/migraciones/0006_documentos_en_pdf.sql en el editor SQL de Supabase."
+    );
+  }
   if (m.includes("bucket") || m.includes("not found")) {
     return (
       "Falta el almacén de documentos. Ejecuta " +
@@ -431,12 +496,16 @@ function traducir(mensaje: string): string {
   ) {
     return (
       "Guardar documentos todavía no está disponible en la base de datos. Ejecuta " +
-      "supabase/migraciones/0005_documentos_medicos.sql en el editor SQL de Supabase. " +
+      "supabase/migraciones/0005_documentos_medicos.sql y 0006_documentos_en_pdf.sql " +
+      "en el editor SQL de Supabase. " +
       "Si ya la ejecutaste, lanza ahí mismo: notify pgrst, 'reload schema';"
     );
   }
   if (m.includes("payload") || m.includes("too large") || m.includes("413")) {
-    return "La imagen pesa más de lo que admite el almacén. Prueba con una foto de menos resolución.";
+    return (
+      "El archivo pesa más de lo que admite el almacén. Si es un PDF, puede faltar " +
+      "la migración 0006_documentos_en_pdf.sql, que sube el tope a 8 MB."
+    );
   }
   return `No se pudo guardar: ${mensaje}`;
 }

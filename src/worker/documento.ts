@@ -2,9 +2,12 @@ import {
   CAMPO_IMAGEN,
   CAMPO_NOTA,
   LIMITE_DOCUMENTOS,
-  MAX_BYTES_IMAGEN,
+  MAX_BYTES_ARCHIVO,
   MAX_CARACTERES_NOTA,
-  TIPOS_IMAGEN,
+  MAX_PAGINAS_PDF,
+  TIPOS_ACEPTADOS,
+  TIPO_PDF,
+  contarPaginasPdf,
   esAnalisis,
   type Analisis,
   type ErrorDocumento,
@@ -17,13 +20,20 @@ import { tieneSesion } from "./sesion";
 import { ErrorProveedor, type Env } from "./tipos";
 
 /**
- * `/api/documento`: analiza la imagen de un documento medico.
+ * `/api/documento`: analiza un documento medico, en imagen o en PDF.
  *
  * QUE HACE Y QUE NO HACE
  * ----------------------
- * Recibe UNA imagen, se la enseña al modelo con `anclajeDocumento.ts` y devuelve el
- * analisis ya con forma. Nada mas. No guarda la imagen, no guarda el resultado y no
+ * Recibe UN fichero, se lo enseña al modelo con `anclajeDocumento.ts` y devuelve el
+ * analisis ya con forma. Nada mas. No guarda el fichero, no guarda el resultado y no
  * sabe quien pregunta mas alla de que tiene sesion valida.
+ *
+ * LOS DOS FORMATOS VAN POR EL MISMO SITIO
+ * ---------------------------------------
+ * Gemini entiende el PDF de forma nativa, asi que no hay que rasterizarlo ni sacarle
+ * el texto: se manda igual que una imagen, como `inlineData` con su tipo MIME. La
+ * unica diferencia esta aqui, en la validacion: un PDF tiene paginas, y cada pagina
+ * cuesta como una imagen.
  *
  * Guardar es una decision del visitante y ocurre DESPUES, desde el navegador, contra
  * Supabase (`src/lib/documentosMedicos.ts`). Se hizo asi por tres motivos:
@@ -73,7 +83,7 @@ function json(
   return new Response(JSON.stringify(cuerpo), { status: estado, headers: cabeceras });
 }
 
-/** La imagen y la nota, ya validadas, o el mensaje que explica por que no valen. */
+/** El fichero y la nota, ya validados, o el mensaje que explica por que no valen. */
 type Entrada = { bytes: Uint8Array; mime: string; nota: string };
 
 /**
@@ -101,8 +111,8 @@ async function leerEntrada(req: Request): Promise<Entrada | { error: string }> {
   // Un `Content-Length` enorme se rechaza ANTES de leer el cuerpo. Sin esto, un
   // fichero de 50 MB se descarga entero en la instancia solo para descartarlo.
   const declarado = Number(req.headers.get("Content-Length") ?? "0");
-  if (declarado > MAX_BYTES_IMAGEN * 1.2) {
-    return { error: "La imagen pesa demasiado. Hazle una foto de menos resolución." };
+  if (declarado > MAX_BYTES_ARCHIVO * 1.2) {
+    return { error: "El archivo pesa demasiado. Usa una foto de menos resolución o un PDF más corto." };
   }
 
   let formulario: FormData;
@@ -116,27 +126,52 @@ async function leerEntrada(req: Request): Promise<Entrada | { error: string }> {
   // `instanceof File` y no `typeof !== "string"`: un campo de texto tambien pasaria
   // esa segunda comprobacion en algunos runtimes.
   if (!(archivo instanceof File)) {
-    return { error: "No se recibió ninguna imagen." };
+    return { error: "No se recibió ningún archivo." };
   }
 
   const mime = archivo.type.toLowerCase();
-  if (!(TIPOS_IMAGEN as readonly string[]).includes(mime)) {
-    return { error: "Ese formato no se puede analizar. Usa una foto en JPG, PNG o WebP." };
+  if (!(TIPOS_ACEPTADOS as readonly string[]).includes(mime)) {
+    return { error: "Ese formato no se puede analizar. Usa una foto (JPG, PNG o WebP) o un PDF." };
   }
 
   // `size` es el tamaño real del contenido leido, no una cabecera que se pueda
   // mentir. Los dos limites hacen falta: el de arriba evita descargar, este evita
   // procesar.
-  if (archivo.size > MAX_BYTES_IMAGEN) {
-    return { error: "La imagen pesa demasiado. Hazle una foto de menos resolución." };
+  if (archivo.size > MAX_BYTES_ARCHIVO) {
+    return { error: "El archivo pesa demasiado. Usa una foto de menos resolución o un PDF más corto." };
   }
   if (archivo.size === 0) {
-    return { error: "La imagen llegó vacía. Vuelve a intentarlo." };
+    return { error: "El archivo llegó vacío. Vuelve a intentarlo." };
+  }
+
+  const bytes = new Uint8Array(await archivo.arrayBuffer());
+
+  if (mime === TIPO_PDF) {
+    // El navegador ya lo comprueba, pero un limite que solo vive en el navegador no
+    // es un limite: quien llame al endpoint a mano se salta aquello y llega aqui.
+    //
+    // `null` = no se pudo contar (ver `contarPaginasPdf`). Se deja pasar a
+    // proposito: el tope de bytes sigue puesto, y rechazar un PDF bueno porque no
+    // supimos contarlo seria peor que analizar de mas uno raro.
+    const paginas = contarPaginasPdf(bytes);
+    if (paginas !== null && paginas > MAX_PAGINAS_PDF) {
+      return {
+        error:
+          `Ese PDF tiene ${paginas} páginas y se analizan ${MAX_PAGINAS_PDF} como máximo. ` +
+          "Sube solo las que te interesan.",
+      };
+    }
+    // Un PDF sin ninguna pagina reconocible casi siempre es un fichero corrupto o
+    // algo que no es un PDF con la extension cambiada. Mejor decirlo aqui que
+    // gastar una llamada al modelo para que conteste que no ve nada.
+    if (paginas === 0) {
+      return { error: "Ese PDF no tiene páginas legibles. Puede que esté dañado." };
+    }
   }
 
   const nota = formulario.get(CAMPO_NOTA);
   return {
-    bytes: new Uint8Array(await archivo.arrayBuffer()),
+    bytes,
     mime,
     nota: typeof nota === "string" ? nota.slice(0, MAX_CARACTERES_NOTA) : "",
   };
@@ -248,12 +283,12 @@ export async function documento(req: Request, env: Env): Promise<Response> {
           categoria: "ilegible",
           titulo: "No se pudo analizar",
           resumen:
-            "El filtro de contenido del proveedor no permitió analizar esta imagen. Suele pasar con fotografías clínicas. Puedes probar con el documento impreso en vez de con la imagen del examen.",
+            "El filtro de contenido del proveedor no permitió analizar este documento. Suele pasar con fotografías clínicas. Puedes probar con el informe escrito en vez de con la imagen del examen.",
           hallazgos: [],
           medicamentos: [],
           terminos: [],
           recomendaciones: [],
-          dudas: ["La imagen no llegó a analizarse."],
+          dudas: ["El documento no llegó a analizarse."],
         },
         restantes: cupo.limite - cupo.usados,
       });
@@ -303,7 +338,7 @@ export async function documento(req: Request, env: Env): Promise<Response> {
         return json(503, { error: "El análisis de documentos no está disponible ahora mismo." });
       default:
         return json(502, {
-          error: "No se pudo analizar la imagen. Inténtalo otra vez.",
+          error: "No se pudo analizar el documento. Inténtalo otra vez.",
           reintentar: true,
         });
     }

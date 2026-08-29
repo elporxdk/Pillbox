@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Check,
+  Download,
   Loader2,
   LockKeyhole,
   RefreshCw,
@@ -20,14 +21,15 @@ import { ResultadoAnalisis } from "@/components/documentos/ResultadoAnalisis";
 import { ListaDocumentos } from "@/components/documentos/ListaDocumentos";
 import { useAuth } from "@/context/AuthContext";
 import { LIMITE_DOCUMENTOS, type Analisis } from "@/lib/analisisMedico";
+import { descargarInforme } from "@/lib/informePdf";
 import {
   analizarDocumento,
   borrarDocumento,
   guardarDocumento,
   leerDocumentos,
-  prepararImagen,
+  prepararArchivo,
+  type ArchivoListo,
   type DocumentoGuardado,
-  type ImagenLista,
 } from "@/lib/documentosMedicos";
 
 /**
@@ -40,9 +42,13 @@ import {
  *
  * DÓNDE OCURRE CADA COSA, Y POR QUÉ AHÍ
  * -------------------------------------
- *   - Reducir la imagen: en el navegador (`prepararImagen`). Es lo que hace que
- *     subir desde el móvil no sea una espera de megabytes y que el análisis cueste
- *     una cuarta parte de tokens.
+ *   - Preparar el archivo: en el navegador (`prepararArchivo`). La foto se reduce
+ *     ahí, que es lo que hace que subir desde el móvil no sea una espera de
+ *     megabytes y que el análisis cueste una cuarta parte de tokens. El PDF va tal
+ *     cual: lleva el texto dentro y rasterizarlo tiraría esa ventaja.
+ *   - Hacer el informe en PDF: también en el navegador (`informePdf.ts`), y sin red.
+ *     Descargar el informe de un documento guardado no llama al modelo ni gasta
+ *     cupo, y el contenido médico no vuelve a salir del equipo de su dueño.
  *   - Hablar con el modelo: en el Worker. La clave de la API no está aquí y no puede
  *     estarlo: este fichero es JavaScript público.
  *   - Guardar: contra Supabase, desde aquí, con la sesión del propio visitante. El
@@ -72,14 +78,13 @@ export default function DocumentosPage() {
   const { session, user } = useAuth();
   const usuarioId = user?.id ?? null;
 
-  const [imagen, setImagen] = useState<ImagenLista | null>(null);
-  const [nombreArchivo, setNombreArchivo] = useState<string | null>(null);
+  const [archivo, setArchivo] = useState<ArchivoListo | null>(null);
   const [nota, setNota] = useState("");
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
   const [estado, setEstado] = useState<Estado>({ fase: "libre" });
   const [restantes, setRestantes] = useState<number | null>(null);
 
-  const [guardarImagen, setGuardarImagen] = useState(true);
+  const [guardarOriginal, setGuardarOriginal] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
 
@@ -92,18 +97,18 @@ export default function DocumentosPage() {
   const [borrando, setBorrando] = useState<string | null>(null);
 
   /**
-   * Espejo de `imagen` para poder revocar su `objectURL`.
+   * Espejo de `archivo` para poder revocar su `objectURL`.
    *
    * Hace falta un ref y no basta el estado: la limpieza del efecto de desmontaje se
    * crea una sola vez y capturaría el valor del primer render, que es `null`. Sin
-   * esto, la vista previa de cada imagen elegida se queda en memoria hasta que se
+   * esto, la vista previa de cada archivo elegido se queda en memoria hasta que se
    * recarga la página.
    */
-  const imagenActual = useRef<ImagenLista | null>(null);
+  const archivoActual = useRef<ArchivoListo | null>(null);
 
   useEffect(() => {
     return () => {
-      if (imagenActual.current) URL.revokeObjectURL(imagenActual.current.vistaPrevia);
+      if (archivoActual.current) URL.revokeObjectURL(archivoActual.current.url);
     };
   }, []);
 
@@ -130,53 +135,50 @@ export default function DocumentosPage() {
     };
   }, [usuarioId]);
 
-  function ponerImagen(nueva: ImagenLista | null) {
-    // Revocar la anterior ANTES de sustituirla: si no, cada cambio de documento deja
+  function ponerArchivo(nuevo: ArchivoListo | null) {
+    // Revocar el anterior ANTES de sustituirlo: si no, cada cambio de documento deja
     // un blob vivo en memoria.
-    if (imagenActual.current) URL.revokeObjectURL(imagenActual.current.vistaPrevia);
-    imagenActual.current = nueva;
-    setImagen(nueva);
+    if (archivoActual.current) URL.revokeObjectURL(archivoActual.current.url);
+    archivoActual.current = nuevo;
+    setArchivo(nuevo);
   }
 
   /** Vuelve al punto de partida, conservando lo ya guardado. */
   function empezarDeNuevo() {
-    ponerImagen(null);
-    setNombreArchivo(null);
+    ponerArchivo(null);
     setNota("");
     setAnalisis(null);
     setGuardado(false);
-    setGuardarImagen(true);
+    setGuardarOriginal(true);
     setEstado({ fase: "libre" });
   }
 
-  async function elegir(archivo: File) {
+  async function elegir(elegido: File) {
     setEstado({ fase: "preparando" });
     // Un documento nuevo invalida el análisis del anterior: dejarlo en pantalla
-    // haría creer que corresponde a la imagen que se acaba de poner.
+    // haría creer que corresponde al archivo que se acaba de poner.
     setAnalisis(null);
     setGuardado(false);
 
-    const listo = await prepararImagen(archivo);
+    const listo = await prepararArchivo(elegido);
     if ("error" in listo) {
-      ponerImagen(null);
-      setNombreArchivo(null);
+      ponerArchivo(null);
       setEstado({ fase: "error", mensaje: listo.error, reintentar: false, necesitaSesion: false });
       return;
     }
 
-    ponerImagen(listo);
-    setNombreArchivo(archivo.name);
+    ponerArchivo(listo);
     setEstado({ fase: "libre" });
   }
 
   async function analizar() {
-    if (!imagen || !session) return;
+    if (!archivo || !session) return;
 
     setEstado({ fase: "analizando" });
     setAnalisis(null);
     setGuardado(false);
 
-    const resultado = await analizarDocumento(imagen.blob, nota, session.access_token);
+    const resultado = await analizarDocumento(archivo.blob, nota, session.access_token);
 
     if (!resultado.ok) {
       setEstado({
@@ -200,7 +202,7 @@ export default function DocumentosPage() {
     const resultado = await guardarDocumento(
       usuarioId,
       analisis,
-      guardarImagen && imagen ? imagen.blob : null
+      guardarOriginal && archivo ? archivo.blob : null
     );
     setGuardando(false);
 
@@ -266,9 +268,10 @@ export default function DocumentosPage() {
             Entiende tus documentos médicos
           </h1>
           <p className="max-w-2xl text-lg text-ink/60">
-            Sube la foto de una receta, un examen o un resultado de laboratorio. El
-            asistente lo lee, te explica lo que dice en palabras normales y lo guarda
-            para que puedas volver a consultarlo.
+            Sube la foto o el PDF de una receta, un examen o un resultado de
+            laboratorio. El asistente lo lee, te explica lo que dice en palabras
+            normales, te lo da en un informe descargable y lo guarda para que puedas
+            volver a consultarlo.
           </p>
         </section>
 
@@ -280,8 +283,8 @@ export default function DocumentosPage() {
           <div className="space-y-2 text-sm text-ink/65">
             <p className="font-semibold text-ink">Antes de subir nada</p>
             <p>
-              La imagen se envía a Google para analizarla, igual que los mensajes del
-              asistente. En la capa gratuita, Google puede usar lo que recibe para
+              El documento se envía a Google para analizarlo, igual que los mensajes
+              del asistente. En la capa gratuita, Google puede usar lo que recibe para
               mejorar sus servicios y puede verlo una persona.{" "}
               <strong className="font-semibold text-ink">
                 Tapa el nombre, el documento de identidad y el teléfono
@@ -307,11 +310,10 @@ export default function DocumentosPage() {
           </div>
 
           <ZonaDeCarga
-            vistaPrevia={imagen?.vistaPrevia ?? null}
-            nombre={nombreArchivo}
+            archivo={archivo}
             nota={nota}
             ocupado={ocupado}
-            onElegir={(archivo) => void elegir(archivo)}
+            onElegir={(f) => void elegir(f)}
             onQuitar={empezarDeNuevo}
             onNota={setNota}
           />
@@ -343,7 +345,7 @@ export default function DocumentosPage() {
             <button
               type="button"
               onClick={() => void analizar()}
-              disabled={!imagen || ocupado}
+              disabled={!archivo || ocupado}
               className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand to-deep px-6 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
             >
               {ocupado ? (
@@ -382,41 +384,64 @@ export default function DocumentosPage() {
             <h2 className="text-xl font-bold text-ink">2. Lo que dice</h2>
             <ResultadoAnalisis analisis={analisis} />
 
-            {sePuedeGuardar && (
-              <div className="space-y-4 border-t border-ink/10 pt-6">
-                <h3 className="text-lg font-bold text-ink">3. Guardarlo</h3>
+            <div className="space-y-4 border-t border-ink/10 pt-6">
+              <h3 className="text-lg font-bold text-ink">3. Llevártelo</h3>
+
+              {/* La descarga va ANTES de guardar, y para todo análisis --incluso los
+                  que no se pueden guardar. Es lo único de esta página que funciona
+                  sin base de datos y sin cuenta abierta después: el informe se genera
+                  aquí mismo, sin red, y ya es del visitante. */}
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => descargarInforme(analisis)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-ink/15 px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-brand/40 hover:bg-ink/5"
+                >
+                  <Download className="size-4" />
+                  Descargar el informe en PDF
+                </button>
+
+                {sePuedeGuardar && (
+                  <button
+                    type="button"
+                    onClick={() => void guardar()}
+                    disabled={guardando || guardado}
+                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand to-deep px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                  >
+                    {guardando ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : guardado ? (
+                      <Check className="size-4" />
+                    ) : (
+                      <Save className="size-4" />
+                    )}
+                    {guardado ? "Guardado en tu cuenta" : "Guardar en mi cuenta"}
+                  </button>
+                )}
+              </div>
+
+              {sePuedeGuardar && (
                 <label className="flex cursor-pointer items-start gap-3 text-sm text-ink/70">
                   <input
                     type="checkbox"
-                    checked={guardarImagen}
-                    onChange={(e) => setGuardarImagen(e.target.checked)}
+                    checked={guardarOriginal}
+                    onChange={(e) => setGuardarOriginal(e.target.checked)}
                     disabled={guardando || guardado}
                     className="mt-0.5 size-4 shrink-0 accent-[var(--c-brand)]"
                   />
                   <span>
-                    Guardar también la imagen del documento. Se sube a un almacén
-                    privado y solo tú puedes abrirla. Sin marcar, se guarda únicamente
-                    el texto del análisis.
+                    Guardar también el archivo original{archivo?.esPdf ? " (el PDF)" : " (la foto)"}.
+                    Se sube a un almacén privado y solo tú puedes abrirlo. Sin marcar, se
+                    guarda únicamente el texto del análisis.
                   </span>
                 </label>
+              )}
 
-                <button
-                  type="button"
-                  onClick={() => void guardar()}
-                  disabled={guardando || guardado}
-                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand to-deep px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-                >
-                  {guardando ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : guardado ? (
-                    <Check className="size-4" />
-                  ) : (
-                    <Save className="size-4" />
-                  )}
-                  {guardado ? "Guardado en tu cuenta" : "Guardar en mi cuenta"}
-                </button>
-              </div>
-            )}
+              <p className="text-sm text-ink/50">
+                El informe es un PDF de texto: se imprime, se adjunta a un correo y se
+                lleva a la consulta. Se genera en tu equipo, sin enviar nada.
+              </p>
+            </div>
           </section>
         )}
 

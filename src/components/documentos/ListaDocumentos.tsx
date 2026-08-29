@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, Eye, Loader2, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, ExternalLink, Loader2, Trash2 } from "lucide-react";
 
 import { NOMBRE_CATEGORIA } from "@/lib/analisisMedico";
 import { formatearFecha } from "@/lib/fechas";
-import { urlDeImagen, type DocumentoGuardado } from "@/lib/documentosMedicos";
+import { urlDelArchivo, type DocumentoGuardado } from "@/lib/documentosMedicos";
+import { descargarInforme } from "@/lib/informePdf";
 import { ResultadoAnalisis } from "@/components/documentos/ResultadoAnalisis";
 
 /**
@@ -16,12 +17,17 @@ import { ResultadoAnalisis } from "@/components/documentos/ResultadoAnalisis";
  * entre una funcion que se puede usar y una que cobra cada vez que miras lo que ya
  * pagaste.
  *
- * LA IMAGEN SE PIDE SOLO AL ABRIRLA
- * ---------------------------------
- * El almacen es privado: cada imagen necesita una URL firmada, que es una llamada de
- * red. Pedirlas todas al cargar la lista serian veinte llamadas para enseñar
+ * EL ARCHIVO ORIGINAL SE PIDE SOLO AL ABRIRLO
+ * -------------------------------------------
+ * El almacen es privado: cada fichero necesita una URL firmada, que es una llamada
+ * de red. Pedirlas todas al cargar la lista serian veinte llamadas para enseñar
  * miniaturas que casi nadie mira. Se pide una, cuando alguien la abre, y se recuerda
  * mientras la pagina siga montada.
+ *
+ * Y DESCARGAR EL INFORME TAMPOCO CUESTA NADA
+ * ------------------------------------------
+ * El PDF se arma aqui mismo con el analisis guardado (`informePdf.ts`): cero
+ * peticiones, cero cupo y el contenido medico no vuelve a salir del equipo.
  */
 export function ListaDocumentos({
   documentos,
@@ -62,6 +68,16 @@ export function ListaDocumentos({
 
             <button
               type="button"
+              onClick={() => descargarInforme(doc.analisis, new Date(doc.creadoEn))}
+              aria-label={`Descargar el informe de ${doc.titulo} en PDF`}
+              title="Descargar el informe en PDF"
+              className="flex size-9 shrink-0 items-center justify-center rounded-xl text-ink/40 transition-colors hover:bg-ink/10 hover:text-ink"
+            >
+              <Download className="size-4" />
+            </button>
+
+            <button
+              type="button"
               onClick={() => onBorrar(doc)}
               disabled={borrando === doc.id}
               aria-label={`Borrar ${doc.titulo}`}
@@ -78,7 +94,7 @@ export function ListaDocumentos({
 
           {abierto === doc.id && (
             <div className="space-y-6 border-t border-ink/10 p-5">
-              {doc.rutaImagen && <ImagenGuardada ruta={doc.rutaImagen} />}
+              {doc.rutaArchivo && <ArchivoGuardado ruta={doc.rutaArchivo} />}
               <ResultadoAnalisis analisis={doc.analisis} />
             </div>
           )}
@@ -89,23 +105,29 @@ export function ListaDocumentos({
 }
 
 /**
- * La imagen original de un documento guardado, tras un boton.
+ * El archivo original de un documento guardado, tras un boton.
  *
- * VA DETRAS DE UN BOTON Y NO SE PINTA SOLA, a proposito. Es la foto de una receta o
+ * VA DETRAS DE UN BOTON Y NO SE PINTA SOLO, a proposito. Es la foto de una receta o
  * de un informe: si se enseñara al abrir el documento, bastaria con que alguien
  * mirara la pantalla por encima del hombro. Que aparezca solo cuando su dueño lo
  * pide es una decision de privacidad, no de maqueta.
+ *
+ * La imagen se pinta aqui; el PDF se abre en otra pestaña, por lo mismo que en
+ * `ZonaDeCarga`: un visor de PDF metido en un `iframe` sale como una caja gris en
+ * iOS, y una caja gris rota es peor que un enlace que siempre funciona.
  */
-function ImagenGuardada({ ruta }: { ruta: string }) {
+function ArchivoGuardado({ ruta }: { ruta: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [estado, setEstado] = useState<"cerrada" | "cargando" | "abierta" | "error">("cerrada");
+
+  const esPdf = ruta.toLowerCase().endsWith(".pdf");
 
   useEffect(() => {
     if (estado !== "cargando") return;
 
     let cancelado = false;
     void (async () => {
-      const firmada = await urlDeImagen(ruta);
+      const firmada = await urlDelArchivo(ruta);
       // No pisar el estado si el componente se desmonto mientras viajaba la peticion.
       if (cancelado) return;
       if (!firmada) {
@@ -122,6 +144,21 @@ function ImagenGuardada({ ruta }: { ruta: string }) {
   }, [estado, ruta]);
 
   if (estado === "abierta" && url) {
+    // El PDF no se pinta: se ofrece el enlace ya firmado. `noreferrer` ademas de
+    // `noopener` para que la URL firmada no viaje como `Referer` a ningun sitio.
+    if (esPdf) {
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-xl border border-ink/15 px-3 py-2 text-sm font-medium text-ink transition-colors hover:border-brand/40 hover:bg-ink/5"
+        >
+          <ExternalLink className="size-4" />
+          Abrir el PDF original
+        </a>
+      );
+    }
     return (
       <img
         src={url}
@@ -134,7 +171,7 @@ function ImagenGuardada({ ruta }: { ruta: string }) {
   if (estado === "error") {
     return (
       <p className="rounded-xl border border-ink/10 bg-surface p-3 text-sm text-ink/55">
-        No se pudo abrir la imagen guardada. Puede que ya no esté en el almacén.
+        No se pudo abrir el archivo guardado. Puede que ya no esté en el almacén.
       </p>
     );
   }
@@ -149,9 +186,9 @@ function ImagenGuardada({ ruta }: { ruta: string }) {
       {estado === "cargando" ? (
         <Loader2 className="size-4 animate-spin" />
       ) : (
-        <Eye className="size-4" />
+        <ExternalLink className="size-4" />
       )}
-      Ver la imagen original
+      {esPdf ? "Ver el PDF original" : "Ver la imagen original"}
     </button>
   );
 }

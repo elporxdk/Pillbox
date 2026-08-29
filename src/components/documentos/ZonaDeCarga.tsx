@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ImagePlus, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ExternalLink, FileText, ImagePlus, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 
-import { ACCEPT_IMAGEN, MAX_CARACTERES_NOTA } from "@/lib/analisisMedico";
+import { ACCEPT_ARCHIVO, MAX_CARACTERES_NOTA } from "@/lib/analisisMedico";
+import type { ArchivoListo } from "@/lib/documentosMedicos";
 
 /**
  * Elegir la imagen del documento: soltarla, buscarla, verla, cambiarla o quitarla.
@@ -29,21 +30,19 @@ import { ACCEPT_IMAGEN, MAX_CARACTERES_NOTA } from "@/lib/analisisMedico";
  * funciona igual en los dos estados, que es lo que espera cualquiera.
  */
 export function ZonaDeCarga({
-  vistaPrevia,
-  nombre,
+  archivo,
   nota,
   ocupado,
   onElegir,
   onQuitar,
   onNota,
 }: {
-  /** `objectURL` de la imagen ya preparada, o `null` si todavia no hay ninguna. */
-  vistaPrevia: string | null;
-  nombre: string | null;
+  /** El archivo ya preparado, o `null` si todavia no hay ninguno. */
+  archivo: ArchivoListo | null;
   nota: string;
   /** Mientras se analiza no se puede cambiar nada: seria tirar el analisis en curso. */
   ocupado: boolean;
-  onElegir: (archivo: File) => void;
+  onElegir: (f: File) => void;
   onQuitar: () => void;
   onNota: (v: string) => void;
 }) {
@@ -101,7 +100,7 @@ export function ZonaDeCarga({
       <input
         ref={entrada}
         type="file"
-        accept={ACCEPT_IMAGEN}
+        accept={ACCEPT_ARCHIVO}
         className="hidden"
         onChange={(e) => {
           const archivo = e.target.files?.[0];
@@ -113,23 +112,60 @@ export function ZonaDeCarga({
         }}
       />
 
-      {vistaPrevia ? (
+      {archivo ? (
         <figure
           className={`overflow-hidden rounded-2xl border-2 bg-surface transition-colors ${
             encima ? "border-brand" : "border-ink/10"
           }`}
         >
-          {/* `max-h` y `object-contain`: un documento puede ser muy vertical (una
-              receta) o muy horizontal (un informe apaisado). Recortar para cuadrar
-              la caja se llevaria por delante justo los bordes del papel. */}
-          <img
-            src={vistaPrevia}
-            alt="Vista previa del documento que se va a analizar"
-            className="max-h-[26rem] w-full bg-white object-contain"
-          />
+          {/* UN PDF NO SE PINTA EN UN <img>, Y TAMPOCO SE INTENTA CON UN <iframe>.
+              Se probó: en iOS el iframe enseña una caja gris con un enlace, y en
+              Android depende del navegador. Una caja gris rota es peor que no
+              enseñar nada, así que el PDF sale como ficha —nombre, peso, páginas— y
+              con un botón para abrirlo de verdad, que funciona en todas partes.
+
+              Con una foto sí hay vista previa: es lo que confirma que se subió la
+              hoja correcta y no la de detrás. */}
+          {archivo.esPdf ? (
+            <div className="flex items-center gap-4 p-5">
+              <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand/10 to-mint/10">
+                <FileText className="size-6 text-brand" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold text-ink">{archivo.nombre}</p>
+                <p className="text-sm text-ink/55">
+                  PDF · {formatearPeso(archivo.bytes)}
+                  {archivo.paginas !== null &&
+                    ` · ${archivo.paginas} ${archivo.paginas === 1 ? "página" : "páginas"}`}
+                </p>
+              </div>
+              <a
+                href={archivo.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-ink/15 px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:border-brand/40 hover:bg-ink/5"
+              >
+                <ExternalLink className="size-4" />
+                <span className="hidden sm:inline">Abrir</span>
+              </a>
+            </div>
+          ) : (
+            /* `max-h` y `object-contain`: un documento puede ser muy vertical (una
+               receta) o muy horizontal (un informe apaisado). Recortar para cuadrar
+               la caja se llevaria por delante justo los bordes del papel. */
+            <img
+              src={archivo.url}
+              alt="Vista previa del documento que se va a analizar"
+              className="max-h-[26rem] w-full bg-white object-contain"
+            />
+          )}
           <figcaption className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/10 px-4 py-3">
             <span className="min-w-0 flex-1 truncate text-sm text-ink/60">
-              {encima ? "Suelta para sustituirlo" : (nombre ?? "Documento")}
+              {encima
+                ? "Suelta para sustituirlo"
+                : archivo.esPdf
+                  ? "Se analizarán todas las páginas"
+                  : `${archivo.nombre} · ${formatearPeso(archivo.bytes)}`}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -177,8 +213,8 @@ export function ZonaDeCarga({
             {encima ? "Suelta la imagen aquí" : "Arrastra el documento o toca para buscarlo"}
           </span>
           <span className="max-w-sm text-sm text-ink/55">
-            Una foto o captura de la receta, el examen o el resultado de laboratorio.
-            JPG, PNG, WebP o HEIC.
+            La receta, el examen o el resultado de laboratorio: una foto, una captura
+            o el PDF que te dio el laboratorio.
           </span>
         </button>
       )}
@@ -203,4 +239,16 @@ export function ZonaDeCarga({
       </div>
     </div>
   );
+}
+
+/**
+ * El peso en unidades que se leen.
+ *
+ * Va aqui y no en `utils.ts` porque es el unico sitio del proyecto que enseña el
+ * tamaño de un fichero. El dia que haga falta en otro, se mueve.
+ */
+function formatearPeso(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
