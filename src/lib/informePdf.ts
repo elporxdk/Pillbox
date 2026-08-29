@@ -574,15 +574,38 @@ function bloquesDelInforme(a: Analisis, creadoEn: Date): Bloque[] {
 
   if (a.medicamentos.length > 0) {
     bloques.push({ texto: "MEDICAMENTOS RECETADOS", estilo: "seccion" });
+
+    // EL ENCUADRE PESA MÁS AQUÍ QUE EN LA PANTALLA.
+    // Este PDF se imprime y se enseña en una consulta sin nada del contexto de la
+    // web. Si «Para qué sirve» apareciera suelto bajo el nombre de un fármaco,
+    // cualquiera que lo lea —incluido quien no subió el documento— concluiría que ese
+    // es el diagnóstico. Solo se escribe si de verdad hay algo que encuadrar.
+    if (a.medicamentos.some((m) => m.paraQue)) {
+      bloques.push({
+        texto:
+          "«Para qué sirve» es información general sobre ese medicamento, no el motivo "
+          + "por el que se recetó en este caso. Un mismo fármaco se receta por cosas "
+          + "muy distintas.",
+        estilo: "aviso",
+      });
+    }
+
     for (const m of a.medicamentos) {
       const pauta = [
         m.dosis ? `Dosis: ${m.dosis}` : "",
         m.pauta ? `Cada: ${m.pauta}` : "",
         m.duracion ? `Durante: ${m.duracion}` : "",
       ].filter(Boolean).join(" · ");
-      bloques.push({ texto: m.nombre, estilo: "clave" });
+      // El grupo va pegado al nombre porque es la etiqueta que se busca de un
+      // vistazo: «Amoxicilina 500 mg (Antibiótico)».
+      bloques.push({ texto: m.grupo ? `${m.nombre} (${m.grupo})` : m.nombre, estilo: "clave" });
       if (pauta) bloques.push({ texto: pauta, estilo: "sangrado" });
       if (m.nota) bloques.push({ texto: `Nota: ${m.nota}`, estilo: "sangrado" });
+      // Primero lo que dice el papel, después lo que se sabe del fármaco. El mismo
+      // orden que en pantalla, y por el mismo motivo: separa transcripción de
+      // conocimiento general.
+      if (m.motivo) bloques.push({ texto: `Según el documento: ${m.motivo}`, estilo: "sangrado" });
+      if (m.paraQue) bloques.push({ texto: `Para qué sirve: ${m.paraQue}`, estilo: "sangrado" });
     }
   }
 
@@ -618,7 +641,9 @@ function bloquesDelInforme(a: Analisis, creadoEn: Date): Bloque[] {
       texto:
         "Este informe explica lo que dice un documento médico; no es un diagnóstico " +
         "ni sustituye una consulta. Lo redactó un sistema automático a partir de una " +
-        "imagen, y puede equivocarse al leer un número o una letra manuscrita. " +
+        "imagen o un PDF, y puede equivocarse al leer un número o una letra manuscrita. " +
+        "Lo que dice de cada medicamento es información general sobre ese fármaco, no " +
+        "el motivo por el que se recetó. No comprueba dosis, interacciones ni alergias. " +
         "Contrasta siempre con quien firmó el documento original.",
       estilo: "aviso",
     },

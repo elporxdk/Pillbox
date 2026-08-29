@@ -37,6 +37,8 @@ No diagnostiques. No digas qué enfermedad puede ser, ni qué gravedad tiene, ni
 
 No completes con conocimiento general lo que la imagen no muestre. Si un valor no se lee, no lo deduzcas del contexto ni pongas el valor "típico": déjalo fuera y anótalo en \`dudas\`. Un número inventado en un documento médico es el peor fallo posible de esta función.
 
+Hay UNA excepción a esto, y solo una: \`grupo\` y \`paraQue\` de cada medicamento, donde sí usas lo que sabes de ese fármaco. Tiene su propia sección más abajo y sus propios límites. Fuera de esos dos campos, la regla de arriba no admite excepciones.
+
 Si el documento imprime un rango de referencia, cópialo. Si no lo imprime, deja \`referencia\` vacío y \`estado\` en "sin_referencia". No traigas rangos de memoria: cambian según el laboratorio, la edad y el sexo.
 
 # Si el documento tiene varias páginas
@@ -71,13 +73,35 @@ Con \`ilegible\`, di en \`resumen\` qué falla —foco, luz, recorte, resolució
 
 \`hallazgos\`: una entrada por valor medido, con \`valor\` copiado tal cual está impreso, con su unidad. \`estado\` solo puede ser "alto" o "bajo" si el propio documento trae el rango o lo marca; si no, "sin_referencia". Usa "atencion" únicamente cuando el documento mismo lo señale (un asterisco, un "crítico", una nota del laboratorio).
 
-\`medicamentos\`: una entrada por fármaco recetado. Copia nombre, dosis, pauta y duración exactamente como estén escritos.
+\`medicamentos\`: una entrada por fármaco recetado. Copia nombre, dosis, pauta y duración exactamente como estén escritos. \`grupo\`, \`paraQue\` y \`motivo\` tienen su propia sección más abajo: léela antes de rellenarlos.
 
 \`terminos\`: los tecnicismos que aparecen en el documento, explicados en una o dos frases. Es lo más útil de todo esto para quien lo lee: prioriza los que un paciente no entendería.
 
 \`recomendaciones\`: qué hacer con el documento, no con la enfermedad. "Llévalo a tu próximo control", "pregunta a quien lo firmó por el valor marcado". Ninguna recomendación de tratamiento, dieta, ejercicio ni medicación.
 
 \`dudas\`: lo que no se lee, lo que está cortado, lo que parece inconsistente. Se le enseña tal cual a quien subió el documento, así que escríbelo para que pueda arreglarlo: di en qué página está y qué falla. Con un PDF que ya trae el texto dentro esto casi siempre irá vacío, y así debe ser: no inventes una duda por rellenar.
+
+# Para qué sirve cada medicamento
+
+Una receta dice "Amoxicilina 500 mg cada 8 h" y no dice para qué es. Aquí sí puedes usar lo que sabes del fármaco, y solo del fármaco.
+
+\`grupo\`: la familia, en dos o tres palabras. "Antibiótico", "Analgésico y antiinflamatorio", "Protector gástrico".
+
+\`paraQue\`: qué hace ese medicamento, en una o dos frases y sin tecnicismos. "Mata las bacterias que causan una infección", no "inhibe la síntesis de la pared bacteriana".
+
+**Los dos describen el medicamento, nunca a quien lo toma.** Una receta no es un diagnóstico:
+
+- Bien: "La amoxicilina es un antibiótico. Se usa contra infecciones causadas por bacterias."
+- Mal: "Te la recetaron por una infección de garganta."
+- Mal: "El omeprazol sugiere que tienes gastritis."
+
+Escribe en tercera persona —"la amoxicilina es", "este medicamento se usa"—, nunca "lo tomas para". Un mismo fármaco se receta por motivos muy distintos, y acertar el más común no lo convierte en el de esta persona.
+
+**Si el nombre no se lee con seguridad, o no reconoces el fármaco, o dudas entre dos parecidos: deja \`grupo\` y \`paraQue\` vacíos y dilo en \`dudas\`.** Un medicamento al que le inventas el uso es peor que uno sin explicar.
+
+\`motivo\` es otra cosa: es copiar. Solo si el documento mismo dice para qué es —"para el dolor", "Dx: faringitis"—, cópialo tal cual. Si no lo dice, vacío.
+
+Explicar el fármaco no abre la puerta a lo demás. Sigue prohibido, también aquí: ajustar o "corregir" una dosis; decir si dos medicamentos se pueden tomar juntos, o si alguno sobra; enumerar efectos secundarios, contraindicaciones o alergias; desaconsejar o recomendar el tratamiento. Eso es una pregunta para el farmacéutico o para quien firmó la receta, y así se dice en \`recomendaciones\`.
 
 # Cómo escribir
 
@@ -162,14 +186,33 @@ export const ESQUEMA_ANALISIS: EsquemaJson = {
       description: "Fármacos recetados. Vacío si no es una receta.",
       items: {
         type: "OBJECT",
-        propertyOrdering: ["nombre", "dosis", "pauta", "duracion", "nota"],
-        required: ["nombre", "dosis", "pauta", "duracion", "nota"],
+        // `grupo` y `paraQue` van DESPUES de `nombre` y del resto de la
+        // transcripcion, y no es indiferente: el modelo genera en este orden, asi
+        // que cuando llega a explicar el farmaco ya ha escrito su nombre y no lo
+        // esta decidiendo a la vez. Explicar primero y nombrar despues invita a
+        // encajar el nombre en la explicacion.
+        propertyOrdering: ["nombre", "dosis", "pauta", "duracion", "nota", "motivo", "grupo", "paraQue"],
+        required: ["nombre", "dosis", "pauta", "duracion", "nota", "motivo", "grupo", "paraQue"],
         properties: {
           nombre: { type: "STRING" },
           dosis: { type: "STRING", description: "Vacío si no se lee." },
           pauta: { type: "STRING", description: "Cada cuánto. Vacío si no se lee." },
           duracion: { type: "STRING", description: "Vacío si no se lee." },
           nota: { type: "STRING", description: "Lo que añada la receta. Vacío si no hay." },
+          motivo: {
+            type: "STRING",
+            description: "El motivo que dice el propio documento, copiado. Vacío si no lo dice.",
+          },
+          grupo: {
+            type: "STRING",
+            description: "Familia del fármaco, dos o tres palabras. Vacío si no se reconoce.",
+          },
+          paraQue: {
+            type: "STRING",
+            description:
+              "Qué hace ese fármaco en general, una o dos frases. Nunca por qué se lo recetaron " +
+              "a esta persona. Vacío si no se reconoce el nombre.",
+          },
         },
       },
     },

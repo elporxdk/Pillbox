@@ -75,7 +75,40 @@ export type Hallazgo = {
   estado: EstadoValor;
 };
 
-/** Un medicamento de una receta, con lo que la receta diga y nada mas. */
+/**
+ * Un medicamento de una receta.
+ *
+ * LOS CINCO PRIMEROS CAMPOS SON TRANSCRIPCION; LOS TRES ULTIMOS, NO
+ * ----------------------------------------------------------------
+ * `nombre`, `dosis`, `pauta`, `duracion` y `nota` salen del papel y de ningun otro
+ * sitio: son lo que esta escrito, copiado tal cual.
+ *
+ * `grupo` y `paraQue` son la unica parte de todo el analisis donde el modelo usa lo
+ * que sabe y no solo lo que ve. Se añadieron porque una receta dice "Amoxicilina 500
+ * mg cada 8 h" y no dice para que sirve, que es justo lo que no entiende quien la
+ * lleva en la mano.
+ *
+ * Y describen EL MEDICAMENTO, nunca a quien lo toma. La diferencia no es un matiz:
+ *
+ *     bien -> "La amoxicilina es un antibiotico. Se usa contra infecciones por bacterias."
+ *     mal  -> "Te la recetaron por una infeccion de garganta."
+ *
+ * Lo segundo es un diagnostico deducido de una receta, y esta prohibido en el prompt.
+ * La interfaz y el PDF ademas lo enmarcan como informacion general del farmaco, para
+ * que nadie lo lea como el motivo de SU receta.
+ *
+ * `motivo` es el caso intermedio y vuelve a ser transcripcion: solo se rellena si el
+ * propio documento dice para que es ("Dx: faringitis", "para el dolor"). Va aparte de
+ * `paraQue` precisamente para que se pueda enseñar como lo que es -- lo que dice el
+ * papel -- en vez de mezclarse con lo que sabe el modelo.
+ *
+ * POR QUE ESTOS TRES SON OPCIONALES Y LOS OTROS NO
+ * -----------------------------------------------
+ * Porque llegaron despues. Los documentos guardados antes de esta version no los
+ * tienen, y si `esAnalisis` los exigiera, esas filas dejarian de validar y
+ * desaparecerian de la lista de quien las guardo. Un campo que falta se pinta como
+ * ausente; un documento que se esfuma es una perdida de datos.
+ */
 export type Medicamento = {
   nombre: string;
   /** "500 mg". Vacio si no se lee. */
@@ -86,6 +119,12 @@ export type Medicamento = {
   duracion: string;
   /** Lo que el papel añada: "con alimentos", "en ayunas". */
   nota: string;
+  /** Familia del farmaco: "Antibiótico", "Analgésico". Vacio si no se reconoce. */
+  grupo?: string;
+  /** Que hace ese farmaco, en general. Vacio si el nombre no se reconoce. */
+  paraQue?: string;
+  /** El motivo que dice el PROPIO documento, si lo dice. Transcripcion, no deduccion. */
+  motivo?: string;
 };
 
 /** Una palabra del documento explicada en castellano llano. */
@@ -358,6 +397,11 @@ function esHallazgo(v: unknown): v is Hallazgo {
   );
 }
 
+/** `undefined` pasa; una cadena, si cabe. Ver por que en `Medicamento`. */
+function esTextoOpcional(v: unknown, max: number): boolean {
+  return v === undefined || esTextoCorto(v, max);
+}
+
 function esMedicamento(v: unknown): v is Medicamento {
   if (typeof v !== "object" || v === null) return false;
   const m = v as Record<string, unknown>;
@@ -366,7 +410,12 @@ function esMedicamento(v: unknown): v is Medicamento {
     esTextoCorto(m.dosis, 120) &&
     esTextoCorto(m.pauta, 120) &&
     esTextoCorto(m.duracion, 120) &&
-    esTextoCorto(m.nota, 300)
+    esTextoCorto(m.nota, 300) &&
+    // Los tres de abajo pueden faltar: los documentos guardados antes de que
+    // existieran tienen que seguir validando.
+    esTextoOpcional(m.grupo, 60) &&
+    esTextoOpcional(m.paraQue, 400) &&
+    esTextoOpcional(m.motivo, 200)
   );
 }
 

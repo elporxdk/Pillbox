@@ -118,13 +118,34 @@ export function ResultadoAnalisis({ analisis }: { analisis: Analisis }) {
 
       {analisis.medicamentos.length > 0 && (
         <Seccion icono={Pill} titulo="Medicamentos recetados">
+          {/* ESTA ADVERTENCIA ES PARTE DE LA FUNCION, NO UN ADORNO.
+              «Para qué sirve» es lo único de todo el análisis que NO sale del papel:
+              describe el fármaco en general. Sin este renglón, quien lea «antibiótico
+              contra infecciones bacterianas» concluye que tiene una infección
+              bacteriana, que es justo el salto que el prompt le prohíbe dar al modelo
+              y que aquí lo daría el lector solo. Va arriba, antes de las tarjetas. */}
+          <p className="rounded-xl border border-ink/10 bg-surface px-4 py-3 text-sm text-ink/60">
+            Lo que dice <strong className="font-semibold text-ink">Para qué sirve</strong> es
+            información general sobre ese medicamento, no el motivo por el que te lo
+            recetaron a ti. Un mismo fármaco se receta por cosas muy distintas: quien
+            sabe por qué lo llevas es quien firmó la receta.
+          </p>
+
           <ul className="grid gap-3 sm:grid-cols-2">
             {analisis.medicamentos.map((m, i) => (
               <li
                 key={`${m.nombre}-${i}`}
-                className="rounded-xl border border-ink/10 bg-surface p-4"
+                className="flex flex-col rounded-xl border border-ink/10 bg-surface p-4"
               >
-                <p className="font-semibold text-ink">{m.nombre}</p>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="font-semibold text-ink">{m.nombre}</p>
+                  {m.grupo && (
+                    <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
+                      {m.grupo}
+                    </span>
+                  )}
+                </div>
+
                 <dl className="mt-2 space-y-1 text-sm text-ink/65">
                   {m.dosis && (
                     <div className="flex gap-2">
@@ -150,7 +171,26 @@ export function ResultadoAnalisis({ analisis }: { analisis: Analisis }) {
                       <dd>{m.nota}</dd>
                     </div>
                   )}
+                  {/* El motivo que trae el PROPIO documento va con los datos de
+                      arriba, porque es transcripción como ellos. Lo que sabe el
+                      modelo va abajo, separado por una línea. La separación es el
+                      mensaje. */}
+                  {m.motivo && (
+                    <div className="flex gap-2">
+                      <dt className="shrink-0 text-ink/45">Según el documento:</dt>
+                      <dd>{m.motivo}</dd>
+                    </div>
+                  )}
                 </dl>
+
+                {m.paraQue && (
+                  <div className="mt-3 border-t border-ink/10 pt-3">
+                    <p className="text-xs font-semibold tracking-wide text-ink/45 uppercase">
+                      Para qué sirve
+                    </p>
+                    <p className="mt-1 text-sm text-ink/70">{m.paraQue}</p>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

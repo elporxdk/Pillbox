@@ -67,10 +67,15 @@ import { ErrorProveedor, type Env } from "./tipos";
  * hemograma con veinte lineas mas los terminos explicados no cabe en 700 tokens, y
  * cortarse a medias significa un JSON truncado que se tira entero.
  *
- * Sigue siendo un techo y no un objetivo: una receta de dos farmacos gasta unos 250.
+ * Subido de 1.800 a 2.400 al explicar para que sirve cada medicamento: son tres
+ * campos mas por farmaco, y un informe de alta con diez farmacos y sus valores de
+ * laboratorio rozaba el techo anterior. Rozarlo no da un aviso -- da un JSON cortado
+ * a media llave, que se descarta entero y le cuesta al visitante otro intento.
+ *
+ * Sigue siendo un techo y no un objetivo: una receta de dos farmacos gasta unos 400.
  * El esquema es lo que impide de verdad que el modelo se extienda.
  */
-const MAX_TOKENS_SALIDA = 1800;
+const MAX_TOKENS_SALIDA = 2400;
 
 function json(
   estado: number,
@@ -210,6 +215,12 @@ function limpiar(a: Analisis): Analisis {
         pauta: t(m.pauta, 120),
         duracion: t(m.duracion, 120),
         nota: t(m.nota, 300),
+        // El modelo devuelve estos tres siempre --estan en `required`-- pero pueden
+        // venir vacios a proposito: es lo que se le pide cuando no reconoce el
+        // farmaco. `t()` los deja en "" y la interfaz no pinta la seccion.
+        motivo: t(m.motivo, 200),
+        grupo: t(m.grupo, 60),
+        paraQue: t(m.paraQue, 400),
       }))
       .filter((m) => m.nombre)
       .slice(0, 30),

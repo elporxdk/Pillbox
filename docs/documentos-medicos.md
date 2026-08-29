@@ -141,11 +141,13 @@ que ya pagaste.
 ### Prompt propio, no el del chat
 
 El prompt del asistente son ~6.200 tokens de hechos sobre el robot, el equipo y las
-noticias. Nada de eso ayuda a leer un hemograma: reenviarlo sería pagar cuatro veces
-el análisis para empeorarlo, porque el modelo intentaría relacionar el documento con
+noticias. Nada de eso ayuda a leer un hemograma: reenviarlo sería pagar de más para
+empeorar el resultado, porque el modelo intentaría relacionar el documento con
 MEDIBOT.
 
-`src/worker/anclajeDocumento.ts` ronda los 600 tokens y solo habla de leer papeles.
+`src/worker/anclajeDocumento.ts` ronda los **1.800 tokens** y solo habla de leer
+papeles. (Una versión anterior de este documento decía «~600»; estaba mal medido.
+Eran ~1.220 antes de añadir la explicación de los medicamentos, que costó ~570 más.)
 
 ### Lo que el prompt tiene que impedir
 
@@ -165,6 +167,62 @@ sangre **quiere** diagnosticar: es lo que ha visto hacer mil veces. La línea es
 Y dos categorías que existen para que el modelo no tenga que forzar una respuesta:
 `no_medico` (alguien subió otra cosa) e `ilegible` (sí es médico, pero no se lee).
 
+### Para qué sirve cada medicamento: la única excepción
+
+Una receta dice «Amoxicilina 500 mg cada 8 h» y no dice para qué es. Explicarlo es lo
+que pide cualquiera que lleve una receta en la mano, y es **la única parte de todo el
+análisis donde el modelo usa lo que sabe y no solo lo que ve**.
+
+Por eso tiene una frontera escrita, y no es un matiz:
+
+| | |
+| --- | --- |
+| Bien | «La amoxicilina es un antibiótico. Se usa contra infecciones causadas por bacterias.» |
+| Mal | «Te la recetaron por una infección de garganta.» |
+| Mal | «El omeprazol sugiere que tienes gastritis.» |
+
+Lo segundo es un **diagnóstico deducido de una receta**. El prompt lo prohíbe, exige
+tercera persona («la amoxicilina es», nunca «lo tomas para») y recuerda que un mismo
+fármaco se receta por cosas muy distintas: acertar la más común no la convierte en la
+de esta persona.
+
+Son tres campos, y dos de ellos no son lo mismo que el tercero:
+
+- `grupo` y `paraQue` — lo que el modelo sabe del fármaco. **Vacíos** si el nombre no
+  se lee, si no lo reconoce o si duda entre dos parecidos, y entonces va a `dudas`.
+  Un medicamento al que se le inventa el uso es peor que uno sin explicar: quien lo
+  lea creerá que está tomando otra cosa.
+- `motivo` — el motivo que dice **el propio documento** («Dx: faringitis», «para el
+  dolor»). Esto vuelve a ser transcripción, y va en un campo aparte justo para poder
+  enseñarlo como lo que es.
+
+En la pantalla, `motivo` va con los datos de la receta y `paraQue` debajo de una
+línea, en su propio bloque. **La separación es el mensaje.** Y encima de las tarjetas
+hay un aviso que no se puede cerrar: *«lo que dice Para qué sirve es información
+general sobre ese medicamento, no el motivo por el que te lo recetaron a ti»*. Sin
+ese renglón, quien lea «antibiótico contra infecciones bacterianas» concluye que tiene
+una infección bacteriana — el salto que el modelo tiene prohibido dar lo daría el
+lector solo.
+
+En el PDF pesa más todavía, porque se imprime y se enseña sin nada del contexto de la
+web: el mismo aviso va dentro, y solo se escribe si de verdad hay algún fármaco
+explicado.
+
+#### Lo que esto NO abre
+
+Que se pueda explicar el fármaco no abre la puerta a lo demás. El prompt lo prohíbe
+expresamente también en estos campos, y el aviso del PDF lo dice:
+
+- Ajustar, sugerir o «corregir» una dosis.
+- Decir si dos medicamentos se pueden tomar juntos, o si alguno sobra o falta.
+- Enumerar efectos secundarios, contraindicaciones o alergias.
+- Desaconsejar o recomendar el tratamiento.
+
+**Comprobar interacciones es lo que más se parece a algo útil y lo más peligroso de
+todo.** Hacerlo bien exige una base de datos de interacciones, no un modelo de
+lenguaje: un falso negativo aquí no es una respuesta mediocre, es un daño. Si hace
+falta, es una pregunta para el farmacéutico, y así lo dice en `recomendaciones`.
+
 ### JSON con esquema, no texto libre
 
 `ESQUEMA_ANALISIS` obliga al modelo a producir una estructura concreta. Tres motivos,
@@ -181,7 +239,16 @@ por orden de importancia:
 
 `propertyOrdering` no es decorativo: el modelo genera los campos en ese orden, y
 `categoria` va primero a propósito. Decidir «esto es una receta» antes de escribir
-nada más es lo que evita que rellene `hallazgos` en un documento que no los tiene.
+nada más es lo que evita que rellene `hallazgos` en un documento que no los tiene. Por
+lo mismo, `grupo` y `paraQue` van **después** del nombre del fármaco: cuando llega a
+explicarlo ya lo ha escrito y no lo está decidiendo a la vez.
+
+#### Los tres campos del medicamento son opcionales, y los demás no
+
+`grupo`, `paraQue` y `motivo` llegaron después. Los documentos guardados antes no los
+tienen, y si `esAnalisis` los exigiera esas filas dejarían de validar y
+**desaparecerían de la lista de quien las guardó**. Un campo que falta se pinta como
+ausente; un documento que se esfuma es una pérdida de datos. Está en las pruebas.
 
 ### El PDF entra tal cual, y es el mejor caso
 
@@ -274,8 +341,13 @@ Gemini trocea la imagen en cuadros de 768 px y cobra ~258 tokens por cuadro:
 | PDF de 8 páginas (el tope) | 8 | ~2.100 |
 
 Es el mismo documento, se lee igual, y cuesta y tarda cuatro veces menos. Con el
-prompt corto (~600), un análisis sale por **~2.200 tokens de entrada**: menos que un
-mensaje del chat, que arrastra 6.200 solo de prompt.
+prompt de ~1.800, un análisis sale por **~3.400 tokens de entrada**: sigue siendo
+bastante menos que un mensaje del chat, que arrastra 6.200 solo de prompt.
+
+Explicar los medicamentos subió el prompt en ~570 tokens y el techo de salida de
+1.800 a 2.400 (son tres campos más por fármaco, y un informe de alta con diez
+rozaba el anterior; rozarlo no da un aviso, da un JSON cortado a media llave que se
+descarta entero).
 
 No se baja más de 1.600 px porque hay que **leer** lo que pone. A 1.024 la letra
 pequeña de un informe de laboratorio empieza a perderse, y un valor mal leído en un
@@ -405,6 +477,10 @@ Lo demás:
   PDF tiene obligación de traer.
 - **No busca en documentos guardados.** Con la lista ordenada por fecha y un tope de
   100, todavía no hace falta.
+- **No comprueba interacciones, dosis ni alergias.** Ver arriba: eso necesita una base
+  de datos, no un modelo de lenguaje.
+- **No dice por qué te recetaron algo.** Explica qué es el fármaco; el motivo solo
+  aparece si lo dice el propio documento.
 - **No corrige la foto.** No endereza, no recorta bordes ni sube el contraste. Si la
   imagen no se lee, lo dice en `dudas` en vez de adivinar.
 - **No enseña el PDF dentro de la página.** Ni el que se sube ni el guardado. Se probó
