@@ -438,8 +438,8 @@ export default function DocumentosPage() {
               )}
 
               <p className="text-sm text-ink/50">
-                El informe es un PDF de texto: se imprime, se adjunta a un correo y se
-                lleva a la consulta. Se genera en tu equipo, sin enviar nada.
+                El informe sale con el formato de MEDIBOT: se imprime, se adjunta a un
+                correo y se lleva a la consulta. Se genera en tu equipo, sin enviar nada.
               </p>
             </div>
           </section>

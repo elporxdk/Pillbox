@@ -5,18 +5,37 @@ import {
 } from "./analisisMedico";
 
 /**
- * El informe del análisis, como PDF descargable.
+ * El informe del análisis, como PDF descargable, con la plantilla de MEDIBOT.
+ *
+ * DE DÓNDE SALE EL DISEÑO
+ * -----------------------
+ * De un PDF hecho en Canva que entregó el equipo: fondo negro, "INFORME" en cian
+ * arriba, una caja blanca para el contenido y un pie con la marca, la descripción del
+ * proyecto y el aviso legal.
+ *
+ * Ese fichero no se usa como base --habría que incrustarlo y componer encima, con su
+ * tipografía y sus capas-- sino que se REPRODUCE dibujándolo. Todas las medidas de
+ * `LA PLANTILLA` salen de renderizarlo a 96 ppp y recorrer los píxeles; por eso hay
+ * números como 36,5 o 1049,5. Hay una prueba que compara el informe generado contra
+ * el PDF original midiendo caja, colores, título y ruedas.
+ *
+ * LO QUE NO SE PUDO COPIAR: LA TIPOGRAFÍA
+ * ---------------------------------------
+ * El original usa Archivo Black. Incrustar una fuente en un PDF exige llevar el
+ * fichero dentro (~100-300 kB en CADA informe), construir su tabla de anchuras y
+ * cargar con su licencia; y la única tipografía que este proyecto tiene a mano
+ * (Figtree) viene en WOFF2 variable, que ni siquiera es un formato que PDF admita.
+ *
+ * Así que el texto va en Helvetica y Helvetica-Bold, dos de las catorce que todo
+ * lector de PDF trae obligatoriamente. Se compensa donde se nota: el título lleva
+ * `Tc` (separación entre letras) calculado para ocupar los mismos 215 px de ancho
+ * que en la plantilla, porque Archivo Black es bastante más ancha.
  *
  * POR QUÉ ESTÁ ESCRITO A MANO Y NO CON UNA LIBRERÍA
  * ------------------------------------------------
  * Las candidatas eran jsPDF (~350 kB) y pdf-lib (~1 MB). El bundle de este sitio ya
- * pesa 1,85 MB —con el visor 3D y GSAP dentro— y lo que hace falta aquí es **texto
- * en una página**: párrafos, negritas y saltos de página. Nada de imágenes, ni
- * fuentes incrustadas, ni formularios, ni firmas.
- *
- * Un PDF de solo texto con las fuentes estándar es un formato pequeño y muy estable
- * desde 1993. Son ~200 líneas contra ~350 kB, y además el resultado es auditable:
- * se puede abrir con un editor de texto y leer lo que hay dentro.
+ * pesa 1,85 MB --con el visor 3D y GSAP dentro-- y lo que hace falta aquí es texto,
+ * rectángulos y unas curvas. Nada de imágenes, ni fuentes incrustadas, ni formularios.
  *
  * SE GENERA EN EL NAVEGADOR, SIN RED
  * ----------------------------------
@@ -29,25 +48,61 @@ import {
  *
  * LO QUE NO HACE
  * --------------
- * No incrusta la imagen ni el PDF original, no justifica el texto, no parte palabras
- * con guion y no lleva tipografía de la marca (incrustar una fuente son otros ~100 kB
- * y el problema de licencia que traiga). Es un informe de texto, que es justo lo que
- * se pidió.
+ * No incrusta la imagen ni el PDF original, no justifica el texto y no parte palabras
+ * con guion.
  */
 
 // ---------------------------------------------------------------------------
-//  MEDIDAS
+//  LA PLANTILLA
 // ---------------------------------------------------------------------------
-//  Todo en puntos PostScript (1/72 de pulgada), que es la unidad del formato.
+//
+//  DE DÓNDE SALEN ESTOS NÚMEROS
+//  ----------------------------
+//  De medir el PDF de la plantilla, no de estimarlos a ojo. Se renderizó a 96 ppp
+//  --que da 794x1123 px, exactamente el espacio de diseño interno del fichero-- y se
+//  recorrieron los píxeles buscando los bordes y los colores dominantes de cada
+//  bloque. Por eso hay decimales raros como 36,5: son medidas, no gustos.
+//
+//  Se trabaja en ESE espacio de diseño (794x1123) y se convierte a puntos al final,
+//  con `pt()`. Así los números de aquí se pueden comparar con la plantilla abriendo
+//  las dos cosas al lado, que es lo que hará quien tenga que tocar esto.
+//
+//  LA PLANTILLA ES DE UNA PÁGINA Y EL INFORME PUEDE TENER VARIAS
+//  ------------------------------------------------------------
+//  Se repite entera en cada página: fondo, cabecera, caja y pie. Se pensó en aligerar
+//  la cabecera a partir de la segunda y se descartó -- lo que hace que un documento
+//  parezca diseñado es que todas sus páginas se parezcan, y el hueco que ahorraría
+//  son 69 pt de una caja que va sobrada.
+//
+//  El número de página va arriba a la derecha, en la banda del título. Es el único
+//  sitio libre: el pie lo ocupa entero la marca.
 
-/** A4. 210 x 297 mm. */
-const ANCHO = 595.28;
-const ALTO = 841.89;
+/** Espacio de diseño de la plantilla, en píxeles. */
+const DIS_ANCHO = 794;
+const DIS_ALTO = 1123;
 
-/** ~2 cm por lado. Suficiente para que ninguna impresora recorte. */
-const MARGEN = 56;
+/** De píxel de diseño a punto PostScript. 794 x 0,75 = 595,5, que es el A4 del PDF. */
+const K = 0.75;
+const pt = (px: number) => px * K;
 
-const ANCHO_UTIL = ANCHO - MARGEN * 2;
+const ANCHO = pt(DIS_ANCHO);
+const ALTO = pt(DIS_ALTO);
+
+/** La caja blanca donde va el contenido. Medida: x 5-788, y 92-982. */
+const CAJA = { x: 5, y: 92, ancho: 784, alto: 891 };
+
+/**
+ * Aire entre el borde de la caja blanca y el texto.
+ *
+ * 60 px a los lados deja una línea de ~497 pt, parecida a la del informe anterior
+ * --que ya se comprobó que se lee bien-- y no las 588 pt de la caja entera, donde
+ * un párrafo se vuelve una tira difícil de seguir.
+ */
+const AIRE_X = 60;
+const AIRE_ARRIBA = 40;
+const AIRE_ABAJO = 40;
+
+const ANCHO_UTIL = pt(CAJA.ancho - AIRE_X * 2);
 
 /**
  * Se envuelve un poco antes del margen real.
@@ -59,6 +114,193 @@ const ANCHO_UTIL = ANCHO - MARGEN * 2;
  * único que provoca es que alguna palabra baje a la línea siguiente.
  */
 const ANCHO_SEGURO = ANCHO_UTIL * 0.985;
+
+/** Alto de texto que cabe en una página. */
+const ALTO_UTIL = pt(CAJA.alto - AIRE_ARRIBA - AIRE_ABAJO);
+
+/**
+ * Los colores de la plantilla, medidos del render.
+ *
+ * `titulo` y `rueda` son dos cianes DISTINTOS y no es un descuido del diseño: el
+ * segundo es `--c-brandsoft` del sitio en modo claro (#5EE1E6) y el de la marca
+ * pequeña es el de modo oscuro (#7FE9ED). Se respetan los dos tal cual estaban.
+ *
+ * Los del texto del cuerpo salen de `index.css`: `ink` para leer y `deep` para los
+ * encabezados. Usar el negro puro dentro de la caja blanca la desconectaría del
+ * resto del sitio, que no tiene ni un solo texto en #000.
+ */
+const COLOR = {
+  fondo: [0, 0, 0],
+  caja: [1, 1, 1],
+  titulo: [0.7843, 0.9922, 1.0], //  #C8FDFF, el del PDF original
+  rueda: [0.3608, 0.8824, 0.902], // #5CE1E6, brandsoft claro
+  marca: [0.498, 0.9137, 0.9294], // #7FE9ED, brandsoft oscuro
+  blanco: [1, 1, 1],
+  tinta: [0.0392, 0.2392, 0.3608], // #0A3D5C, `ink`
+  profundo: [0.043, 0.3098, 0.4235], // #0B4F6C, `deep`
+  tenue: [0.4, 0.5137, 0.5686], // ink al 60 % sobre blanco
+} as const;
+
+type Color = readonly [number, number, number] | number[];
+
+/**
+ * Ancho del corte entre sectores de la ruleta. Medido: 1,2 px, el mismo en las dos
+ * ruedas por muy distinto que sea su tamaño. Ver `ruleta`.
+ */
+const HUECO_RULETA = pt(1.2);
+
+// ---------------------------------------------------------------------------
+//  LA MARCA
+// ---------------------------------------------------------------------------
+
+/**
+ * La ruleta de MEDIBOT.
+ *
+ * OCHO SECTORES, CON LOS CORTES EN LOS MÚLTIPLOS DE 45° EMPEZANDO ARRIBA. Eso es lo
+ * mismo que hace `MedibotLogo.tsx` en la web, y se comprobó midiendo la plantilla:
+ * una línea horizontal por el centro de la rueda no toca ni un píxel de cian, que es
+ * exactamente lo que pasa cuando los huecos caen a 90° y 270°.
+ *
+ * PERO EL HUECO NO SE MIDE IGUAL QUE EN LA WEB, Y ESO SÍ CAMBIA EL DIBUJO
+ * ----------------------------------------------------------------------
+ * El componente usa 8 GRADOS fijos, así que su hueco se abre en abanico: estrecho
+ * junto al centro y ancho en el borde. La plantilla usa un ANCHO fijo, y se midió:
+ * 1,2 px a cualquier radio, en las dos ruedas y aunque una sea cuatro veces mayor
+ * que la otra.
+ *
+ *     radio 15 -> hueco 4,56°  ->  1,19 px
+ *     radio 30 -> hueco 2,33°  ->  1,22 px
+ *     radio 46 -> hueco 1,51°  ->  1,21 px
+ *
+ * La diferencia se ve: con 8° fijos la rueda grande sale como una flor de ocho
+ * pétalos separados por cuñas negras; con ancho fijo sale como un disco cortado por
+ * ocho líneas finas, que es lo que hay en el PDF. Se probó con los dos y se midió.
+ *
+ * Por eso el hueco entra en grados DEPENDIENTES DEL RADIO: media apertura es
+ * `asin((hueco/2) / r)`. Como los cuatro vértices de cada sector se calculan con la
+ * apertura de SU radio, los lados salen rectos y paralelos al radio, separados
+ * siempre por la misma distancia.
+ *
+ * LAS DOS RUEDAS NO SE CONSTRUYEN IGUAL, Y ESO TAMBIÉN SE MIDIÓ
+ * ------------------------------------------------------------
+ * La pequeña del pie es un anillo de verdad (13,5 / 5,5) y sus huecos son
+ * transparentes: el píxel del hueco es casi negro (#0F1B1D), o sea el fondo de la
+ * página asomando.
+ *
+ * La grande de la derecha NO. Ahí el píxel del hueco es BLANCO PURO (#FFFFFF), igual
+ * que el cubo del centro, y además hay un aro blanco por fuera del cian (blanco a
+ * r=50-51, negro a partir de 52). Las tres cosas son la misma: hay un DISCO BLANCO
+ * debajo, y los sectores cian encima dejan verlo por los huecos, por el centro y por
+ * el borde. Por eso `fondo` se dibuja antes que los sectores y no hace falta ningún
+ * cubo aparte.
+ *
+ * Se descubrió mirando los píxeles crudos de un corte. A ojo, y en el PDF original,
+ * esas líneas parecen negras.
+ *
+ * POR QUÉ BÉZIER Y NO UN ARCO
+ * ---------------------------
+ * PDF no tiene operador de arco: solo rectas y cúbicas. Un arco de unos 43° se
+ * aproxima con UNA cúbica cuyos tiradores miden (4/3)·tan(θ/4)·r, con un error por
+ * debajo de la milésima de radio -- invisible a cualquier tamaño de impresión.
+ */
+function ruleta(
+  cx: number,
+  cy: number,
+  exterior: number,
+  interior: number,
+  hueco: number,
+  color: Color,
+  fondo?: { radio: number; color: Color }
+): string {
+  const SECTORES = 8;
+  const paso = 360 / SECTORES;
+
+  /**
+   * Media apertura del hueco a un radio dado, en grados.
+   *
+   * El `min(1, ...)` evita que `asin` reciba algo mayor que 1 y devuelva `NaN`, que
+   * es lo que pasaría con un radio interior más pequeño que el propio hueco. Ahí el
+   * sector degenera a un punto, que es lo correcto: no hay sitio para dibujarlo.
+   */
+  const apertura = (r: number) =>
+    (Math.asin(Math.min(1, hueco / 2 / Math.max(r, 1e-6))) * 180) / Math.PI;
+
+  // `-90` para que el 0 apunte arriba; el seno va restando porque en PDF la `y`
+  // crece hacia arriba y en el SVG del componente crece hacia abajo.
+  const punto = (r: number, g: number): [number, number] => {
+    const a = ((g - 90) * Math.PI) / 180;
+    return [cx + r * Math.cos(a), cy - r * Math.sin(a)];
+  };
+
+  let d = "";
+
+  // El disco de fondo va PRIMERO: es lo que se ve por los huecos, por el centro y
+  // por el aro exterior. Ver la cabecera.
+  if (fondo) {
+    d += `${fondo.color[0]} ${fondo.color[1]} ${fondo.color[2]} rg\n`;
+    d += circulo(cx, cy, fondo.radio) + "f\n";
+  }
+
+  d += `${color[0]} ${color[1]} ${color[2]} rg\n`;
+  const aExt = apertura(exterior);
+  const aInt = apertura(interior);
+
+  for (let i = 0; i < SECTORES; i++) {
+    const corte1 = i * paso;
+    const corte2 = (i + 1) * paso;
+    d += arco(exterior, corte1 + aExt, corte2 - aExt, punto, true);
+    d += arco(interior, corte2 - aInt, corte1 + aInt, punto, false);
+    d += "h f\n"; // cerrar y rellenar
+  }
+
+  return d;
+}
+
+/** Un arco como cúbica. `mover` empieza un trazo nuevo; si no, enlaza con el anterior. */
+function arco(
+  r: number,
+  desde: number,
+  hasta: number,
+  punto: (r: number, g: number) => [number, number],
+  mover: boolean
+): string {
+  const [x1, y1] = punto(r, desde);
+  const [x2, y2] = punto(r, hasta);
+  const barrido = ((hasta - desde) * Math.PI) / 180;
+  // (4/3)·tan(θ/4) es la constante de siempre para aproximar un arco con una cúbica.
+  // Con un barrido negativo sale negativa, y eso es justo lo que hace que el arco
+  // interior se recorra al revés sin ninguna rama aparte.
+  const k = (4 / 3) * Math.tan(barrido / 4);
+  // Tangentes unitarias en cada extremo, giradas 90° respecto del radio.
+  const t = (g: number): [number, number] => {
+    const a = ((g - 90) * Math.PI) / 180;
+    return [-Math.sin(a), -Math.cos(a)];
+  };
+  const [tx1, ty1] = t(desde);
+  const [tx2, ty2] = t(hasta);
+  const c1x = x1 + k * r * tx1;
+  const c1y = y1 + k * r * ty1;
+  const c2x = x2 - k * r * tx2;
+  const c2y = y2 - k * r * ty2;
+  const n = (v: number) => v.toFixed(3);
+  return (
+    (mover ? `${n(x1)} ${n(y1)} m\n` : `${n(x1)} ${n(y1)} l\n`) +
+    `${n(c1x)} ${n(c1y)} ${n(c2x)} ${n(c2y)} ${n(x2)} ${n(y2)} c\n`
+  );
+}
+
+/** Un círculo con cuatro cúbicas. 0,5523 es la constante de siempre. */
+function circulo(cx: number, cy: number, r: number): string {
+  const k = 0.5523 * r;
+  const n = (v: number) => v.toFixed(3);
+  return (
+    `${n(cx + r)} ${n(cy)} m\n` +
+    `${n(cx + r)} ${n(cy + k)} ${n(cx + k)} ${n(cy + r)} ${n(cx)} ${n(cy + r)} c\n` +
+    `${n(cx - k)} ${n(cy + r)} ${n(cx - r)} ${n(cy + k)} ${n(cx - r)} ${n(cy)} c\n` +
+    `${n(cx - r)} ${n(cy - k)} ${n(cx - k)} ${n(cy - r)} ${n(cx)} ${n(cy - r)} c\n` +
+    `${n(cx + k)} ${n(cy - r)} ${n(cx + r)} ${n(cy - k)} ${n(cx + r)} ${n(cy)} c\n`
+  );
+}
 
 // ---------------------------------------------------------------------------
 //  CODIFICACIÓN
@@ -170,6 +412,47 @@ function anchoDeTexto(texto: string, tam: number, negrita: boolean): number {
 }
 
 // ---------------------------------------------------------------------------
+//  TEXTOS Y TAMAÑOS DE LA PLANTILLA
+// ---------------------------------------------------------------------------
+//
+//  Los tamaños salen de la altura de MAYÚSCULAS medida en el render, dividida por
+//  0,718, que es el `CapHeight` de Helvetica en su AFM. Así el texto ocupa el mismo
+//  alto que en el original aunque la tipografía no sea la misma.
+
+/** `CapHeight` de Helvetica y Helvetica-Bold, en milésimas de em. */
+const ALTURA_MAYUSCULAS = 0.718;
+
+const TITULO_CABECERA = "INFORME";
+/** Medido: las mayúsculas de "INFORME" ocupan 31 px de alto. */
+const TAM_TITULO = pt(31 / ALTURA_MAYUSCULAS);
+/** Medido: "INFORME" ocupa 215 px de ancho en la plantilla. */
+const ANCHO_TITULO_PLANTILLA = pt(215);
+
+/** Medido: las mayúsculas del wordmark ocupan 10 px. */
+const TAM_MARCA = pt(10 / ALTURA_MAYUSCULAS);
+
+/** Medidos del párrafo descriptivo y del aviso del pie. */
+const TAM_PIE = pt(12);
+const TAM_AVISO = pt(12.5);
+
+/** El texto del pie, tal cual está en la plantilla. */
+const DESCRIPCION =
+  "Transporte hospitalario teleoperado con control térmico activo, para que los " +
+  "medicamentos lleguen en condiciones y el personal se exponga menos.";
+
+/**
+ * El aviso de la plantilla.
+ *
+ * NO SUSTITUYE AL "AVISO" DEL CUERPO, y no es una repetición por descuido: este va en
+ * TODAS las páginas y es la voz de la marca; el del cuerpo dice cosas que este no
+ * -- que puede leer mal un número, que lo de los medicamentos es general, que no
+ * comprueba interacciones -- y va una sola vez, al final. Se complementan.
+ */
+const AVISO_PIE =
+  "TODA LA INFORMACIÓN ES GENERADA EN BASE A PATRONES MÉDICOS, NO USAR COMO " +
+  "VERÍDICO SIN UN MÉDICO ESPECIALIZADO.";
+
+// ---------------------------------------------------------------------------
 //  MAQUETA
 // ---------------------------------------------------------------------------
 
@@ -178,6 +461,7 @@ type Linea = {
   texto: string;
   negrita: boolean;
   tam: number;
+  color: Color;
   /** Separación hasta la línea siguiente. */
   alto: number;
   /** Hueco antes de esta línea. Es lo que separa las secciones. */
@@ -193,12 +477,12 @@ type Bloque = {
 };
 
 const ESTILOS = {
-  titulo: { tam: 17, negrita: true, alto: 22, espacioAntes: 0, sangria: 0 },
-  seccion: { tam: 11, negrita: true, alto: 15, espacioAntes: 18, sangria: 0 },
-  clave: { tam: 10, negrita: true, alto: 14, espacioAntes: 8, sangria: 0 },
-  cuerpo: { tam: 10, negrita: false, alto: 14, espacioAntes: 0, sangria: 0 },
-  sangrado: { tam: 10, negrita: false, alto: 14, espacioAntes: 0, sangria: 14 },
-  aviso: { tam: 8.5, negrita: false, alto: 12, espacioAntes: 0, sangria: 0 },
+  titulo: { tam: 17, negrita: true, alto: 22, espacioAntes: 0, sangria: 0, color: COLOR.tinta },
+  seccion: { tam: 11, negrita: true, alto: 15, espacioAntes: 18, sangria: 0, color: COLOR.profundo },
+  clave: { tam: 10, negrita: true, alto: 14, espacioAntes: 8, sangria: 0, color: COLOR.tinta },
+  cuerpo: { tam: 10, negrita: false, alto: 14, espacioAntes: 0, sangria: 0, color: COLOR.tinta },
+  sangrado: { tam: 10, negrita: false, alto: 14, espacioAntes: 0, sangria: 14, color: COLOR.tinta },
+  aviso: { tam: 8.5, negrita: false, alto: 12, espacioAntes: 0, sangria: 0, color: COLOR.tenue },
 } as const;
 
 /** Cómo se lee en el informe cada estado de un valor. Igual que en la pantalla. */
@@ -232,8 +516,14 @@ function normalizar(texto: string): string {
  * toca—. Una palabra más larga que la línea entera se deja salir; es preferible a
  * romperla, y en la práctica no pasa con texto normal.
  */
-function partir(texto: string, tam: number, negrita: boolean, sangria: number): string[] {
-  const disponible = ANCHO_SEGURO - sangria;
+function partir(
+  texto: string,
+  tam: number,
+  negrita: boolean,
+  sangria: number,
+  anchoMaximo = ANCHO_SEGURO
+): string[] {
+  const disponible = anchoMaximo - sangria;
   const lineas: string[] = [];
 
   // Se respetan los saltos de línea que ya trae el texto, y luego se parte cada
@@ -267,6 +557,7 @@ function medir(bloques: Bloque[]): Linea[] {
         texto,
         negrita: e.negrita,
         tam: e.tam,
+        color: e.color,
         alto: e.alto,
         // El hueco de separación va solo antes de la PRIMERA línea del bloque; si
         // fuera antes de todas, un párrafo de cuatro líneas saldría con el interlineado
@@ -325,10 +616,6 @@ function paginar(lineas: Linea[], altoUtil: number): Linea[][] {
 // ---------------------------------------------------------------------------
 //  EL FICHERO PDF
 // ---------------------------------------------------------------------------
-
-const PIE_Y = 34;
-/** Alto de la caja de texto: la página menos los márgenes menos el sitio del pie. */
-const ALTO_UTIL = ALTO - MARGEN * 2 - 18;
 
 function aBytesAscii(s: string): Uint8Array {
   const b = new Uint8Array(s.length);
@@ -461,29 +748,120 @@ function emitirPdf(paginas: Linea[][], titulo: string, creadoEn: Date): Uint8Arr
     const flujo: Uint8Array[] = [];
     const orden = (s: string) => flujo.push(aBytesAscii(s));
 
-    let y = ALTO - MARGEN;
+    /**
+     * Escribe una línea de texto. `x` e `y` van en PUNTOS, ya convertidos.
+     *
+     * `tracking` separa las letras (operador `Tc`). Solo lo usa el título: Archivo
+     * Black es una tipografía mucho más ancha que Helvetica, y sin abrir un poco las
+     * letras la palabra "INFORME" queda 30 pt más corta que en la plantilla.
+     */
+    const escribir = (
+      t: string,
+      x: number,
+      y: number,
+      tam: number,
+      negrita: boolean,
+      color: Color,
+      tracking = 0
+    ) => {
+      orden(`${color[0]} ${color[1]} ${color[2]} rg\n`);
+      orden(`BT\n/${negrita ? "F2" : "F1"} ${tam} Tf\n`);
+      if (tracking) orden(`${tracking.toFixed(3)} Tc\n`);
+      orden(`1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm\n`);
+      flujo.push(cadenaPdf(t));
+      orden(" Tj\nET\n");
+      if (tracking) orden("0 Tc\n");
+    };
+
+    // ---- FONDO Y CAJA ----
+    // El fondo negro cubre la página entera; encima, la caja blanca del contenido.
+    orden(`${COLOR.fondo[0]} ${COLOR.fondo[1]} ${COLOR.fondo[2]} rg\n`);
+    orden(`0 0 ${ANCHO} ${ALTO} re f\n`);
+    orden(`${COLOR.caja[0]} ${COLOR.caja[1]} ${COLOR.caja[2]} rg\n`);
+    orden(
+      `${pt(CAJA.x).toFixed(2)} ${(ALTO - pt(CAJA.y + CAJA.alto)).toFixed(2)} ` +
+        `${pt(CAJA.ancho).toFixed(2)} ${pt(CAJA.alto).toFixed(2)} re f\n`
+    );
+
+    // ---- CABECERA ----
+    // "INFORME", centrado, con la línea base y la altura de mayúsculas medidas de la
+    // plantilla (bbox y 29-59 px, ancho 215 px).
+    // Archivo Black es bastante más ancha que Helvetica: sin abrir las letras,
+    // "INFORME" queda ~30 pt más corto que en la plantilla. Se reparte la diferencia
+    // entre los huecos con el operador `Tc`, y así ocupa el mismo ancho medido.
+    const huecos = TITULO_CABECERA.length - 1;
+    const trackingTitulo =
+      (ANCHO_TITULO_PLANTILLA - anchoDeTexto(TITULO_CABECERA, TAM_TITULO, true)) / huecos;
+    const anchoTitulo = anchoDeTexto(TITULO_CABECERA, TAM_TITULO, true) + trackingTitulo * huecos;
+    escribir(
+      TITULO_CABECERA,
+      (ANCHO - anchoTitulo) / 2,
+      ALTO - pt(59.5),
+      TAM_TITULO,
+      true,
+      COLOR.titulo,
+      trackingTitulo
+    );
+
+    // El número de página, a la derecha y en la misma línea base. Es el único hueco
+    // libre: el pie lo ocupa entero la marca.
+    const pagina = `${i + 1} / ${nPaginas}`;
+    escribir(
+      pagina,
+      ANCHO - pt(CAJA.x) - pt(28) - anchoDeTexto(pagina, 9, true),
+      ALTO - pt(59.5),
+      9,
+      true,
+      COLOR.titulo
+    );
+
+    // ---- CONTENIDO ----
+    let y = ALTO - pt(CAJA.y + AIRE_ARRIBA);
+    const xTexto = pt(CAJA.x + AIRE_X);
     for (const linea of lineas) {
       y -= linea.espacioAntes + linea.tam;
-      orden(`BT\n/${linea.negrita ? "F2" : "F1"} ${linea.tam} Tf\n`);
-      orden(`1 0 0 1 ${(MARGEN + linea.sangria).toFixed(2)} ${y.toFixed(2)} Tm\n`);
-      flujo.push(cadenaPdf(linea.texto));
-      orden(" Tj\nET\n");
+      escribir(linea.texto, xTexto + linea.sangria, y, linea.tam, linea.negrita, linea.color);
       y -= linea.alto - linea.tam;
     }
 
-    // Pie: a la izquierda de qué es esto, a la derecha por dónde vas.
-    const izquierda = "MEDIBOT — Informe de documento médico";
-    const derecha = `Página ${i + 1} de ${nPaginas}`;
-    orden("BT\n/F1 8 Tf\n");
-    orden(`1 0 0 1 ${MARGEN} ${PIE_Y} Tm\n`);
-    flujo.push(cadenaPdf(izquierda));
-    orden(" Tj\nET\n");
-    // Alineado a la derecha: se mide y se resta. Es para lo que sirven las anchuras.
-    const x = ANCHO - MARGEN - anchoDeTexto(derecha, 8, false);
-    orden("BT\n/F1 8 Tf\n");
-    orden(`1 0 0 1 ${x.toFixed(2)} ${PIE_Y} Tm\n`);
-    flujo.push(cadenaPdf(derecha));
-    orden(" Tj\nET\n");
+    // ---- PIE ----
+    // Todo medido de la plantilla; ver el comentario de LA PLANTILLA.
+    orden(ruleta(pt(36.5), ALTO - pt(1018), pt(13.5), pt(5.5), HUECO_RULETA, COLOR.marca));
+
+    // "MEDI" en cian y "BOT" en blanco, como en el logotipo del sitio. La segunda
+    // parte arranca donde acaba la primera, medida; escribirlas como una sola cadena
+    // impediría el cambio de color a mitad de palabra.
+    const yMarca = ALTO - pt(1023);
+    escribir("MEDI", pt(60), yMarca, TAM_MARCA, true, COLOR.marca);
+    escribir(
+      "BOT",
+      pt(60) + anchoDeTexto("MEDI", TAM_MARCA, true),
+      yMarca,
+      TAM_MARCA,
+      true,
+      COLOR.blanco
+    );
+
+    // La descripción del proyecto y el aviso: dos párrafos con su propio ancho, que
+    // se parten aquí con la misma función que el cuerpo del informe.
+    let yDesc = ALTO - pt(1060);
+    for (const l of partir(normalizar(DESCRIPCION), TAM_PIE, false, 0, pt(317))) {
+      escribir(l, pt(22), yDesc, TAM_PIE, false, COLOR.blanco);
+      yDesc -= pt(18.5);
+    }
+
+    let yAviso = ALTO - pt(1017);
+    for (const l of partir(normalizar(AVISO_PIE), TAM_AVISO, true, 0, pt(246))) {
+      escribir(l, pt(360), yAviso, TAM_AVISO, true, COLOR.blanco);
+      yAviso -= pt(18);
+    }
+
+    orden(
+      ruleta(pt(714.5), ALTO - pt(1049.5), pt(49.5), pt(10.5), HUECO_RULETA, COLOR.rueda, {
+        radio: pt(51.5),
+        color: COLOR.blanco,
+      })
+    );
 
     const bytesFlujo = unir(flujo);
     abrirObjeto(idContenido(i));
@@ -638,13 +1016,16 @@ function bloquesDelInforme(a: Analisis, creadoEn: Date): Bloque[] {
   bloques.push(
     { texto: "AVISO", estilo: "seccion" },
     {
+      // NO repite «no es un diagnóstico ni sustituye una consulta»: eso lo dice el
+      // pie de TODAS las páginas. Aquí van solo los límites concretos que el pie no
+      // cubre, y así el bloque ocupa una línea menos -- que es justo la que decidía
+      // si el informe cabía en una hoja o se iba a dos.
       texto:
-        "Este informe explica lo que dice un documento médico; no es un diagnóstico " +
-        "ni sustituye una consulta. Lo redactó un sistema automático a partir de una " +
-        "imagen o un PDF, y puede equivocarse al leer un número o una letra manuscrita. " +
-        "Lo que dice de cada medicamento es información general sobre ese fármaco, no " +
-        "el motivo por el que se recetó. No comprueba dosis, interacciones ni alergias. " +
-        "Contrasta siempre con quien firmó el documento original.",
+        "Lo redactó un sistema automático leyendo una imagen o un PDF: puede " +
+        "equivocarse al leer un número o una letra manuscrita. Lo que dice de cada " +
+        "medicamento es información general sobre ese fármaco, no el motivo por el que " +
+        "se recetó. No comprueba dosis, interacciones ni alergias. Contrasta siempre " +
+        "con quien firmó el documento original.",
       estilo: "aviso",
     },
     {

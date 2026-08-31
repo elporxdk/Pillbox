@@ -291,14 +291,67 @@ el `/Count` se busca dentro del **mismo objeto** que el `/Type /Pages`, entre su
 y su `endobj`, y no en una ventana de tantos caracteres: una ventana se cuela en el
 objeto de al lado.
 
-### El informe en PDF, escrito a mano
+### El informe lleva la plantilla de la marca
+
+El diseño sale de un PDF hecho en Canva que entregó el equipo: fondo negro,
+«INFORME» en cian arriba, una caja blanca para el contenido, y un pie con el
+logotipo, la descripción del proyecto y el aviso legal.
+
+**Ese fichero no se usa como base.** Incrustarlo obligaría a componer encima de sus
+capas y a arrastrar su tipografía; en su lugar se **reproduce dibujándolo**, y todas
+las medidas salen de renderizarlo a 96 ppp —que da 794×1123 px, exactamente su
+espacio de diseño interno— y recorrer los píxeles. Por eso en el código hay números
+como `36.5` o `1049.5`: son medidas, no gustos.
+
+| | Plantilla | Generado |
+| --- | --- | --- |
+| Página | 794×1123 px | igual |
+| Caja blanca | x 5–788, y 92–982 | igual |
+| Color del título | #C8FDFF | igual |
+| Rueda grande | centro (714,5 / 1049,5), R 50 | ±1 px |
+| Color de la rueda | #5CE1E6 | igual |
+
+Hay una prueba que lo comprueba: genera un informe, lo renderiza junto al PDF
+original y compara caja, colores, ancho y centrado del título, y las dos ruedas.
+
+#### Dos detalles que solo aparecieron mirando los píxeles
+
+**El hueco entre sectores es de ancho constante, no de ángulo constante.** El
+componente de la web (`MedibotLogo.tsx`) usa 8° fijos, así que su hueco se abre en
+abanico. La plantilla usa 1,2 px a cualquier radio —medido a r=15, 30 y 46, y en las
+dos ruedas pese a que una es cuatro veces mayor—. La diferencia se ve: con ángulo
+fijo la rueda grande sale como una flor de ocho pétalos separados por cuñas.
+
+**Los cortes de la rueda grande son blancos, no negros.** A ojo, y en el PDF
+original, parecen negros. El píxel dice #FFFFFF, igual que el cubo del centro, y
+además hay un aro blanco por fuera del cian. Las tres cosas son la misma: hay un
+**disco blanco debajo** y los sectores cian encima lo dejan ver por los huecos, por
+el centro y por el borde. La marca pequeña del pie sí es un anillo de verdad, con los
+huecos transparentes (#0F1B1D, o sea el fondo).
+
+#### Lo que no se pudo copiar: la tipografía
+
+El original usa **Archivo Black**. Incrustar una fuente exige llevar el fichero dentro
+de **cada** informe (~100-300 kB), construir su tabla de anchuras y cargar con su
+licencia; y la única tipografía que el proyecto tiene a mano (Figtree) viene en WOFF2
+variable, que no es un formato que PDF admita.
+
+Va en **Helvetica y Helvetica-Bold**, dos de las catorce que todo lector de PDF trae
+por obligación. Se compensa donde se nota: el título lleva separación entre letras
+(`Tc`) calculada para ocupar los mismos 215 px de ancho que en la plantilla.
+
+> Si el equipo pasa el `.ttf` de Archivo Black y su licencia permite incrustarla, se
+> puede hacer: es un trabajo acotado (parsear `head`, `hhea`, `hmtx`, `cmap` y
+> `OS/2`, y escribir el `FontFile2`), y el informe pasaría a ser idéntico.
+
+### El generador, escrito a mano
 
 Las candidatas eran jsPDF (~350 kB) y pdf-lib (~1 MB). El bundle ya pesa 1,85 MB —con
 el visor 3D y GSAP dentro— y lo que hacía falta es **texto en una página**: párrafos,
 negritas y saltos de página. Nada de imágenes, ni fuentes incrustadas, ni formularios.
 
-`src/lib/informePdf.ts` son ~200 líneas y **+12,7 kB** en el bundle. Un PDF de solo
-texto con las fuentes estándar es un formato pequeño y muy estable desde 1993.
+`src/lib/informePdf.ts` son ~700 líneas y **+15 kB** en el bundle. Un PDF con las
+fuentes estándar es un formato pequeño y muy estable desde 1993.
 
 Lo que hay que hacer bien es poco, pero no es opcional:
 
@@ -323,9 +376,15 @@ Lo que hay que hacer bien es poco, pero no es opcional:
   empieza cada objeto. Por eso la salida se mide **en bytes** según se escribe, y no
   después sobre una cadena, donde una `ñ` cuenta como un carácter y ocupa dos.
 
-El aviso de «esto no es un diagnóstico» **está dentro del PDF**, y no es negociable:
-este fichero se descarga, se imprime y se enseña en una consulta sin nada del
-contexto de la página que lo generó.
+**Hay dos avisos y no es un descuido.** El del pie va en TODAS las páginas y es el de
+la plantilla, la voz del equipo: *«toda la información es generada en base a patrones
+médicos, no usar como verídico sin un médico especializado»*. El del cuerpo va una
+sola vez, al final, y dice lo que el otro no: que puede leer mal un número o una letra
+manuscrita, que lo de los medicamentos es información general del fármaco, y que no
+comprueba dosis, interacciones ni alergias.
+
+Los dos están dentro del PDF, y no es negociable: este fichero se descarga, se imprime
+y se enseña en una consulta sin nada del contexto de la página que lo generó.
 
 ---
 
@@ -472,9 +531,7 @@ Lo demás:
 - **No mete la imagen ni el PDF original dentro del informe.** El informe es de
   texto, que es lo que se pidió; incrustar el original multiplicaría su peso y
   volvería a exponer el documento en un fichero pensado para reenviarse.
-- **El informe no lleva la tipografía de la marca.** Incrustar una fuente son otros
-  ~100 kB y el problema de licencia que traiga. Va en Helvetica, que todo lector de
-  PDF tiene obligación de traer.
+- **El informe no lleva Archivo Black**, la tipografía de la plantilla. Ver arriba.
 - **No busca en documentos guardados.** Con la lista ordenada por fecha y un tope de
   100, todavía no hace falta.
 - **No comprueba interacciones, dosis ni alergias.** Ver arriba: eso necesita una base
@@ -496,7 +553,7 @@ Lo demás:
 | Fichero | Qué hace |
 | --- | --- |
 | `src/lib/analisisMedico.ts` | El contrato de `/api/documento`, los validadores y el contador de páginas de PDF, compartido con el Worker |
-| `src/lib/informePdf.ts` | El informe en PDF: codificación, anchuras, maqueta y `xref` |
+| `src/lib/informePdf.ts` | El informe en PDF: la plantilla de la marca, el logotipo vectorial, codificación, anchuras, maqueta y `xref` |
 | `src/worker/documento.ts` | El endpoint: sesión, validación, cupo, errores |
 | `src/worker/anclajeDocumento.ts` | El prompt corto y el esquema de salida |
 | `src/worker/gemini.ts` | Añadido: `inlineData` y `responseSchema` |
